@@ -13,17 +13,14 @@ checkpoint_sorted_bam = false
 # to manually set the storage attached to align jobs
 #align_storage = 100
 
-picard_mem_gb
+# set to assign a specific amount of RAM to the picard jobs
+#picard_mem_gb
+
+# set to override the picard attached storage, default 250
 picard_storage_gb = 250
 
-#realign_from_cram_version = ?
-#cram_version_reference
+name = 'align_genotype'
 
-# TODO(you): update this to reflect the workflow's name
-name = 'workflow_name'
-
-# mandatory fields for cpg-flow, not populated by analysis-runner
-# TODO(you): update this to contain a real cohort for the given sequencing type
 input_cohorts = []
 sequencing_type = 'genome'
 
