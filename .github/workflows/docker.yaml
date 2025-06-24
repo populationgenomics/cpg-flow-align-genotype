@@ -2,14 +2,16 @@ name: Docker
 
 ## add something in here to choose when this workflow runs
 on:
+  push:
+    branches:
+      - 'main'
+  pull_request:
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
       tag:
         description: 'Tag to use (defaults to "test")'
-        default: "test"
-#  push:
-#    branches:
-#      - main
+        default: 'test'
 
 permissions:
   id-token: write
@@ -29,8 +31,7 @@ jobs:
       DOCKER_BUILDKIT: 1
       BUILDKIT_PROGRESS: plain
       CLOUDSDK_CORE_DISABLE_PROMPTS: 1
-      # TODO(you) choose the name for your image
-      IMAGE_NAME: workflow_name
+      IMAGE_NAME: cpg-flow-align-genotype
       DOCKER_DEV: australia-southeast1-docker.pkg.dev/cpg-common/images-dev
       DOCKER_MAIN: australia-southeast1-docker.pkg.dev/cpg-common/images
     steps:
@@ -58,7 +59,6 @@ jobs:
         run: |
           docker build . -f Dockerfile --tag $IMAGE_NAME:${{ github.sha }}
 
-      # TODO(you) choose how/when to push the resulting image
       - name: Push from merge to main
         if: ${{ github.ref_name == 'main' }}
         run: |
