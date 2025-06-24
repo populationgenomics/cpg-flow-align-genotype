@@ -1,0 +1,39 @@
+# this is a template for the config file
+# demonstrating some of the common options used in cpg-flow
+[workflow]
+
+exome_realignment_shards = 1
+genome_realignment_shards = 10
+align_use_highmem = false
+checkpoint_sorted_bam = false
+
+# number of threads to use for alignment, defaulting to 32 on a 16-core machine
+#align_threads
+
+# to manually set the storage attached to align jobs
+#align_storage = 100
+
+picard_mem_gb
+picard_storage_gb = 250
+
+#realign_from_cram_version = ?
+#cram_version_reference
+
+# TODO(you): update this to reflect the workflow's name
+name = 'workflow_name'
+
+# mandatory fields for cpg-flow, not populated by analysis-runner
+# TODO(you): update this to contain a real cohort for the given sequencing type
+input_cohorts = []
+sequencing_type = 'genome'
+
+# used to make sure we don't repeat previously completed stages
+check_expected_outputs = true
+
+# the method to register outputs, can be missing - will not generate metamist analysis entries
+status_reporter = 'metamist'
+
+[images]
+dragmap = "australia-southeast1-docker.pkg.dev/cpg-common/images/dragmap:1.3.0-tokenizer-next-fix"
+picard = "australia-southeast1-docker.pkg.dev/cpg-common/images/picard:2.27.4"
+samtools = "australia-southeast1-docker.pkg.dev/cpg-common/images/samtools:1.18"

@@ -1,5 +1,10 @@
-# cpg-flow-pipeline-template
-A template repository to use as a base for CPG workflows using the cpg-flow pipeline framework
+# Alignment and Genotyping
+
+A CPG-Flow migration of the Alignment and Genotyping workflow from Production Pipelines.
+
+Alignment: https://github.com/populationgenomics/production-pipelines/blob/ca8741c9d34c85f3f3e0811f081e67d56086d831/cpg_workflows/stages/align.py
+
+Genotyping: https://github.com/populationgenomics/production-pipelines/blob/ca8741c9d34c85f3f3e0811f081e67d56086d831/cpg_workflows/stages/genotype.py
 
 ## Purpose
 
