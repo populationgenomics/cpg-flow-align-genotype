@@ -123,7 +123,7 @@ def align(
                 sharded_align_jobs.append(j)
 
         merge_j = batch_instance.new_bash_job('Merge BAMs', (job_attrs or {}) | {'tool': 'samtools_merge'})
-        merge_j.image(config.config_retrieve(['workflow', 'samtools']))
+        merge_j.image(config.config_retrieve(['images', 'samtools']))
 
         nthreads = resources.STANDARD.set_resources(
             merge_j,
@@ -165,7 +165,7 @@ def storage_for_align_job(alignment_input: filetypes.AlignmentInput) -> int:
     machine. Increases storage if genomes are being handled, and again for unindexed/unsorted CRAM/BAMs.
     """
 
-    if storage_gb := config.config_retrieve(['workflow', 'align_storage']):
+    if storage_gb := config.config_retrieve(['workflow', 'align_storage'], None):
         return storage_gb
 
     # Taking a full instance without attached by default:

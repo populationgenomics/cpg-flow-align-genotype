@@ -2,9 +2,14 @@
 # demonstrating some of the common options used in cpg-flow
 [workflow]
 
+# exome/genome workflows choose one of these default values
 exome_realignment_shards = 1
 genome_realignment_shards = 10
+
+# use the HIGHMEM template machine type for alignment
 align_use_highmem = false
+
+# whether to bank the sorted BAM to GCP (temp) prior to markdup
 checkpoint_sorted_bam = false
 
 # number of threads to use for alignment, defaulting to 32 on a 16-core machine
