@@ -10,6 +10,7 @@ from align_genotype.jobs.align import align
 
 @stage.stage(
     analysis_type='cram',
+    analysis_keys=['cram'],
 )
 class AlignWithDragmap(stage.SequencingGroupStage):
     """
