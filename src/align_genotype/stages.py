@@ -8,7 +8,9 @@ from cpg_utils import Path
 from align_genotype.jobs.align import align
 
 
-@stage.stage
+@stage.stage(
+    analysis_type='cram',
+)
 class AlignWithDragmap(stage.SequencingGroupStage):
     """
     This is a generic stage that runs a bash command.
