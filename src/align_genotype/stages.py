@@ -6,6 +6,7 @@ from cpg_flow import stage, targets
 from cpg_utils import Path
 
 from align_genotype.jobs.align import align
+from align_genotype.jobs.genotype import genotype
 
 
 @stage.stage(
@@ -49,3 +50,35 @@ class AlignWithDragmap(stage.SequencingGroupStage):
 
         # return the jobs and outputs
         return self.make_outputs(target=sequencing_group, data=outputs, jobs=jobs)
+
+
+@stage.stage(
+    required_stages=AlignWithDragmap,
+    analysis_type='gvcf',
+)
+class GenotypeWithGatk(stage.SequencingGroupStage):
+    """
+    Use HaplotypeCaller to genotype individual sequencing groups (i.e. CRAM -> GVCF).
+    """
+
+    def expected_outputs(self, sequencing_group: targets.SequencingGroup) -> Path:
+        """
+        Generate a GVCF and corresponding TBI index.
+        """
+        return sequencing_group.gvcf or sequencing_group.make_gvcf_path()
+
+    def queue_jobs(self, sequencing_group: targets.SequencingGroup, inputs: stage.StageInput) -> stage.StageOutput:
+        """
+        Use function from the jobs module
+        """
+
+        output = self.expected_outputs(sequencing_group)
+
+        jobs = genotype(
+            output_path=output,
+            sequencing_group_name=sequencing_group.id,
+            cram_path=sequencing_group.cram or sequencing_group.make_cram_path(),
+            tmp_prefix=self.tmp_prefix / sequencing_group.id,
+            job_attrs=self.get_job_attrs(sequencing_group),
+        )
+        return self.make_outputs(sequencing_group, data=output, jobs=jobs)
