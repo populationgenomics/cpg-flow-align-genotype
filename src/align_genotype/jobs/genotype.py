@@ -5,10 +5,9 @@ CRAM to GVCF: create Hail Batch jobs to genotype individual sequencing groups.
 import logging
 
 import hailtop.batch as hb
-from hailtop.batch.job import BashJob
-
-from cpg_flow import utils, resources, filetypes
+from cpg_flow import filetypes, resources, utils
 from cpg_utils import Path, config, hail_batch
+from hailtop.batch.job import BashJob
 
 from align_genotype.jobs.picard import get_intervals
 
@@ -23,14 +22,12 @@ def genotype(
     """
     Takes a CRAM file and runs GATK tools to make a GVCF.
     """
-    batch_instance = hail_batch.get_batch()
     hc_gvcf_path = tmp_prefix / 'haplotypecaller' / f'{sequencing_group_name}.g.vcf.gz'
 
     # collect all the real jobs - [reuse] jobs substituted for None
     jobs = [
         job
         for job in haplotype_caller(
-            batch_instance=batch_instance,
             sequencing_group_name=sequencing_group_name,
             job_attrs=job_attrs,
             output_path=hc_gvcf_path,
@@ -41,7 +38,6 @@ def genotype(
         if job is not None
     ]
     postproc_j = postprocess_gvcf(
-        b=batch_instance,
         gvcf_path=filetypes.GvcfPath(hc_gvcf_path),
         sequencing_group_name=sequencing_group_name,
         job_attrs=job_attrs,
@@ -62,8 +58,7 @@ def genotype(
 intervals: list[hb.ResourceFile] | None = None
 
 
-def haplotype_caller(
-    batch_instance: hb.Batch,
+def haplotype_caller(  # noqa: PLR0913
     sequencing_group_name: str,
     cram_path: str,
     tmp_prefix: Path,
@@ -74,6 +69,8 @@ def haplotype_caller(
     """
     Run GATK Haplotype Caller in parallel, split by intervals.
     """
+
+    batch_instance = hail_batch.get_batch()
     jobs = []
 
     if scatter_count > 1:
@@ -94,7 +91,6 @@ def haplotype_caller(
             # give each fragment a tmp location
             fragment = tmp_prefix / 'haplotypecaller' / f'{idx}_of_{scatter_count}_{sequencing_group_name}.g.vcf.gz'
             j, result = _haplotype_caller_one(
-                batch_instance,
                 sequencing_group_name=sequencing_group_name,
                 cram_path=cram_path,
                 job_attrs=job_attrs | {'part': f'{idx + 1}/{scatter_count}'},
@@ -118,7 +114,6 @@ def haplotype_caller(
         )
     else:
         hc_j, _result = _haplotype_caller_one(
-            batch_instance,
             sequencing_group_name=sequencing_group_name,
             job_attrs=job_attrs,
             cram_path=cram_path,
@@ -131,7 +126,6 @@ def haplotype_caller(
 
 
 def _haplotype_caller_one(
-    b: hb.Batch,
     sequencing_group_name: str,
     cram_path: str,
     job_attrs: dict,
@@ -142,13 +136,17 @@ def _haplotype_caller_one(
     Add one GATK HaplotypeCaller job on an interval.
     """
 
+    batch_instance = hail_batch.get_batch()
+
     if utils.can_reuse(out_gvcf_path):
         logging.info(f'Reusing HaplotypeCaller {out_gvcf_path}, job attrs: {job_attrs}')
         # localise the output GVCF and return it
-        gvcf_group = b.read_input_group(**{'g.vcf.gz': str(out_gvcf_path), 'g.vcf.gz.tbi': f'{out_gvcf_path!s}.tbi'})
+        gvcf_group = batch_instance.read_input_group(
+            **{'g.vcf.gz': str(out_gvcf_path), 'g.vcf.gz.tbi': f'{out_gvcf_path!s}.tbi'}
+        )
         return None, gvcf_group
 
-    job = b.new_bash_job('HaplotypeCaller', job_attrs | {'tool': 'gatk HaplotypeCaller'})
+    job = batch_instance.new_bash_job('HaplotypeCaller', job_attrs | {'tool': 'gatk HaplotypeCaller'})
     job.image(config.config_retrieve(['images', 'gatk']))
 
     # Enough storage to localize CRAMs (can't pass GCS URL to CRAM to gatk directly
@@ -180,7 +178,7 @@ def _haplotype_caller_one(
         },
     )
 
-    reference = hail_batch.fasta_res_group(b)
+    reference = hail_batch.fasta_res_group(batch_instance)
 
     cmd = f"""\
     CRAM=$BATCH_TMPDIR/{sequencing_group_name}.cram
@@ -209,7 +207,7 @@ def _haplotype_caller_one(
     """
     job.command(hail_batch.command(cmd, monitor_space=True, setup_gcp=True, define_retry_function=True))
     if out_gvcf_path:
-        b.write_output(job.output_gvcf, str(out_gvcf_path).replace('.g.vcf.gz', ''))
+        batch_instance.write_output(job.output_gvcf, str(out_gvcf_path).replace('.g.vcf.gz', ''))
     return job, job.output_gvcf
 
 
@@ -239,7 +237,6 @@ def merge_gvcfs_job(
 
     input_cmd = ' '.join([f'INPUT={gvcf_group["g.vcf.gz"]} ' for gvcf_group in gvcf_groups])
 
-    assert isinstance(job.output_gvcf, hb.ResourceGroup)
     job.command(
         f"""
         set -o pipefail
@@ -254,7 +251,6 @@ def merge_gvcfs_job(
 
 
 def postprocess_gvcf(
-    b: hb.Batch,
     gvcf_path: filetypes.GvcfPath,
     sequencing_group_name: str,
     job_attrs: dict,
@@ -268,9 +264,11 @@ def postprocess_gvcf(
        from Hail about mismatched INFO annotations
     4. Renames the GVCF sequencing group name to use CPG ID.
     """
+    batch_instance = hail_batch.get_batch()
+
     logging.info(f'Adding GVCF postproc job for sequencing group {sequencing_group_name}, gvcf {gvcf_path}')
 
-    job = b.new_bash_job('Postproc GVCF', job_attrs | {'tool': 'gatk ReblockGVCF'})
+    job = batch_instance.new_bash_job('Postproc GVCF', job_attrs | {'tool': 'gatk ReblockGVCF'})
     job.image(config.config_retrieve(['images', 'gatk']))
 
     # We need at least 2 CPU, so on 16-core instance it would be 8 jobs,
@@ -287,9 +285,9 @@ def postprocess_gvcf(
         },
     )
 
-    reference = hail_batch.fasta_res_group(b)
-    noalt_regions = b.read_input(config.config_retrieve(['references', 'noalt_bed']))
-    gvcf = b.read_input(gvcf_path.path)
+    reference = hail_batch.fasta_res_group(batch_instance)
+    noalt_regions = batch_instance.read_input(config.config_retrieve(['references', 'noalt_bed']))
+    gvcf = batch_instance.read_input(gvcf_path.path)
     gq_bands = config.config_retrieve(['workflow', 'reblock_gq_bands'])
 
     cmd = f"""\
@@ -340,6 +338,6 @@ def postprocess_gvcf(
         )
     )
 
-    b.write_output(job.output_gvcf, str(output_path).replace('.g.vcf.gz', ''))
+    batch_instance.write_output(job.output_gvcf, str(output_path).replace('.g.vcf.gz', ''))
 
     return job
