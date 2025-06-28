@@ -16,7 +16,7 @@ from align_genotype.jobs.picard import get_intervals
 def genotype(
     sequencing_group_name: str,
     tmp_prefix: Path,
-    cram_path: filetypes.CramPath,
+    cram_path: str,
     output_path: Path,
     job_attrs: dict[str, str],
 ) -> list[BashJob]:
@@ -40,7 +40,7 @@ def genotype(
         )
         if job is not None
     ]
-    postproc_j = postproc_gvcf(
+    postproc_j = postprocess_gvcf(
         b=batch_instance,
         gvcf_path=filetypes.GvcfPath(hc_gvcf_path),
         sequencing_group_name=sequencing_group_name,
@@ -65,7 +65,7 @@ intervals: list[hb.ResourceFile] | None = None
 def haplotype_caller(
     batch_instance: hb.Batch,
     sequencing_group_name: str,
-    cram_path: filetypes.CramPath,
+    cram_path: str,
     tmp_prefix: Path,
     scatter_count: int,
     job_attrs: dict[str, str],
@@ -133,7 +133,7 @@ def haplotype_caller(
 def _haplotype_caller_one(
     b: hb.Batch,
     sequencing_group_name: str,
-    cram_path: filetypes.CramPath,
+    cram_path: str,
     job_attrs: dict,
     out_gvcf_path: Path,
     interval: hb.Resource | None = None,
@@ -187,8 +187,8 @@ def _haplotype_caller_one(
     CRAI=$BATCH_TMPDIR/{sequencing_group_name}.cram.crai
 
     # Retrying copying to avoid google bandwidth limits
-    retry_gs_cp {str(cram_path.path)} $CRAM
-    retry_gs_cp {str(cram_path.index_path)} $CRAI
+    retry_gs_cp {cram_path} $CRAM
+    retry_gs_cp {f'{cram_path}.crai'} $CRAI
 
     gatk --java-options \
     "{job_res.java_mem_options()} \
@@ -216,7 +216,7 @@ def _haplotype_caller_one(
 def merge_gvcfs_job(
     batch_instance: hb.Batch,
     sequencing_group_name: str,
-    gvcf_groups: list[str | hb.ResourceGroup],
+    gvcf_groups: list[hb.ResourceGroup],
     job_attrs: dict,
     out_gvcf_path: Path,
 ) -> BashJob:
@@ -237,21 +237,14 @@ def merge_gvcfs_job(
         },
     )
 
-    input_cmd = ''
-    for gvcf_group in gvcf_groups:
-        # if the output was recoverable, read into the batch
-        if isinstance(gvcf_group, str):
-            gvcf_group = batch_instance.read_input_group(
-                **{'g.vcf.gz': gvcf_group, 'g.vcf.gz.tbi': f'{gvcf_group}.tbi'}
-            )
-        input_cmd += f'INPUT={gvcf_group["g.vcf.gz"]} '
+    input_cmd = ' '.join([f'INPUT={gvcf_group["g.vcf.gz"]} ' for gvcf_group in gvcf_groups])
 
     assert isinstance(job.output_gvcf, hb.ResourceGroup)
     job.command(
         f"""
         set -o pipefail
         set -ex
-        
+
         picard -Xms11g \
         MergeVcfs {input_cmd} OUTPUT={job.output_gvcf['g.vcf.gz']}
         """
@@ -260,7 +253,7 @@ def merge_gvcfs_job(
     return job
 
 
-def postproc_gvcf(
+def postprocess_gvcf(
     b: hb.Batch,
     gvcf_path: filetypes.GvcfPath,
     sequencing_group_name: str,

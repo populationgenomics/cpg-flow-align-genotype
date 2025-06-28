@@ -74,10 +74,12 @@ class GenotypeWithGatk(stage.SequencingGroupStage):
 
         output = self.expected_outputs(sequencing_group)
 
+        cram = inputs.as_str(sequencing_group, AlignWithDragmap, 'cram')
+
         jobs = genotype(
             output_path=output,
             sequencing_group_name=sequencing_group.id,
-            cram_path=sequencing_group.cram or sequencing_group.make_cram_path(),
+            cram_path=cram,
             tmp_prefix=self.tmp_prefix / sequencing_group.id,
             job_attrs=self.get_job_attrs(sequencing_group),
         )

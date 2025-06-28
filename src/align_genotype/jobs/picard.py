@@ -131,7 +131,7 @@ def get_intervals(
     cmd = f"""
     set -o pipefail
     set -ex
-    
+
     mkdir $BATCH_TMPDIR/out
 
     picard -Xms1000m -Xmx1500m \
