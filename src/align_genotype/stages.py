@@ -65,7 +65,8 @@ class GenotypeWithGatk(stage.SequencingGroupStage):
         """
         Generate a GVCF and corresponding TBI index.
         """
-        return sequencing_group.gvcf or sequencing_group.make_gvcf_path()
+        gvcf = sequencing_group.gvcf or sequencing_group.make_gvcf_path()
+        return gvcf.path
 
     def queue_jobs(self, sequencing_group: targets.SequencingGroup, inputs: stage.StageInput) -> stage.StageOutput:
         """
