@@ -7,6 +7,7 @@ from cpg_utils import Path
 
 from align_genotype.jobs.align import align
 from align_genotype.jobs.genotype import genotype
+from align_genotype.jobs.CramQcSomalier import extract_somalier
 
 
 @stage.stage(
@@ -84,4 +85,25 @@ class GenotypeWithGatk(stage.SequencingGroupStage):
             tmp_prefix=self.tmp_prefix / sequencing_group.id,
             job_attrs=self.get_job_attrs(sequencing_group),
         )
+        return self.make_outputs(sequencing_group, data=output, jobs=jobs)
+
+
+@stage.stage(required_stages=AlignWithDragmap)
+class CramQcSomalier(stage.SequencingGroupStage):
+    """Run somalier extract on a CRAM file."""
+
+    def expected_outputs(self, sequencing_group: targets.SequencingGroup) -> Path:
+        return sequencing_group.make_cram_path().somalier_path
+
+    def queue_jobs(self, sequencing_group: targets.SequencingGroup, inputs: stage.StageInput) -> stage.StageOutput:
+        output = self.expected_outputs(sequencing_group)
+
+        cram = inputs.as_str(sequencing_group, AlignWithDragmap, 'cram')
+
+        jobs = extract_somalier(
+            cram_path=cram,
+            out_somalier_path=output,
+            job_attrs=self.get_job_attrs(sequencing_group),
+        )
+
         return self.make_outputs(sequencing_group, data=output, jobs=jobs)
