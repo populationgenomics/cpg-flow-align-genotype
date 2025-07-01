@@ -9,7 +9,7 @@ from cpg_utils import Path, config, hail_batch
 
 def extract_somalier(
     cram_path: str,
-    out_somalier_path: Path,
+    output: Path,
     job_attrs: dict,
 ) -> Job:
     """Run `somalier extract` to generate a fingerprint (i.e. a `*.somalier` file)."""
@@ -38,5 +38,5 @@ def extract_somalier(
     somalier extract -d extracted/ --sites {sites} -f {ref.base} {cram_localised}
     mv extracted/*.somalier {job.output_file}
     """)
-    batch_instance.write_output(job.output_file, out_somalier_path)
+    batch_instance.write_output(job.output_file, output)
     return job
