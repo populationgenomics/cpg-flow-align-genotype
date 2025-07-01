@@ -9,6 +9,7 @@ from align_genotype.jobs.align import align
 from align_genotype.jobs.genotype import genotype
 from align_genotype.jobs.CramQcSomalier import extract_somalier
 from align_genotype.jobs.CramQcVerifyBamId import verifybamid
+from align_genotype.jobs.CramQcSamtoolsStats import samtools_stats
 
 
 @stage.stage(
@@ -123,6 +124,27 @@ class CramQcVerifyBamId(stage.SequencingGroupStage):
         cram = inputs.as_str(sequencing_group, AlignWithDragmap, 'cram')
 
         jobs = verifybamid(
+            cram_path=cram,
+            output=output,
+            job_attrs=self.get_job_attrs(sequencing_group),
+        )
+
+        return self.make_outputs(sequencing_group, data=output, jobs=jobs)
+
+
+@stage.stage(required_stages=AlignWithDragmap)
+class CramQcSamtoolsStats(stage.SequencingGroupStage):
+    """Run Samtools  on a CRAM file."""
+
+    def expected_outputs(self, sequencing_group: targets.SequencingGroup) -> Path:
+        return sequencing_group.dataset.prefix() / 'qc' / 'samtools_stats' / f'{sequencing_group.id}.samtools-stats'
+
+    def queue_jobs(self, sequencing_group: targets.SequencingGroup, inputs: stage.StageInput) -> stage.StageOutput:
+        output = self.expected_outputs(sequencing_group)
+
+        cram = inputs.as_str(sequencing_group, AlignWithDragmap, 'cram')
+
+        jobs = samtools_stats(
             cram_path=cram,
             output=output,
             job_attrs=self.get_job_attrs(sequencing_group),

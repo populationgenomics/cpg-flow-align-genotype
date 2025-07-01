@@ -5,10 +5,8 @@ Create Hail Batch jobs for VerifyBAMID.
 from hailtop.batch.job import Job
 
 from cpg_utils import Path, config, hail_batch
-from cpg_utils.config import get_config, image_path, reference_path
-from cpg_utils.hail_batch import command, fasta_res_group
 
-from cpg_flow import filetypes, resources, utils
+from cpg_flow import resources
 
 
 def verifybamid(
