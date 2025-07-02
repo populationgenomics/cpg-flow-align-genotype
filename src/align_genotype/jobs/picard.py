@@ -142,8 +142,6 @@ def get_intervals(
     -BREAK_BANDS_AT_MULTIPLES_OF {break_bands_at_multiples_of} \
     -I {b.read_input(source_intervals_path)} {extra_cmd} \
     -OUTPUT $BATCH_TMPDIR/out
-    ls $BATCH_TMPDIR/out
-    ls $BATCH_TMPDIR/out/*
     """
 
     for idx in range(scatter_count):
@@ -216,19 +214,17 @@ def collect_metrics(
         f"""\
     picard {res.java_mem_options()} \\
       CollectMultipleMetrics \\
-      INPUT={cram_localised} \\
-      REFERENCE_SEQUENCE={reference.base} \\
-      OUTPUT={job.output_rg} \\
-      ASSUME_SORTED=True \\
-      PROGRAM=null \\
-      VALIDATION_STRINGENCY=SILENT \\
-      PROGRAM=CollectAlignmentSummaryMetrics \\
-      PROGRAM=CollectInsertSizeMetrics \\
-      PROGRAM=MeanQualityByCycle \\
-      PROGRAM=CollectBaseDistributionByCycle \\
-      PROGRAM=CollectQualityYieldMetrics \\
-      METRIC_ACCUMULATION_LEVEL=null \\
-      METRIC_ACCUMULATION_LEVEL=SAMPLE
+      -I {cram_localised} \\
+      -R {reference.base} \\
+      -O {job.output_rg} \\
+      -AS True \\
+      --VALIDATION_STRINGENCY SILENT \\
+      -PROGRAM CollectAlignmentSummaryMetrics \\
+      -PROGRAM CollectInsertSizeMetrics \\
+      -PROGRAM MeanQualityByCycle \\
+      -PROGRAM CollectBaseDistributionByCycle \\
+      -PROGRAM CollectQualityYieldMetrics \\
+      -LEVEL SAMPLE
     """,
     )
     batch_instance.write_output(job.output_rg, out_prefix)
@@ -280,15 +276,14 @@ def hs_metrics(
 
     picard {res.java_mem_options()} \\
       CollectHsMetrics \\
-      INPUT={cram_localised} \\
-      REFERENCE_SEQUENCE={reference.base} \\
-      VALIDATION_STRINGENCY=SILENT \\
-      TARGET_INTERVALS=$BATCH_TMPDIR/intervals.interval_list \\
-      BAIT_INTERVALS=$BATCH_TMPDIR/intervals.interval_list \\
-      METRIC_ACCUMULATION_LEVEL=null \\
-      METRIC_ACCUMULATION_LEVEL=SAMPLE \\
-      METRIC_ACCUMULATION_LEVEL=LIBRARY \\
-      OUTPUT={job.out_hs_metrics}
+      -I {cram_localised} \\
+      -R {reference.base} \\
+      --VALIDATION_STRINGENCY SILENT \\
+      -TI $BATCH_TMPDIR/intervals.interval_list \\
+      -BI $BATCH_TMPDIR/intervals.interval_list \\
+      -LEVEL SAMPLE \\
+      -LEVEL LIBRARY \\
+      -O {job.out_hs_metrics}
     """,
     )
     batch_instance.write_output(job.out_hs_metrics, output)
@@ -335,13 +330,13 @@ def wgs_metrics(
         f"""\
     picard {res.java_mem_options()} \\
       CollectWgsMetrics \\
-      INPUT={cram_localised} \\
-      VALIDATION_STRINGENCY=SILENT \\
-      REFERENCE_SEQUENCE={reference.base} \\
-      INTERVALS={interval_file} \\
-      OUTPUT={job.out_csv} \\
-      USE_FAST_ALGORITHM=true \\
-      READ_LENGTH=250
+      -I {cram_localised} \\
+      -O {job.out_csv} \\
+      --VALIDATION_STRINGENCY SILENT \\
+      -R {reference.base} \\
+      --INTERVALS {interval_file} \\
+      --USE_FAST_ALGORITHM true \\
+      --READ_LENGTH 250
     """,
     )
     batch_instance.write_output(job.out_csv, output)
@@ -399,12 +394,12 @@ def vcf_qc(
         f"""\
     picard {res.java_mem_options()} \
     CollectVariantCallingMetrics \
-    INPUT={gvcf_localised} \
-    OUTPUT={job.outputs} \
-    DBSNP={dbsnp_vcf_localised} \
-    SEQUENCE_DICTIONARY={reference['dict']} \
-    TARGET_INTERVALS={intervals_file} \
-    GVCF_INPUT=true
+    -I {gvcf_localised} \
+    -O {job.outputs} \
+    -DBSNP {dbsnp_vcf_localised} \
+    -SD {reference['dict']} \
+    -TI {intervals_file} \
+    --GVCF_INPUT true
     """,
     )
 
