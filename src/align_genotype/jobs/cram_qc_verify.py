@@ -26,19 +26,16 @@ def verifybamid(
     sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
     res = resources.STANDARD.request_resources(
         ncpu=4,
-        storage_gb=config.config_retrieve(['cramqc', f'{sequencing_type}_cram_gb']),
+        storage_gb=config.config_retrieve(['workflow', f'{sequencing_type}_cram_gb']),
     )
     res.set_to_job(job)
 
     reference = hail_batch.fasta_res_group(batch_instance)
 
     sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
-    contam_ud = batch_instance.read_input(config.config_retrieve(['cramqc', f'{sequencing_type}_contam_ud']))
-    contam_bed = batch_instance.read_input(config.config_retrieve(['cramqc', f'{sequencing_type}_contam_bed']))
-    contam_mu = batch_instance.read_input(config.config_retrieve(['cramqc', f'{sequencing_type}_contam_mu']))
-
-    # define number of PCs used in estimation of contamination
-    num_pcs = config.config_retrieve(['cramqc', 'num_pcs'])
+    contam_ud = batch_instance.read_input(config.config_retrieve(['references', f'{sequencing_type}_contam_ud']))
+    contam_bed = batch_instance.read_input(config.config_retrieve(['references', f'{sequencing_type}_contam_bed']))
+    contam_mu = batch_instance.read_input(config.config_retrieve(['references', f'{sequencing_type}_contam_mu']))
 
     # read in the CRAM and index
     cram_localised = batch_instance.read_input_group(
@@ -51,7 +48,7 @@ def verifybamid(
         /root/micromamba/share/verifybamid2-2.0.1-8/VerifyBamID \
             --NumThread {res.get_nthreads()} \
             --Verbose \
-            --NumPC {num_pcs} \
+            --NumPC 4 \
             --Output OUTPUT \
             --BamFile {cram_localised} \
             --Reference {reference.base} \

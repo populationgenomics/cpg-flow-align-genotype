@@ -44,18 +44,6 @@ check_expected_outputs = true
 # the method to register outputs, can be missing - will not generate metamist analysis entries
 status_reporter = 'metamist'
 
-[cramqc]
-assume_sorted = true
-num_pcs = 4
-genome_contam_ud = "gs://cpg-common-main/references/hg38/v0/contamination-resources/1000g/1000g.phase3.100k.b38.vcf.gz.dat.UD"
-genome_contam_bed = "gs://cpg-common-main/references/hg38/v0/contamination-resources/1000g/1000g.phase3.100k.b38.vcf.gz.dat.bed"
-genome_contam_mu = "gs://cpg-common-main/references/hg38/v0/contamination-resources/1000g/1000g.phase3.100k.b38.vcf.gz.dat.mu"
-exome_contam_ud = "gs://cpg-common-main/references/hg38/v0/contamination-resources/1000g/whole_exome_illumina_coding_v1.Homo_sapiens_assembly38.1000g.contam.UD"
-exome_contam_bed = "gs://cpg-common-main/references/hg38/v0/contamination-resources/1000g/whole_exome_illumina_coding_v1.Homo_sapiens_assembly38.1000g.contam.bed"
-exome_contam_mu = "gs://cpg-common-main/references/hg38/v0/contamination-resources/1000g/whole_exome_illumina_coding_v1.Homo_sapiens_assembly38.1000g.contam.mu"
-genome_evaluation_interval_lists = "gs://cpg-common-main/references/hg38/v0/wgs_evaluation_regions.hg38.interval_list"
-exome_evaluation_interval_lists = "gs://cpg-common-main/references/hg38/v0/exome_evaluation_regions.v1.interval_list"
-
 # defaults for the storage to attach to QC jobs for the CRAM file
 exome_cram_gb = 20
 genome_cram_gb = 100
@@ -69,7 +57,14 @@ somalier = "australia-southeast1-docker.pkg.dev/cpg-common/images/somalier:0.2.1
 verifybamid = "australia-southeast1-docker.pkg.dev/cpg-common/images/verifybamid:2.0.1"
 
 [references]
-# this was previously references.broad.noalt_bed
+genome_contam_ud = "gs://cpg-common-main/references/hg38/v0/contamination-resources/1000g/1000g.phase3.100k.b38.vcf.gz.dat.UD"
+genome_contam_bed = "gs://cpg-common-main/references/hg38/v0/contamination-resources/1000g/1000g.phase3.100k.b38.vcf.gz.dat.bed"
+genome_contam_mu = "gs://cpg-common-main/references/hg38/v0/contamination-resources/1000g/1000g.phase3.100k.b38.vcf.gz.dat.mu"
+exome_contam_ud = "gs://cpg-common-main/references/hg38/v0/contamination-resources/1000g/whole_exome_illumina_coding_v1.Homo_sapiens_assembly38.1000g.contam.UD"
+exome_contam_bed = "gs://cpg-common-main/references/hg38/v0/contamination-resources/1000g/whole_exome_illumina_coding_v1.Homo_sapiens_assembly38.1000g.contam.bed"
+exome_contam_mu = "gs://cpg-common-main/references/hg38/v0/contamination-resources/1000g/whole_exome_illumina_coding_v1.Homo_sapiens_assembly38.1000g.contam.mu"
+genome_evaluation_interval_lists = "gs://cpg-common-main/references/hg38/v0/wgs_evaluation_regions.hg38.interval_list"
+exome_evaluation_interval_lists = "gs://cpg-common-main/references/hg38/v0/exome_evaluation_regions.v1.interval_list"
 noalt_bed = "gs://cpg-common-main/references/hg38/v0/sv-resources/resources/v1/primary_contigs_plus_mito.bed.gz"
 genome_calling_interval_lists = "gs://cpg-common-main/references/hg38/v0/wgs_calling_regions.hg38.interval_list"
 exome_calling_interval_lists = "gs://cpg-common-main/references/hg38/v0/exome_calling_regions.v1.interval_list"

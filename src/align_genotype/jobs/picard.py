@@ -189,7 +189,7 @@ def collect_metrics(
 
     sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
 
-    res.attach_disk_storage_gb = config.config_retrieve(['cramqc', f'{sequencing_type}_cram_gb'])
+    res.attach_disk_storage_gb = config.config_retrieve(['workflow', f'{sequencing_type}_cram_gb'])
 
     res.set_to_job(job)
 
@@ -251,11 +251,11 @@ def hs_metrics(
     job = batch_instance.new_job('Picard CollectHsMetrics', attributes=job_attrs | {'tool': 'picard_CollectHsMetrics'})
     job.image(config.config_retrieve(['images', 'picard']))
     res = resources.STANDARD.request_resources(ncpu=2)
-    res.attach_disk_storage_gb = config.config_retrieve(['cramqc', 'exome_cram_gb'])
+    res.attach_disk_storage_gb = config.config_retrieve(['workflow', 'exome_cram_gb'])
     res.set_to_job(job)
     reference = hail_batch.fasta_res_group(batch_instance)
 
-    interval_file = batch_instance.read_input(config.config_retrieve(['cramqc', 'exome_evaluation_interval_lists']))
+    interval_file = batch_instance.read_input(config.config_retrieve(['references', 'exome_evaluation_interval_lists']))
 
     # read in the CRAM and index
     cram_localised = batch_instance.read_input_group(
@@ -315,11 +315,15 @@ def wgs_metrics(
 
     job.image(config.config_retrieve(['images', 'picard']))
     res = resources.STANDARD.request_resources(ncpu=2)
-    res.attach_disk_storage_gb = config.config_retrieve(['cramqc', 'genome_cram_gb'])
+    res.attach_disk_storage_gb = config.config_retrieve(['workflow', 'genome_cram_gb'])
     res.set_to_job(job)
 
     reference = hail_batch.fasta_res_group(batch_instance)
-    interval_file = batch_instance.read_input(config.config_retrieve(['cramqc', 'genome_evaluation_interval_lists']))
+    interval_file = batch_instance.read_input(
+        config.config_retrieve(
+            ['references', 'genome_evaluation_interval_lists'],
+        ),
+    )
 
     # read in the CRAM and index
     cram_localised = batch_instance.read_input_group(
@@ -370,7 +374,7 @@ def vcf_qc(
     intervals_file = batch_instance.read_input(
         config.config_retrieve(
             [
-                'cramqc',
+                'references',
                 f'{sequencing_type}_evaluation_interval_lists',
             ],
         ),
