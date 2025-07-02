@@ -10,7 +10,7 @@ from align_genotype.jobs.cram_qc_samtools import samtools_stats
 from align_genotype.jobs.cram_qc_somalier import extract_somalier
 from align_genotype.jobs.cram_qc_verify import verifybamid
 from align_genotype.jobs.genotype import genotype
-from align_genotype.jobs.picard import collect_metrics, hs_metrics, wgs_metrics
+from align_genotype.jobs.picard import collect_metrics, hs_metrics, wgs_metrics, vcf_qc
 
 
 @stage.stage(
@@ -232,3 +232,33 @@ class CramQcPicardCollectMetrics(stage.SequencingGroupStage):
         else:
             raise ValueError(f'Unsupported sequencing type: {sequencing_group.sequencing_type}')
         return self.make_outputs(sequencing_group, data=output, jobs=job)
+
+
+@stage.stage(required_stages=GenotypeWithGatk)
+class RunGvcfQc(stage.SequencingGroupStage):
+    """
+    Run GVCF QC tools on a GVCF file.
+    """
+
+    def expected_outputs(self, sequencing_group: targets.SequencingGroup) -> dict[str, Path]:
+        qc_prefix = sequencing_group.dataset.prefix() / 'qc'
+        return {
+            'summary': qc_prefix / f'{sequencing_group.id}.variant_calling_summary_metrics',
+            'detail': qc_prefix / f'{sequencing_group.id}.variant_calling_detail_metrics',
+        }
+
+    def queue_jobs(self, sequencing_group: targets.SequencingGroup, inputs: stage.StageInput) -> stage.StageOutput:
+        """
+        Use function from the jobs module
+        """
+
+        gvcf_path = inputs.as_str(sequencing_group, GenotypeWithGatk)
+
+        outputs = self.expected_outputs(sequencing_group)
+
+        job = vcf_qc(
+            gvcf=gvcf_path,
+            output_prefix=str(outputs['summary']).removesuffix('.variant_calling_summary_metrics'),
+            job_attrs=self.get_job_attrs(sequencing_group),
+        )
+        return self.make_outputs(sequencing_group, data=outputs, jobs=job)

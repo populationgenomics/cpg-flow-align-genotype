@@ -342,3 +342,68 @@ def wgs_metrics(
     )
     batch_instance.write_output(job.out_csv, output)
     return job
+
+
+def vcf_qc(
+    gvcf: str,
+    job_attrs: dict,
+    output_prefix: str,
+) -> BashJob:
+    """Run Picard CollectVariantCallingMetrics."""
+
+    batch_instance = hail_batch.get_batch()
+    job = batch_instance.new_job(
+        'CollectVariantCallingMetrics', attributes=job_attrs | {'tool': 'picard CollectVariantCallingMetrics'}
+    )
+    job.image(config.config_retrieve(['images', 'picard']))
+
+    res = resources.STANDARD.set_resources(job, storage_gb=20, mem_gb=3)
+
+    dbsnp_vcf = config.config_retrieve(['references', 'dbsnp_vcf'])
+    dbsnp_vcf_localised = batch_instance.read_input_group(
+        base=dbsnp_vcf,
+        index=f'{dbsnp_vcf}.tbi',
+    ).base
+    reference = hail_batch.fasta_res_group(batch_instance)
+
+    sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
+    intervals_file = batch_instance.read_input(
+        config.config_retrieve(
+            [
+                'cramqc',
+                f'{sequencing_type}_evaluation_interval_lists',
+            ],
+        ),
+    )
+
+    gvcf_localised = batch_instance.read_input_group(
+        **{
+            'g.vcf.gz': gvcf,
+            'g.vcf.gz.tbi': f'{gvcf}.tbi',
+        },
+    )['g.vcf.gz']
+
+    # establish a resource group for the two output files
+    job.declare_resource_group(
+        outputs={
+            'variant_calling_summary_metrics': '{root}.variant_calling_summary_metrics',
+            'variant_calling_detail_metrics': '{root}.variant_calling_detail_metrics',
+        },
+    )
+
+    job.command(
+        f"""\
+    picard {res.java_mem_options()} \
+    CollectVariantCallingMetrics \
+    INPUT={gvcf_localised} \
+    OUTPUT={job.outputs} \
+    DBSNP={dbsnp_vcf_localised} \
+    SEQUENCE_DICTIONARY={reference['dict']} \
+    TARGET_INTERVALS={intervals_file} \
+    GVCF_INPUT=true
+    """,
+    )
+
+    batch_instance.write_output(job.outputs, output_prefix)
+
+    return job
