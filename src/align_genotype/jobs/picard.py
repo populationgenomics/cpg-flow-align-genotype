@@ -267,12 +267,13 @@ def hs_metrics(
     # and back to interval-list (effectively re-adding the header from input ref-dict).
     # VALIDATION_STRINGENCY=SILENT does not help.
     picard IntervalListToBed \\
-    I={interval_file} \\
-    O=$BATCH_TMPDIR/intervals.bed
+        -I {interval_file} \\
+        -O $BATCH_TMPDIR/intervals.bed
+    
     picard BedToIntervalList \\
-    I=$BATCH_TMPDIR/intervals.bed \\
-    O=$BATCH_TMPDIR/intervals.interval_list \\
-    SD={reference.dict}
+        -I $BATCH_TMPDIR/intervals.bed \\
+        -O $BATCH_TMPDIR/intervals.interval_list \\
+        -SD {reference.dict}
 
     picard {res.java_mem_options()} \\
       CollectHsMetrics \\
