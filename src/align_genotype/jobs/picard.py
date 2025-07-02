@@ -366,7 +366,7 @@ def vcf_qc(
     dbsnp_vcf = config.config_retrieve(['references', 'dbsnp_vcf'])
     dbsnp_vcf_localised = batch_instance.read_input_group(
         base=dbsnp_vcf,
-        index=f'{dbsnp_vcf}.tbi',
+        index=f'{dbsnp_vcf}.idx',
     ).base
     reference = hail_batch.fasta_res_group(batch_instance)
 
