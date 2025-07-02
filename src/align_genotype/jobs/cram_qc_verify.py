@@ -23,7 +23,11 @@ def verifybamid(
 
     job = batch_instance.new_bash_job('VerifyBamID', attributes=job_attrs | {'tool': 'VerifyBamID'})
     job.image(config.config_retrieve(['images', 'verifybamid']))
-    res = resources.STANDARD.request_resources(ncpu=4, storage_gb=resources.storage_for_cram_qc_job())
+    sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
+    res = resources.STANDARD.request_resources(
+        ncpu=4,
+        storage_gb=config.config_retrieve(['cramqc', f'{sequencing_type}_cram_gb']),
+    )
     res.set_to_job(job)
 
     reference = hail_batch.fasta_res_group(batch_instance)

@@ -8,23 +8,6 @@ from cpg_utils import Path, config, hail_batch
 from hailtop.batch.job import BashJob
 
 
-def storage_for_cram_qc_job() -> int | None:
-    """
-    Get storage request for a CRAM QC processing job, gb
-    """
-
-    sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
-
-    if config_storage := config.config_retrieve(['workflow', f'{sequencing_type}_cram_gb'], None):
-        return config_storage
-
-    if sequencing_type == 'genome':
-        return 100
-    if sequencing_type == 'exome':
-        return 20
-    raise ValueError(f'Unknown sequencing type {sequencing_type} for CRAM QC job storage request')
-
-
 def markdup(
     batch_instance: hb.Batch,
     sorted_bam: hb.Resource,
