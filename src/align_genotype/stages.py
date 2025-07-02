@@ -3,10 +3,11 @@ Alignment and genotyping... oof. Where to start.
 """
 
 from cpg_flow import stage, targets
-from cpg_utils import Path
+from cpg_utils import Path, config
 
 from align_genotype.jobs.align import align
 from align_genotype.jobs.genotype import genotype
+from align_genotype.jobs.picard import collect_metrics, hs_metrics, wgs_metrics
 from align_genotype.jobs.CramQcSomalier import extract_somalier
 from align_genotype.jobs.CramQcVerifyBamId import verifybamid
 from align_genotype.jobs.CramQcSamtoolsStats import samtools_stats
@@ -151,3 +152,83 @@ class CramQcSamtoolsStats(stage.SequencingGroupStage):
         )
 
         return self.make_outputs(sequencing_group, data=output, jobs=jobs)
+
+
+@stage.stage(required_stages=AlignWithDragmap)
+class CramQcPicardMultiMetrics(stage.SequencingGroupStage):
+    """
+    Run Picard CollectMetrics  on a CRAM file.
+
+    Severe technical debt warning - in production-pipelines this one Stage ran to completion, and wrote each
+    individual output to a different folder, instead of segregating the results by Stage.
+
+    To prevent re-running this Stage on old data, incurring substantial costs to remove data from cold storage, that
+    same output convention is used here. i.e., this stage will write 4 outputs into 4 different folders, all under the
+    qc top-level.
+    """
+
+    def expected_outputs(self, sequencing_group: targets.SequencingGroup) -> dict[str, Path]:
+        qc_prefix = sequencing_group.dataset.prefix() / 'qc'
+        return {
+            'summary': qc_prefix / 'alignment_summary_metrics' / f'{sequencing_group.id}.alignment_summary_metrics',
+            'base_dist': qc_prefix
+            / 'base_distribution_by_cycle_metrics'
+            / f'{sequencing_group.id}.base_distribution_by_cycle_metrics',
+            'insert_size': qc_prefix / 'insert_size_metrics' / f'{sequencing_group.id}.insert_size_metrics',
+            'qual_by_cycle': qc_prefix / 'quality_by_cycle_metrics' / f'{sequencing_group.id}.quality_by_cycle_metrics',
+            'yield': qc_prefix / 'quality_yield_metrics' / f'{sequencing_group.id}.quality_yield_metrics',
+        }
+
+    def queue_jobs(self, sequencing_group: targets.SequencingGroup, inputs: stage.StageInput) -> stage.StageOutput:
+        outputs = self.expected_outputs(sequencing_group)
+
+        cram = inputs.as_str(sequencing_group, AlignWithDragmap, 'cram')
+        output_prefix = str(outputs['summary']).removesuffix('.alignment_summary_metrics')
+
+        jobs = collect_metrics(
+            cram_path=cram,
+            out_prefix=output_prefix,
+            job_attrs=self.get_job_attrs(sequencing_group),
+        )
+
+        return self.make_outputs(sequencing_group, data=outputs, jobs=jobs)
+
+
+@stage.stage(required_stages=AlignWithDragmap)
+class CramQcPicardCollectMetrics(stage.SequencingGroupStage):
+    """
+    Run Picard CollectMetrics on a CRAM file.
+
+    Severe technical debt warning - in production-pipelines this one Stage ran to completion, and wrote each
+    individual output to a different folder, instead of segregating the results by Stage.
+    To prevent re-running this Stage on old data, incurring substantial costs to remove data from cold storage, that
+    same output convention is used here.
+    """
+
+    def expected_outputs(self, sequencing_group: targets.SequencingGroup) -> Path:
+        qc_prefix = sequencing_group.dataset.prefix() / 'qc'
+        # genomes use wgs, exome uses hs - this is in the path and file extension
+        qc_type = 'wgs' if sequencing_group.sequencing_type == 'genome' else 'hs'
+        return qc_prefix / f'picard-{qc_type}-metrics/{sequencing_group.id}.picard-{qc_type}-metrics'
+
+    def queue_jobs(self, sequencing_group: targets.SequencingGroup, inputs: stage.StageInput) -> stage.StageOutput:
+        output = self.expected_outputs(sequencing_group)
+
+        cram = inputs.as_str(sequencing_group, AlignWithDragmap, 'cram')
+
+        if sequencing_group.sequencing_type == 'genome':
+            job = wgs_metrics(
+                cram_path=cram,
+                output=output,
+                job_attrs=self.get_job_attrs(sequencing_group),
+            )
+        elif sequencing_group.sequencing_type == 'exome':
+            job = hs_metrics(
+                cram_path=cram,
+                output=output,
+                job_attrs=self.get_job_attrs(sequencing_group),
+            )
+
+        else:
+            raise ValueError(f'Unsupported sequencing type: {sequencing_group.sequencing_type}')
+        return self.make_outputs(sequencing_group, data=output, jobs=job)

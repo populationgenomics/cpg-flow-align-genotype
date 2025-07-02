@@ -4,7 +4,15 @@ from argparse import ArgumentParser
 
 from cpg_flow.workflow import run_workflow
 
-from align_genotype.stages import AlignWithDragmap, GenotypeWithGatk
+from align_genotype.stages import (
+    AlignWithDragmap,
+    GenotypeWithGatk,
+    CramQcPicardMultiMetrics,
+    CramQcPicardCollectMetrics,
+    CramQcSomalier,
+    CramQcSamtoolsStats,
+    CramQcVerifyBamId,
+)
 
 
 def cli_main():
@@ -15,7 +23,14 @@ def cli_main():
     parser.add_argument('--dry_run', action='store_true', help='Dry run')
     args = parser.parse_args()
 
-    stages = [AlignWithDragmap, GenotypeWithGatk]
+    stages = [
+        GenotypeWithGatk,
+        CramQcPicardMultiMetrics,
+        CramQcPicardCollectMetrics,
+        CramQcSomalier,
+        CramQcSamtoolsStats,
+        CramQcVerifyBamId,
+    ]
 
     run_workflow(stages=stages, dry_run=args.dry_run)
 

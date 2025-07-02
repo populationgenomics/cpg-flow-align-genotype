@@ -53,6 +53,12 @@ genome_contam_mu = "gs://cpg-common-main/references/hg38/v0/contamination-resour
 exome_contam_ud = "gs://cpg-common-main/references/hg38/v0/contamination-resources/1000g/whole_exome_illumina_coding_v1.Homo_sapiens_assembly38.1000g.contam.UD"
 exome_contam_bed = "gs://cpg-common-main/references/hg38/v0/contamination-resources/1000g/whole_exome_illumina_coding_v1.Homo_sapiens_assembly38.1000g.contam.bed"
 exome_contam_mu = "gs://cpg-common-main/references/hg38/v0/contamination-resources/1000g/whole_exome_illumina_coding_v1.Homo_sapiens_assembly38.1000g.contam.mu"
+genome_evaluation_interval_lists = "gs://cpg-common-main/references/hg38/v0/wgs_evaluation_regions.hg38.interval_list"
+exome_evaluation_interval_lists = "gs://cpg-common-main/references/hg38/v0/exome_evaluation_regions.v1.interval_list"
+
+# defaults for the storage to attach to QC jobs for the CRAM file
+exome_cram_gb = 20
+genome_cram_gb = 100
 
 [images]
 dragmap = "australia-southeast1-docker.pkg.dev/cpg-common/images/dragmap:1.3.0-tokenizer-next-fix"
