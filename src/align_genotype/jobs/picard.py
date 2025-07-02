@@ -396,7 +396,7 @@ def vcf_qc(
     CollectVariantCallingMetrics \
     -I {gvcf_localised} \
     -O {job.outputs} \
-    -DBSNP {dbsnp_vcf_localised} \
+    --DBSNP {dbsnp_vcf_localised} \
     -SD {reference['dict']} \
     -TI {intervals_file} \
     --GVCF_INPUT true
