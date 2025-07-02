@@ -2,11 +2,9 @@
 Create Hail Batch jobs for VerifyBAMID.
 """
 
-from hailtop.batch.job import Job
-
-from cpg_utils import Path, config, hail_batch
-
 from cpg_flow import resources
+from cpg_utils import Path, config, hail_batch
+from hailtop.batch.job import Job
 
 
 def verifybamid(
@@ -57,7 +55,7 @@ def verifybamid(
             --MeanPath {contam_mu} \
             --BedPath {contam_bed} \
             {'--max-depth 1000 ' if sequencing_type == 'exome' else ''} 1>/dev/null
-    
+
         cp OUTPUT.selfSM {job.out_selfsm}
         """
     )

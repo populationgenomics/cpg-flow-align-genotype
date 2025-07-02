@@ -5,13 +5,12 @@ from argparse import ArgumentParser
 from cpg_flow.workflow import run_workflow
 
 from align_genotype.stages import (
-    AlignWithDragmap,
-    GenotypeWithGatk,
-    CramQcPicardMultiMetrics,
     CramQcPicardCollectMetrics,
-    CramQcSomalier,
+    CramQcPicardMultiMetrics,
     CramQcSamtoolsStats,
+    CramQcSomalier,
     CramQcVerifyBamId,
+    GenotypeWithGatk,
 )
 
 

@@ -3,14 +3,14 @@ Alignment and genotyping... oof. Where to start.
 """
 
 from cpg_flow import stage, targets
-from cpg_utils import Path, config
+from cpg_utils import Path
 
 from align_genotype.jobs.align import align
+from align_genotype.jobs.cram_qc_samtools import samtools_stats
+from align_genotype.jobs.cram_qc_somalier import extract_somalier
+from align_genotype.jobs.cram_qc_verify import verifybamid
 from align_genotype.jobs.genotype import genotype
 from align_genotype.jobs.picard import collect_metrics, hs_metrics, wgs_metrics
-from align_genotype.jobs.CramQcSomalier import extract_somalier
-from align_genotype.jobs.CramQcVerifyBamId import verifybamid
-from align_genotype.jobs.CramQcSamtoolsStats import samtools_stats
 
 
 @stage.stage(
