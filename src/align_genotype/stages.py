@@ -10,7 +10,7 @@ from align_genotype.jobs.cram_qc_samtools import samtools_stats
 from align_genotype.jobs.cram_qc_somalier import extract_somalier
 from align_genotype.jobs.cram_qc_verify import verifybamid
 from align_genotype.jobs.genotype import genotype
-from align_genotype.jobs.picard import collect_metrics, hs_metrics, wgs_metrics, vcf_qc
+from align_genotype.jobs.picard import collect_metrics, hs_metrics, vcf_qc, wgs_metrics
 
 
 @stage.stage(

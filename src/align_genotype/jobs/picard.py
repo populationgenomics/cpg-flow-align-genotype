@@ -219,11 +219,13 @@ def collect_metrics(
       -O {job.output_rg} \\
       -AS True \\
       --VALIDATION_STRINGENCY SILENT \\
+      -PROGRAM null \\
       -PROGRAM CollectAlignmentSummaryMetrics \\
       -PROGRAM CollectInsertSizeMetrics \\
       -PROGRAM MeanQualityByCycle \\
       -PROGRAM CollectBaseDistributionByCycle \\
       -PROGRAM CollectQualityYieldMetrics \\
+      -LEVEL null \\
       -LEVEL SAMPLE
     """,
     )
@@ -269,7 +271,7 @@ def hs_metrics(
     picard IntervalListToBed \\
         -I {interval_file} \\
         -O $BATCH_TMPDIR/intervals.bed
-    
+
     picard BedToIntervalList \\
         -I $BATCH_TMPDIR/intervals.bed \\
         -O $BATCH_TMPDIR/intervals.interval_list \\
@@ -282,6 +284,7 @@ def hs_metrics(
       --VALIDATION_STRINGENCY SILENT \\
       -TI $BATCH_TMPDIR/intervals.interval_list \\
       -BI $BATCH_TMPDIR/intervals.interval_list \\
+      -LEVEL null \\
       -LEVEL SAMPLE \\
       -LEVEL LIBRARY \\
       -O {job.out_hs_metrics}
