@@ -153,7 +153,7 @@ def _relate(
     --ped expected.ped \\
     -o related \\
     --infer
-    
+
     mv related.pairs.tsv {j.output_pairs}
     mv related.samples.tsv {j.output_samples}
     {utils.rich_sequencing_group_id_seds(rich_id_map, ['related.html'])}
