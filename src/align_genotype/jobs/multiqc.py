@@ -66,7 +66,7 @@ def multiqc(
         cat {file_list} | gcloud storage cp -I inputs/
 
         multiqc -f inputs -o output \\
-        {f'--replace-names {sample_map_file} ' if sample_map_file else ''} \\
+        --replace-names {sample_map_file} \\
         --title "{title} for dataset <b>{dataset.name}</b>" \\
         --filename {report_filename}.html \\
         --cl-config "extra_fn_clean_exts: [{', '.join(ending_to_trim)}]" \\
