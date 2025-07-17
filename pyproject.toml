@@ -23,6 +23,7 @@ classifiers=[
 dependencies=[
     'cpg-flow==v0.3.2',
     'hatchling',
+    'peddy',
 ]
 
 [project.urls]
@@ -31,7 +32,6 @@ Repository = "https://github.com/populationgenomics/cpg-flow-align-genotype"
 [project.optional-dependencies]
 test = [
     'bump2version',
-    'peddy',
     'pre-commit',
     'pytest',
 ]
