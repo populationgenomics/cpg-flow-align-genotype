@@ -75,8 +75,8 @@ def markdup(
 def get_intervals(
     b: hb.Batch,
     scatter_count: int,
-    job_attrs: dict[str, str] | None = None,
-    output_prefix: Path | None = None,
+    job_attrs: dict[str, str],
+    output_prefix: Path,
 ) -> tuple[BashJob | None, list[hb.Resource]]:
     """
     Add a job that splits genome/exome intervals into sub-intervals to be used to
@@ -142,8 +142,6 @@ def get_intervals(
     -BREAK_BANDS_AT_MULTIPLES_OF {break_bands_at_multiples_of} \
     -I {b.read_input(source_intervals_path)} {extra_cmd} \
     -OUTPUT $BATCH_TMPDIR/out
-    ls $BATCH_TMPDIR/out
-    ls $BATCH_TMPDIR/out/*
     """
 
     for idx in range(scatter_count):
@@ -164,3 +162,251 @@ def get_intervals(
     intervals = [job[f'{idx + 1}.interval_list'] for idx in range(scatter_count)]
 
     return job, intervals
+
+
+def collect_metrics(
+    cram_path: str,
+    out_prefix: str,
+    job_attrs: dict,
+) -> BashJob:
+    """
+    Run picard CollectMultipleMetrics metrics for sample QC.
+    Based on https://github.com/broadinstitute/warp/blob/master/tasks/broad/Qc.wdl#L141
+    """
+    batch_instance = hail_batch.get_batch()
+
+    job = batch_instance.new_job(
+        'Picard CollectMultipleMetrics',
+        attributes=job_attrs | {'tool': 'picard_CollectMultipleMetrics'},
+    )
+
+    job.image(config.config_retrieve(['images', 'picard']))
+    # estimate CRAM size
+
+    res = resources.STANDARD.request_resources(ncpu=2)
+
+    sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
+
+    res.attach_disk_storage_gb = config.config_retrieve(['workflow', f'{sequencing_type}_cram_gb'])
+
+    res.set_to_job(job)
+
+    reference = hail_batch.fasta_res_group(batch_instance)
+
+    # declare a resource group to catch all the outputs
+    job.declare_resource_group(
+        output_rg={
+            'alignment_summary_metrics': '{root}.alignment_summary_metrics',
+            'base_distribution_by_cycle_metrics': '{root}.base_distribution_by_cycle_metrics',
+            'insert_size_metrics': '{root}.insert_size_metrics',
+            'quality_by_cycle_metrics': '{root}.quality_by_cycle_metrics',
+            'quality_yield_metrics': '{root}.quality_yield_metrics',
+        },
+    )
+
+    # read in the CRAM and index
+    cram_localised = batch_instance.read_input_group(
+        cram=cram_path,
+        crai=f'{cram_path}.crai',
+    ).cram
+
+    job.command(
+        f"""\
+    picard {res.java_mem_options()} \\
+      CollectMultipleMetrics \\
+      -I {cram_localised} \\
+      -R {reference.base} \\
+      -O {job.output_rg} \\
+      -AS True \\
+      --VALIDATION_STRINGENCY SILENT \\
+      -PROGRAM null \\
+      -PROGRAM CollectAlignmentSummaryMetrics \\
+      -PROGRAM CollectInsertSizeMetrics \\
+      -PROGRAM MeanQualityByCycle \\
+      -PROGRAM CollectBaseDistributionByCycle \\
+      -PROGRAM CollectQualityYieldMetrics \\
+      -LEVEL null \\
+      -LEVEL SAMPLE
+    """,
+    )
+    batch_instance.write_output(job.output_rg, out_prefix)
+    return job
+
+
+def hs_metrics(
+    cram_path: str,
+    job_attrs: dict,
+    output: Path,
+) -> BashJob:
+    """
+    Run picard CollectHsMetrics metrics.
+    This method is used for exome sequencing only
+    Based on https://github.com/broadinstitute/warp/blob/master/tasks/broad/Qc.wdl#L528
+    """
+
+    batch_instance = hail_batch.get_batch()
+
+    job = batch_instance.new_job('Picard CollectHsMetrics', attributes=job_attrs | {'tool': 'picard_CollectHsMetrics'})
+    job.image(config.config_retrieve(['images', 'picard']))
+    res = resources.STANDARD.request_resources(ncpu=2)
+    res.attach_disk_storage_gb = config.config_retrieve(['workflow', 'exome_cram_gb'])
+    res.set_to_job(job)
+    reference = hail_batch.fasta_res_group(batch_instance)
+
+    interval_file = batch_instance.read_input(config.config_retrieve(['references', 'exome_evaluation_interval_lists']))
+
+    # read in the CRAM and index
+    cram_localised = batch_instance.read_input_group(
+        cram=cram_path,
+        crai=f'{cram_path}.crai',
+    ).cram
+
+    job.command(
+        f"""\
+    # Picard is strict about the interval-list file header - contigs md5s, etc. - and
+    # if md5s do not match the ref.dict file, picard would crash. So fixing the header
+    # by converting the interval-list to bed (i.e. effectively dropping the header)
+    # and back to interval-list (effectively re-adding the header from input ref-dict).
+    # VALIDATION_STRINGENCY=SILENT does not help.
+    picard IntervalListToBed \\
+        -I {interval_file} \\
+        -O $BATCH_TMPDIR/intervals.bed
+
+    picard BedToIntervalList \\
+        -I $BATCH_TMPDIR/intervals.bed \\
+        -O $BATCH_TMPDIR/intervals.interval_list \\
+        -SD {reference.dict}
+
+    picard {res.java_mem_options()} \\
+      CollectHsMetrics \\
+      -I {cram_localised} \\
+      -R {reference.base} \\
+      --VALIDATION_STRINGENCY SILENT \\
+      -TI $BATCH_TMPDIR/intervals.interval_list \\
+      -BI $BATCH_TMPDIR/intervals.interval_list \\
+      -LEVEL null \\
+      -LEVEL SAMPLE \\
+      -LEVEL LIBRARY \\
+      -O {job.out_hs_metrics}
+    """,
+    )
+    batch_instance.write_output(job.out_hs_metrics, output)
+    return job
+
+
+def wgs_metrics(
+    cram_path: str,
+    output: Path,
+    job_attrs: dict,
+) -> BashJob:
+    """
+    Run picard CollectWgsMetrics metrics.
+    This method is used for genome sequencing only
+    Based on https://github.com/broadinstitute/warp/blob/e1ac6718efd7475ca373b7988f81e54efab608b4/tasks/broad/Qc.wdl#L444
+    """
+
+    batch_instance = hail_batch.get_batch()
+
+    job = batch_instance.new_job(
+        'Picard CollectWgsMetrics',
+        attributes=job_attrs | {'tool': 'picard_CollectWgsMetrics'},
+    )
+
+    job.image(config.config_retrieve(['images', 'picard']))
+    res = resources.STANDARD.request_resources(ncpu=2)
+    res.attach_disk_storage_gb = config.config_retrieve(['workflow', 'genome_cram_gb'])
+    res.set_to_job(job)
+
+    reference = hail_batch.fasta_res_group(batch_instance)
+    interval_file = batch_instance.read_input(
+        config.config_retrieve(
+            ['references', 'genome_evaluation_interval_lists'],
+        ),
+    )
+
+    # read in the CRAM and index
+    cram_localised = batch_instance.read_input_group(
+        cram=cram_path,
+        crai=f'{cram_path}.crai',
+    ).cram
+
+    job.command(
+        f"""\
+    picard {res.java_mem_options()} \\
+      CollectWgsMetrics \\
+      -I {cram_localised} \\
+      -O {job.out_csv} \\
+      --VALIDATION_STRINGENCY SILENT \\
+      -R {reference.base} \\
+      --INTERVALS {interval_file} \\
+      --USE_FAST_ALGORITHM true \\
+      --READ_LENGTH 250
+    """,
+    )
+    batch_instance.write_output(job.out_csv, output)
+    return job
+
+
+def vcf_qc(
+    gvcf: str,
+    job_attrs: dict,
+    output_prefix: str,
+) -> BashJob:
+    """Run Picard CollectVariantCallingMetrics."""
+
+    batch_instance = hail_batch.get_batch()
+    job = batch_instance.new_job(
+        'CollectVariantCallingMetrics', attributes=job_attrs | {'tool': 'picard CollectVariantCallingMetrics'}
+    )
+    job.image(config.config_retrieve(['images', 'picard']))
+
+    res = resources.STANDARD.set_resources(job, storage_gb=20, mem_gb=3)
+
+    dbsnp_vcf = config.config_retrieve(['references', 'dbsnp_vcf'])
+    dbsnp_vcf_localised = batch_instance.read_input_group(
+        base=dbsnp_vcf,
+        index=f'{dbsnp_vcf}.idx',
+    ).base
+    reference = hail_batch.fasta_res_group(batch_instance)
+
+    sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
+    intervals_file = batch_instance.read_input(
+        config.config_retrieve(
+            [
+                'references',
+                f'{sequencing_type}_evaluation_interval_lists',
+            ],
+        ),
+    )
+
+    gvcf_localised = batch_instance.read_input_group(
+        **{
+            'g.vcf.gz': gvcf,
+            'g.vcf.gz.tbi': f'{gvcf}.tbi',
+        },
+    )['g.vcf.gz']
+
+    # establish a resource group for the two output files
+    job.declare_resource_group(
+        outputs={
+            'variant_calling_summary_metrics': '{root}.variant_calling_summary_metrics',
+            'variant_calling_detail_metrics': '{root}.variant_calling_detail_metrics',
+        },
+    )
+
+    job.command(
+        f"""\
+    picard {res.java_mem_options()} \
+    CollectVariantCallingMetrics \
+    -I {gvcf_localised} \
+    -O {job.outputs} \
+    --DBSNP {dbsnp_vcf_localised} \
+    -SD {reference['dict']} \
+    -TI {intervals_file} \
+    --GVCF_INPUT true
+    """,
+    )
+
+    batch_instance.write_output(job.outputs, output_prefix)
+
+    return job
