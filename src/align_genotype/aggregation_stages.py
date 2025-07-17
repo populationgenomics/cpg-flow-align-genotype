@@ -1,13 +1,13 @@
 from cpg_flow import stage, targets
 from cpg_utils import Path, config
 
-from align_genotype.jobs import somalier, multiqc
+from align_genotype.jobs import multiqc, somalier
 from align_genotype.stages import (
-    CramQcVerifyBamId,
-    CramQcSomalier,
-    CramQcSamtoolsStats,
     CramQcPicardCollectMetrics,
     CramQcPicardMultiMetrics,
+    CramQcSamtoolsStats,
+    CramQcSomalier,
+    CramQcVerifyBamId,
 )
 
 
@@ -55,11 +55,11 @@ class SomalierPedigree(stage.DatasetStage):
                 verifybamid_by_sgid=verifybamid_by_sgid,
                 outputs=outputs,
                 out_html_url=html_url,
+                label='Somalier',
                 job_attrs=self.get_job_attrs(dataset),
             )
             return self.make_outputs(dataset, data=outputs, jobs=jobs)
-        else:
-            return self.make_outputs(dataset, skipped=True)
+        return self.make_outputs(dataset, skipped=True)
 
 
 @stage.stage(
@@ -159,10 +159,19 @@ class CramMultiQC(stage.DatasetStage):
         return self.make_outputs(dataset, data=outputs, jobs=jobs)
 
 
+def _update_meta(output_path: str) -> dict:
+    import json
+
+    from cloudpathlib import CloudPath
+
+    with CloudPath(output_path).open() as f:
+        d = json.load(f)
+    return {'multiqc': d['report_general_stats_data']}
+
+
 # @stage(
 #     required_stages=[
-#         GvcfQC,
-#         GvcfHappy,
+#         RunGvcfQc,
 #     ],
 #     analysis_type='qc',
 #     analysis_keys=['json'],

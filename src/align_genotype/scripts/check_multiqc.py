@@ -15,10 +15,8 @@ import json
 import logging
 import pprint
 from collections import defaultdict
-from typing import Optional
 
 import click
-
 from cpg_utils import to_path
 from cpg_utils.config import get_config
 from cpg_utils.slack import send_message
@@ -48,9 +46,9 @@ logging.getLogger().setLevel(logging.DEBUG)
 )
 def main(
     multiqc_json_path: str,
-    html_url: Optional[str] = None,
-    dataset: Optional[str] = None,
-    title: Optional[str] = None,
+    html_url: str | None = None,
+    dataset: str | None = None,
+    title: str | None = None,
     send_to_slack: bool = True,
 ):
     """
@@ -68,9 +66,9 @@ def main(
 
 def run(
     multiqc_json_path: str,
-    html_url: Optional[str] = None,
-    dataset: Optional[str] = None,
-    title: Optional[str] = None,
+    html_url: str | None = None,
+    dataset: str | None = None,
+    title: str | None = None,
     send_to_slack: bool = True,
 ):
     seq_type = get_config()['workflow']['sequencing_type']

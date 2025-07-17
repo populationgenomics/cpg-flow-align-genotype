@@ -14,13 +14,10 @@ a channel with:
 import contextlib
 from argparse import ArgumentParser
 
-from loguru import logger
-
 import pandas as pd
+from cpg_utils import slack, to_path
+from loguru import logger
 from peddy import Ped
-
-from cpg_utils import to_path, slack
-
 
 _messages: list[str] = []
 
@@ -163,19 +160,16 @@ def run(
                 f'ibs2={row["ibs2"]}'
             )
 
-            if (
-                expected_rel == 'unknown'
-                and inferred_rel != 'unknown'
-                or expected_rel == 'unrelated'
-                and inferred_rel != 'unrelated'
+            if (expected_rel == 'unknown' and inferred_rel != 'unknown') or (
+                expected_rel == 'unrelated' and inferred_rel != 'unrelated'
             ):
                 if row['relatedness'] > 0.1:
                     mismatching_unrelated_to_related.append(line)
             else:
                 mismatching_related_to_unrelated.append(line)
 
-        pairs_df.loc[idx, 'provided_rel'] = expected_rel  # type: ignore
-        pairs_df.loc[idx, 'inferred_rel'] = inferred_rel  # type: ignore
+        pairs_df.loc[idx, 'provided_rel'] = expected_rel
+        pairs_df.loc[idx, 'inferred_rel'] = inferred_rel
 
     if mismatching_unrelated_to_related:
         info(
@@ -208,7 +202,7 @@ def run(
         title = f'*[{dataset}]* <{html_url}|{title or "Somalier pedigree report"}>'
     elif not title:
         title = 'Somalier pedigree report'
-    text = '\n'.join([title] + _messages)
+    text = '\n'.join([title, *_messages])
 
     if send_to_slack:
         slack.send_message(text)
@@ -223,10 +217,10 @@ def print_contents(
     """
     Print useful information to manually review pedigree check results
     """
-    if len(samples_df) < 400:
+    if len(samples_df) < 400:  # noqa: PLR2004
         samples_str = samples_df.to_string()
         logger.info(f'Somalier results, samples (based on {somalier_samples_fpath}):\n{samples_str}\n')
-    if len(pairs_df) < 400:
+    if len(pairs_df) < 400:  # noqa: PLR2004
         pairs_str = pairs_df[
             [
                 '#sample_a',
