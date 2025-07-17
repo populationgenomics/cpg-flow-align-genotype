@@ -33,9 +33,6 @@ def multiqc(
     @param job_attrs: attributes to add to Hail Batch job
     @param sequencing_group_id_map: sequencing group ID map for bulk sequencing group renaming:
         (https://multiqc.info/docs/#bulk-sample-renaming-in-reports)
-    @param send_to_slack: whether or not to send a Slack message to the qc channel
-    @param extra_config: extra config to pass to MultiQC
-    @return: job objects
     """
 
     batch_instance = hail_batch.get_batch()
@@ -63,9 +60,10 @@ def multiqc(
     sample_map_file = batch_instance.read_input(sample_map_path)
 
     report_filename = 'report'
-    mqc_j.command(f"""\
+    mqc_j.command(
+        f"""
         mkdir inputs
-        cat {file_list} | gsutil -m cp -I inputs/
+        cat {file_list} | gcloud storage cp -I inputs/
 
         multiqc -f inputs -o output \\
         {f'--replace-names {sample_map_file} ' if sample_map_file else ''} \\
@@ -78,7 +76,8 @@ def multiqc(
 
         cp output/{report_filename}.html {mqc_j.html}
         cp output/{report_filename}_data/multiqc_data.json {mqc_j.json}
-    """)
+        """
+    )
 
     batch_instance.write_output(mqc_j.html, outputs['html'])
     batch_instance.write_output(mqc_j.json, outputs['json'])
