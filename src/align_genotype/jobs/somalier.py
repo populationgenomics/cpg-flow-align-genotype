@@ -55,7 +55,6 @@ def pedigree(
         rich_id_map=dataset.rich_id_map(),
         dataset_name=dataset.name,
         label=label,
-        out_checks_path=outputs['checks'],
         job_attrs=job_attrs,
     )
     check_j.depends_on(relate_j)
@@ -71,7 +70,6 @@ def _check_pedigree(
     somalier_html_url: str,
     rich_id_map: dict[str, str],
     label: str,
-    out_checks_path: Path,
     job_attrs: dict,
 ) -> BashJob:
     """
@@ -108,9 +106,6 @@ def _check_pedigree(
     hail_batch.copy_common_env(check_j)
     hail_batch.authenticate_cloud_credentials_in_job(check_j)
     check_j.command(cmd)
-
-    # todo maybe don't write this?
-    batch_instance.write_output(check_j.output, out_checks_path)
     return check_j
 
 

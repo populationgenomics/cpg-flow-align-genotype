@@ -31,6 +31,7 @@ Repository = "https://github.com/populationgenomics/cpg-flow-align-genotype"
 [project.optional-dependencies]
 test = [
     'bump2version',
+    'peddy',
     'pre-commit',
     'pytest',
 ]
