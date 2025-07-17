@@ -13,7 +13,6 @@ a channel with:
 
 import contextlib
 from argparse import ArgumentParser
-from typing import Optional
 
 from loguru import logger
 
@@ -55,9 +54,9 @@ def run(
     somalier_samples_fpath: str,
     somalier_pairs_fpath: str,
     expected_ped_fpath: str,
-    html_url: Optional[str] = None,
-    dataset: Optional[str] = None,
-    title: Optional[str] = None,
+    title: str,
+    html_url: str | None = None,
+    dataset: str | None = None,
     send_to_slack: bool = True,
 ):
     """Report pedigree inconsistencies, given somalier outputs."""
@@ -260,9 +259,9 @@ if __name__ == '__main__':
         required=True,
         help='Path to PED file with expected pedigree',
     )
+    parser.add_argument('--title', required=True, help='Report title')
     parser.add_argument('--html-url', help='Somalier HTML URL')
     parser.add_argument('--dataset', help='Dataset name')
-    parser.add_argument('--title', help='Report title')
     parser.add_argument(
         '--slack',
         action='store_true',
