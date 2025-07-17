@@ -2,27 +2,11 @@
 Adding jobs for fingerprinting and pedigree checks. Mostly using Somalier.
 """
 
-import os
-from typing import cast
-
-import pandas as pd
-
-from hailtop.batch import Batch, Resource
+from hailtop.batch import Resource
 from hailtop.batch.job import BashJob
 
-from cpg_flow import targets, filetypes, resources, utils
-from cpg_utils import Path, to_path, hail_batch, config
-from cpg_utils.config import get_config, image_path, reference_path
-from cpg_utils.hail_batch import (
-    command,
-    copy_common_env,
-    fasta_res_group,
-)
-from cpg_workflows.filetypes import CramPath
-from cpg_workflows.python_scripts import check_pedigree
-from cpg_workflows.resources import STANDARD
-from cpg_workflows.targets import Dataset
-from cpg_workflows.utils import can_reuse, rich_sequencing_group_id_seds
+from cpg_flow import targets, utils
+from cpg_utils import Path, hail_batch, config
 
 # We want to exclude contaminated sequencing groups from relatedness checks. Somalier is not
 # designed to work with contaminated sequencing groups, and in a presence of contamination it
@@ -31,7 +15,7 @@ MAX_FREEMIX = 0.04
 
 
 def pedigree(
-    dataset: Dataset,
+    dataset: targets.Dataset,
     outputs: dict[str, Path],
     somalier_path_by_sgid: dict[str, Path],
     out_html_url: str | None = None,
@@ -103,7 +87,7 @@ def _check_pedigree(
     send_to_slack = config.config_retrieve(['workflow', 'send_to_slack'], default=True)
     cmd = f"""\
     {
-        rich_sequencing_group_id_seds(rich_id_map, [str(samples_file), str(pairs_file), str(expected_ped)])
+        utils.rich_sequencing_group_id_seds(rich_id_map, [str(samples_file), str(pairs_file), str(expected_ped)])
         if rich_id_map
         else ''
     }
@@ -141,9 +125,10 @@ def _relate(
     batch_instance = hail_batch.get_batch()
 
     j = batch_instance.new_bash_job(f'Somalier relate {label}', job_attrs | {'tool': 'somalier'})
-    j.image(image_path('somalier'))
+    j.image(config.config_retrieve(['images', 'somalier']))
     # Size of one somalier file is 212K, so we add another G only if the number of sequencing groups is >4k
-    STANDARD.set_resources(j, storage_gb=1 + len(somalier_path_by_sgid) // 4000 * 1)
+    storage_gb = 1 + len(somalier_path_by_sgid) // 4000
+    j.storage(f'{storage_gb}Gi')
 
     cmd = ''
     input_files_file = '$BATCH_TMPDIR/input_files.list'
@@ -174,7 +159,7 @@ def _relate(
     
     mv related.pairs.tsv {j.output_pairs}
     mv related.samples.tsv {j.output_samples}
-    {rich_sequencing_group_id_seds(rich_id_map, ['related.html'])}
+    {utils.rich_sequencing_group_id_seds(rich_id_map, ['related.html'])}
     mv related.html {j.output_html}
     """
 
@@ -183,52 +168,4 @@ def _relate(
     batch_instance.write_output(j.output_samples, inputs['samples'])
     batch_instance.write_output(j.output_pairs, inputs['pairs'])
     batch_instance.write_output(j.output_html, inputs['html'])
-    return j
-
-
-def extract(
-    b,
-    cram_path: CramPath,
-    out_somalier_path: Path | None = None,
-    job_attrs: dict | None = None,
-    overwrite: bool = True,
-    label: str | None = None,
-) -> Job | None:
-    """
-    Run `somalier extract` to generate a fingerprint (i.e. a `*.somalier` file)
-    """
-    if can_reuse(out_somalier_path, overwrite):
-        return None
-
-    job_attrs = (job_attrs or {}) | {'tool': 'somalier'}
-    j = b.new_job('Somalier extract' + (f' {label}' if label else ''), job_attrs)
-
-    j.image(image_path('somalier'))
-    if not cram_path.index_path:
-        raise ValueError(f'CRAM for somalier is required to have CRAI index ({cram_path})')
-    storage_gb = None  # avoid extra disk by default
-    if get_config()['workflow']['sequencing_type'] == 'genome':
-        storage_gb = 100
-    STANDARD.set_resources(j, ncpu=4, storage_gb=storage_gb)
-
-    ref = fasta_res_group(b)
-    sites = b.read_input(reference_path('somalier_sites'))
-
-    cmd = f"""\
-    SITES=$BATCH_TMPDIR/sites/{os.path.basename(reference_path('somalier_sites'))}
-    retry gsutil cp {reference_path('somalier_sites')} $SITES
-
-    CRAM=$BATCH_TMPDIR/{cram_path.path.name}
-    CRAI=$BATCH_TMPDIR/{cram_path.index_path.name}
-
-    # Retrying copying to avoid google bandwidth limits
-    retry_gs_cp {str(cram_path.path)} $CRAM
-    retry_gs_cp {str(cram_path.index_path)} $CRAI
-
-    somalier extract -d extracted/ --sites {sites} -f {ref.base} $CRAM
-
-    mv extracted/*.somalier {j.output_file}
-    """
-    j.command(command(cmd, setup_gcp=True, define_retry_function=True))
-    b.write_output(j.output_file, str(out_somalier_path))
     return j
