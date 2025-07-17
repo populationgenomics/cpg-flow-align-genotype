@@ -12,69 +12,16 @@ a channel with:
 """
 
 import contextlib
-import logging
-import os
+from argparse import ArgumentParser
 from typing import Optional
 
-import click
+from loguru import logger
+
 import pandas as pd
 from peddy import Ped
 
 from cpg_utils import to_path
 from cpg_utils.slack import send_message
-
-logging.basicConfig()
-logging.getLogger().setLevel(logging.DEBUG)
-
-
-@click.command()
-@click.option(
-    '--somalier-samples',
-    'somalier_samples_fpath',
-    required=True,
-    help='Path to somalier {prefix}.samples.tsv output file',
-)
-@click.option(
-    '--somalier-pairs',
-    'somalier_pairs_fpath',
-    required=True,
-    help='Path to somalier {prefix}.pairs.tsv output file',
-)
-@click.option(
-    '--expected-ped',
-    'expected_ped_fpath',
-    required=True,
-    help='Path to PED file with expected pedigree',
-)
-@click.option('--html-url', 'html_url', help='Somalier HTML URL')
-@click.option('--dataset', 'dataset', help='Dataset name')
-@click.option('--title', 'title', help='Report title')
-@click.option(
-    '--send-to-slack/--no-send-to-slack',
-    'send_to_slack',
-    help='Send log to Slack message, according to environment variables SLACK_CHANNEL and SLACK_TOKEN',
-)
-def main(
-    somalier_samples_fpath: str,
-    somalier_pairs_fpath: str,
-    expected_ped_fpath: str,
-    html_url: Optional[str] = None,
-    dataset: Optional[str] = None,
-    title: Optional[str] = None,
-    send_to_slack: bool = True,
-):
-    """
-    Report pedigree inconsistencies, given somalier outputs.
-    """
-    run(
-        somalier_samples_fpath=somalier_samples_fpath,
-        somalier_pairs_fpath=somalier_pairs_fpath,
-        expected_ped_fpath=expected_ped_fpath,
-        html_url=html_url,
-        dataset=dataset,
-        title=title,
-        send_to_slack=send_to_slack,
-    )
 
 
 _messages: list[str] = []
@@ -85,7 +32,7 @@ def info(msg):
     Record and forward.
     """
     _messages.append(msg)
-    logging.info(msg)
+    logger.info(msg)
 
 
 def warning(msg):
@@ -93,7 +40,7 @@ def warning(msg):
     Record and forward.
     """
     _messages.append(msg)
-    logging.info(msg)
+    logger.warning(msg)
 
 
 def error(msg):
@@ -101,7 +48,7 @@ def error(msg):
     Record and forward.
     """
     _messages.append(msg)
-    logging.error(msg)
+    logger.error(msg)
 
 
 def run(
@@ -113,11 +60,8 @@ def run(
     title: Optional[str] = None,
     send_to_slack: bool = True,
 ):
-    """
-    Report pedigree inconsistencies, given somalier outputs.
-    """
-    logging.info(os.getcwd())
-    logging.info(somalier_samples_fpath)
+    """Report pedigree inconsistencies, given somalier outputs."""
+    logger.info(somalier_samples_fpath)
     df = pd.read_csv(somalier_samples_fpath, delimiter='\t')
     pairs_df = pd.read_csv(somalier_pairs_fpath, delimiter='\t')
     with to_path(somalier_samples_fpath).open() as f:
@@ -283,7 +227,7 @@ def print_contents(
     """
     if len(samples_df) < 400:
         samples_str = samples_df.to_string()
-        logging.info(f'Somalier results, samples (based on {somalier_samples_fpath}):\n{samples_str}\n')
+        logger.info(f'Somalier results, samples (based on {somalier_samples_fpath}):\n{samples_str}\n')
     if len(pairs_df) < 400:
         pairs_str = pairs_df[
             [
@@ -296,8 +240,41 @@ def print_contents(
                 'expected_relatedness',
             ]
         ].to_string()
-        logging.info(f'Somalier results, sample pairs (based on {somalier_pairs_fpath}):\n{pairs_str}\n')
+        logger.info(f'Somalier results, sample pairs (based on {somalier_pairs_fpath}):\n{pairs_str}\n')
 
 
 if __name__ == '__main__':
-    main()  # pylint: disable=E1120
+    parser = ArgumentParser()
+    parser.add_argument(
+        '--somalier-samples',
+        required=True,
+        help='Path to somalier {prefix}.samples.tsv output file',
+    )
+    parser.add_argument(
+        '--somalier-pairs',
+        required=True,
+        help='Path to somalier {prefix}.pairs.tsv output file',
+    )
+    parser.add_argument(
+        '--ped',
+        required=True,
+        help='Path to PED file with expected pedigree',
+    )
+    parser.add_argument('--html-url', help='Somalier HTML URL')
+    parser.add_argument('--dataset', help='Dataset name')
+    parser.add_argument('--title', help='Report title')
+    parser.add_argument(
+        '--slack',
+        action='store_true',
+        help='Send log to Slack message, according to environment variables SLACK_CHANNEL and SLACK_TOKEN',
+    )
+    args = parser.parse_args()
+    run(
+        somalier_samples_fpath=args.somalier_samples,
+        somalier_pairs_fpath=args.somalier_pairs,
+        expected_ped_fpath=args.ped,
+        html_url=args.html_url,
+        dataset=args.dataset,
+        title=args.title,
+        send_to_slack=args.slack,
+    )
