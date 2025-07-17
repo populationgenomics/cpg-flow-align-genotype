@@ -21,7 +21,7 @@ classifiers=[
 ]
 
 dependencies=[
-    'cpg-flow==v0.2.4',
+    'cpg-flow==v0.3.2',
     'hatchling',
 ]
 
@@ -39,6 +39,7 @@ test = [
 
 # the workflow runner script - entrypoint for the pipeline
 run_workflow = 'align_genotype.run_workflow:cli_main'
+dataset_workflow = 'align_genotype.dataset_workflow:cli_main'
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/align_genotype"]
