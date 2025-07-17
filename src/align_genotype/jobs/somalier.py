@@ -56,6 +56,7 @@ def pedigree(
         dataset_name=dataset.name,
         label=label,
         job_attrs=job_attrs,
+        check_file=outputs['checks'],
     )
     check_j.depends_on(relate_j)
 
@@ -71,6 +72,7 @@ def _check_pedigree(
     rich_id_map: dict[str, str],
     label: str,
     job_attrs: dict,
+    check_file: Path,
 ) -> BashJob:
     """
     Run job that checks pedigree and batch correctness. The job will send a Slack message about any mismatches.
@@ -96,8 +98,7 @@ def _check_pedigree(
     --html-url {somalier_html_url} \\
     --dataset {dataset_name} \\
     --title "{title}" \\
-    --{'no-' if not send_to_slack else ''}send-to-slack
-
+    {'--slack' if send_to_slack else ''}
     touch {check_j.output}
     """
     if somalier_html_url:
@@ -106,6 +107,7 @@ def _check_pedigree(
     hail_batch.copy_common_env(check_j)
     hail_batch.authenticate_cloud_credentials_in_job(check_j)
     check_j.command(cmd)
+    batch_instance.write_output(check_j.output, check_file)
     return check_j
 
 

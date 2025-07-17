@@ -28,6 +28,7 @@ class SomalierPedigree(stage.DatasetStage):
             'expected_ped': prefix / f'{dataset.name}.expected.ped',
             'pairs': prefix / f'{dataset.name}.pairs.tsv',
             'html': web_prefix / 'cram-somalier-pedigree.html',
+            'checks': prefix / f'{dataset.name}-checks.done',
         }
 
     def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput:
