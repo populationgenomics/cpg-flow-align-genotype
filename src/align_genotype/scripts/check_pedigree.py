@@ -19,8 +19,7 @@ from loguru import logger
 import pandas as pd
 from peddy import Ped
 
-from cpg_utils import to_path
-from cpg_utils.slack import send_message
+from cpg_utils import to_path, slack
 
 
 _messages: list[str] = []
@@ -212,7 +211,7 @@ def run(
     text = '\n'.join([title] + _messages)
 
     if send_to_slack:
-        send_message(text)
+        slack.send_message(text)
 
 
 def print_contents(
