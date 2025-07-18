@@ -183,11 +183,10 @@ class CramQcPicardMultiMetrics(stage.SequencingGroupStage):
         outputs = self.expected_outputs(sequencing_group)
 
         cram = inputs.as_str(sequencing_group, AlignWithDragmap, 'cram')
-        output_prefix = str(outputs['summary']).removesuffix('.alignment_summary_metrics')
 
         jobs = collect_metrics(
             cram_path=cram,
-            out_prefix=output_prefix,
+            outputs=outputs,
             job_attrs=self.get_job_attrs(sequencing_group),
         )
 
