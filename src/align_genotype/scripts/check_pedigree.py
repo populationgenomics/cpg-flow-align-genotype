@@ -86,7 +86,7 @@ def run(
     mismatching_other = (df.sex != df.original_pedigree_sex) & (~mismatching_female) & (~mismatching_male)
     matching_sex = ~mismatching_sex & ~mismatching_other
 
-    def _print_stats(df_filter):
+    def _print_stats(df_filter) -> None:
         for _, row_ in df[df_filter].iterrows():
             info(
                 f' {row_.sample_id} ('
@@ -163,7 +163,7 @@ def run(
             if (expected_rel == 'unknown' and inferred_rel != 'unknown') or (
                 expected_rel == 'unrelated' and inferred_rel != 'unrelated'
             ):
-                if row['relatedness'] > 0.1:
+                if row['relatedness'] > 0.1:  # noqa: PLR2004
                     mismatching_unrelated_to_related.append(line)
             else:
                 mismatching_related_to_unrelated.append(line)

@@ -65,6 +65,12 @@ def multiqc(
     logger.info(f'Trimming endings: {joined_endings}')
     joined_modules = ', '.join(modules_to_trim_endings)
     logger.info(f'Trimming modules: {joined_modules}')
+    logger.info(file_list)
+    logger.info(sample_map_file)
+    logger.info(title)
+    logger.info(dataset.name)
+    logger.info(mqc_j.html)
+    logger.info(mqc_j.json)
 
     logger.info(f"""
     Command to run MultiQC:
