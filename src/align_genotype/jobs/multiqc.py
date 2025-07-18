@@ -2,8 +2,6 @@
 Batch jobs to run MultiQC.
 """
 
-from loguru import logger
-
 from cpg_flow import targets
 from cpg_utils import Path, config, hail_batch
 from hailtop.batch.job import Job
@@ -19,6 +17,7 @@ def multiqc(
     modules_to_trim_endings: set[str],
     job_attrs: dict,
     sequencing_group_id_map: dict[str, str],
+    extra_config: str,
 ) -> Job:
     """
     Run MultiQC for the files in `qc_paths`
@@ -76,7 +75,7 @@ def multiqc(
         --cl-config "extra_fn_clean_exts: [{joined_endings}]" \\
         --cl-config "max_table_rows: 10000" \\
         --cl-config "use_filename_as_sample_name: [{joined_modules}]" \\
-        --cl-config "table_columns_visible: {{'FastQC': False}}"
+        --cl-config "table_columns_visible: {extra_config}"
 
         cp output/report.html {mqc_j.html}
         cp output/report_data/multiqc_data.json {mqc_j.json}
