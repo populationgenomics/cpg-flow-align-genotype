@@ -61,6 +61,9 @@ def multiqc(
 
     sample_map_file = batch_instance.read_input(sample_map_path)
 
+    joined_endings = ', '.join(ending_to_trim)
+    joined_modules = ', '.join(modules_to_trim_endings)
+
     mqc_j.command(
         f"""
         mkdir inputs
