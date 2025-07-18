@@ -104,3 +104,7 @@ ignore = [
 
 [tool.ruff.lint.isort]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/align_genotype/scripts/check_pedigree.py" = ["C901", "PLR0912", "PLR0913", "PLR0915"]  # ignore complexity for this script
+"src/align_genotype/jobs/somalier.py" = ["C901", "PLR0912", "PLR0913", "PLR0915"]  # ignore complexity for this script

@@ -7,7 +7,7 @@ from cpg_utils import Path, config, hail_batch
 from hailtop.batch.job import Job
 
 
-def multiqc(
+def multiqc(  # noqa: PLR0913
     dataset: targets.Dataset,
     tmp_prefix: Path,
     paths: list[Path],

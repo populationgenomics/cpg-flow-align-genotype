@@ -15,7 +15,7 @@ import contextlib
 from argparse import ArgumentParser
 
 import pandas as pd
-from cpg_utils import slack, to_path, config
+from cpg_utils import config, slack, to_path
 from loguru import logger
 from peddy import Ped
 
