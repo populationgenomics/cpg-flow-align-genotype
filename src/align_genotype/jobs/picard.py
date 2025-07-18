@@ -3,7 +3,6 @@ Create Hail Batch jobs to run Picard tools (marking duplicates, QC).
 """
 
 import hailtop.batch as hb
-import loguru
 from cpg_flow import resources, utils
 from cpg_utils import Path, config, hail_batch
 from hailtop.batch.job import BashJob

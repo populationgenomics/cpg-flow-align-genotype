@@ -83,7 +83,6 @@ def _check_pedigree(
     check_j = batch_instance.new_bash_job(title, job_attrs)
     check_j.image(config.config_retrieve(['workflow', 'driver_image']))
 
-    send_to_slack = config.config_retrieve(['workflow', 'send_to_slack'], default=True)
     cmd = f"""\
     {
         utils.rich_sequencing_group_id_seds(rich_id_map, [str(samples_file), str(pairs_file), str(expected_ped)])
@@ -96,8 +95,7 @@ def _check_pedigree(
     --ped {expected_ped} \\
     --html-url {somalier_html_url} \\
     --dataset {dataset_name} \\
-    --title "{title}" \\
-    {'--slack' if send_to_slack else ''}
+    --title "{title}"
     touch {check_j.output}
     """
     if somalier_html_url:

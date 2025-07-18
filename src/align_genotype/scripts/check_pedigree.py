@@ -15,7 +15,7 @@ import contextlib
 from argparse import ArgumentParser
 
 import pandas as pd
-from cpg_utils import slack, to_path
+from cpg_utils import slack, to_path, config
 from loguru import logger
 from peddy import Ped
 
@@ -53,7 +53,6 @@ def run(
     title: str,
     html_url: str | None = None,
     dataset: str | None = None,
-    send_to_slack: bool = True,
 ):
     """Report pedigree inconsistencies, given somalier outputs."""
     logger.info(somalier_samples_fpath)
@@ -206,7 +205,7 @@ def run(
         title = 'Somalier pedigree report'
     text = '\n'.join([title, *_messages])
 
-    if send_to_slack:
+    if config.config_retrieve(['workflow', 'send_to_slack'], default=True):
         slack.send_message(text)
 
 
@@ -257,11 +256,6 @@ if __name__ == '__main__':
     parser.add_argument('--title', required=True, help='Report title')
     parser.add_argument('--html-url', help='Somalier HTML URL')
     parser.add_argument('--dataset', help='Dataset name')
-    parser.add_argument(
-        '--slack',
-        action='store_true',
-        help='Send log to Slack message, according to environment variables SLACK_CHANNEL and SLACK_TOKEN',
-    )
     args = parser.parse_args()
     run(
         somalier_samples_fpath=args.somalier_samples,
@@ -270,5 +264,4 @@ if __name__ == '__main__':
         html_url=args.html_url,
         dataset=args.dataset,
         title=args.title,
-        send_to_slack=args.slack,
     )

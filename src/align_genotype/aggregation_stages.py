@@ -160,9 +160,9 @@ class CramMultiQC(stage.DatasetStage):
 
 
 def _update_meta(output_path: str) -> dict:
-    import json
+    import json  # noqa: PLC0415
 
-    from cloudpathlib import CloudPath
+    from cloudpathlib import CloudPath  # noqa: PLC0415
 
     with CloudPath(output_path).open() as f:
         d = json.load(f)
