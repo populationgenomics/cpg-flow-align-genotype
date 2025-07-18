@@ -166,7 +166,7 @@ def get_intervals(
 
 def collect_metrics(
     cram_path: str,
-    out_prefix: str,
+    outputs: dict[str, Path],
     job_attrs: dict,
 ) -> BashJob:
     """
@@ -196,11 +196,11 @@ def collect_metrics(
     # declare a resource group to catch all the outputs
     job.declare_resource_group(
         output_rg={
-            'alignment_summary_metrics': '{root}.alignment_summary_metrics',
-            'base_distribution_by_cycle_metrics': '{root}.base_distribution_by_cycle_metrics',
-            'insert_size_metrics': '{root}.insert_size_metrics',
-            'quality_by_cycle_metrics': '{root}.quality_by_cycle_metrics',
-            'quality_yield_metrics': '{root}.quality_yield_metrics',
+            'summary': '{root}.alignment_summary_metrics',
+            'base_dist': '{root}.base_distribution_by_cycle_metrics',
+            'insert_size': '{root}.insert_size_metrics',
+            'qual_by_cycle': '{root}.quality_by_cycle_metrics',
+            'yield': '{root}.quality_yield_metrics',
         },
     )
 
@@ -229,7 +229,8 @@ def collect_metrics(
       -LEVEL SAMPLE
     """,
     )
-    batch_instance.write_output(job.output_rg, out_prefix)
+    for key, value in outputs.items():
+        batch_instance.write_output(job.output_rg[key], value)
     return job
 
 
