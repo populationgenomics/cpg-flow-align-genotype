@@ -61,35 +61,6 @@ def multiqc(
 
     sample_map_file = batch_instance.read_input(sample_map_path)
 
-    joined_endings = ', '.join(ending_to_trim)
-    logger.info(f'Trimming endings: {joined_endings}')
-    joined_modules = ', '.join(modules_to_trim_endings)
-    logger.info(f'Trimming modules: {joined_modules}')
-    logger.info(file_list)
-    logger.info(sample_map_file)
-    logger.info(title)
-    logger.info(dataset.name)
-    logger.info(mqc_j.html)
-    logger.info(mqc_j.json)
-
-    logger.info(f"""
-    Command to run MultiQC:
-        mkdir inputs
-        cat {file_list} | gcloud storage cp -I inputs/
-
-        multiqc -f inputs -o output \\
-        --replace-names {sample_map_file} \\
-        --title "{title} for dataset <b>{dataset.name}</b>" \\
-        --filename report.html \\
-        --cl-config "extra_fn_clean_exts: [{joined_endings}]" \\
-        --cl-config "max_table_rows: 10000" \\
-        --cl-config "use_filename_as_sample_name: [{joined_modules}]" \\
-        --cl-config "table_columns_visible: {'FastQC': False}"
-
-        cp output/report.html {mqc_j.html}
-        cp output/report_data/multiqc_data.json {mqc_j.json}
-        """)
-
     mqc_j.command(
         f"""
         mkdir inputs
@@ -102,7 +73,7 @@ def multiqc(
         --cl-config "extra_fn_clean_exts: [{joined_endings}]" \\
         --cl-config "max_table_rows: 10000" \\
         --cl-config "use_filename_as_sample_name: [{joined_modules}]" \\
-        --cl-config "table_columns_visible: {'FastQC': False}"
+        --cl-config "table_columns_visible: {{'FastQC': False}}"
 
         cp output/report.html {mqc_j.html}
         cp output/report_data/multiqc_data.json {mqc_j.json}
