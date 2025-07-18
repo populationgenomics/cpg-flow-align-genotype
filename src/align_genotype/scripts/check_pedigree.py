@@ -57,37 +57,39 @@ def run(
 ):
     """Report pedigree inconsistencies, given somalier outputs."""
     logger.info(somalier_samples_fpath)
-    df = pd.read_csv(somalier_samples_fpath, delimiter='\t')
+    samples_df = pd.read_csv(somalier_samples_fpath, delimiter='\t')
     pairs_df = pd.read_csv(somalier_pairs_fpath, delimiter='\t')
     with to_path(somalier_samples_fpath).open() as f:
         inferred_ped = Ped(f)
     with to_path(expected_ped_fpath).open() as f:
         expected_ped = Ped(f)
 
-    bad = df.gt_depth_mean == 0.0
+    bad = samples_df.gt_depth_mean == 0.0
     if bad.any():
         warning(
-            f'⚠️ Excluded {len(df[bad])}/{len(df)} samples with zero '
-            f'mean GT depth from pedigree/sex checks: {", ".join(df[bad].sample_id)}',
+            f'⚠️ Excluded {len(samples_df[bad])}/{len(samples_df)} samples with zero '
+            f'mean GT depth from pedigree/sex checks: {", ".join(samples_df[bad].sample_id)}',
         )
         info('')
-    bad_ids = list(df[bad].sample_id)  # for checking in pairs_df
-    df = df[~bad]
+    bad_ids = list(samples_df[bad].sample_id)  # for checking in pairs_df
+    samples_df = samples_df[~bad]
 
     info('*Inferred vs. reported sex:*')
     # Rename Ped sex to human-readable tags
-    df.sex = df.sex.apply(lambda x: {1: 'male', 2: 'female'}.get(x, 'unknown'))
-    df.original_pedigree_sex = df.original_pedigree_sex.apply(lambda x: {'-9': 'unknown'}.get(x, x))
-    missing_inferred_sex = df.sex == 'unknown'
-    missing_provided_sex = df.original_pedigree_sex == 'unknown'
-    mismatching_female = (df.sex == 'female') & (df.original_pedigree_sex == 'male')
-    mismatching_male = (df.sex == 'male') & (df.original_pedigree_sex == 'female')
+    samples_df.sex = samples_df.sex.apply(lambda x: {1: 'male', 2: 'female'}.get(x, 'unknown'))
+    samples_df.original_pedigree_sex = samples_df.original_pedigree_sex.apply(lambda x: {'-9': 'unknown'}.get(x, x))
+    missing_inferred_sex = samples_df.sex == 'unknown'
+    missing_provided_sex = samples_df.original_pedigree_sex == 'unknown'
+    mismatching_female = (samples_df.sex == 'female') & (samples_df.original_pedigree_sex == 'male')
+    mismatching_male = (samples_df.sex == 'male') & (samples_df.original_pedigree_sex == 'female')
     mismatching_sex = mismatching_female | mismatching_male
-    mismatching_other = (df.sex != df.original_pedigree_sex) & (~mismatching_female) & (~mismatching_male)
+    mismatching_other = (
+        (samples_df.sex != samples_df.original_pedigree_sex) & (~mismatching_female) & (~mismatching_male)
+    )
     matching_sex = ~mismatching_sex & ~mismatching_other
 
     def _print_stats(df_filter) -> None:
-        for _, row_ in df[df_filter].iterrows():
+        for _, row_ in samples_df[df_filter].iterrows():
             info(
                 f' {row_.sample_id} ('
                 f'provided: {row_.original_pedigree_sex}, '
@@ -96,18 +98,18 @@ def run(
             )
 
     if mismatching_sex.any():
-        info(f'❗ {len(df[mismatching_sex])}/{len(df)} PED samples with mismatching sex:')
+        info(f'❗ {len(samples_df[mismatching_sex])}/{len(samples_df)} PED samples with mismatching sex:')
         _print_stats(mismatching_sex)
     if missing_provided_sex.any():
-        info(f'⚠️ {len(df[missing_provided_sex])}/{len(df)} samples with missing provided sex:')
+        info(f'⚠️ {len(samples_df[missing_provided_sex])}/{len(samples_df)} samples with missing provided sex:')
         _print_stats(missing_provided_sex)
     if missing_inferred_sex.any():
-        info(f'⚠️ {len(df[missing_inferred_sex])}/{len(df)} samples with failed inferred sex:')
+        info(f'⚠️ {len(samples_df[missing_inferred_sex])}/{len(samples_df)} samples with failed inferred sex:')
         _print_stats(missing_inferred_sex)
-    inferred_cnt = len(df[~missing_inferred_sex])
-    matching_cnt = len(df[matching_sex])
+    inferred_cnt = len(samples_df[~missing_inferred_sex])
+    matching_cnt = len(samples_df[matching_sex])
     info(
-        f'✅ Sex inferred for {inferred_cnt}/{len(df)} samples, matching '
+        f'✅ Sex inferred for {inferred_cnt}/{len(samples_df)} samples, matching '
         f'for {matching_cnt if matching_cnt != inferred_cnt else "all"} samples.',
     )
     info('')
@@ -191,7 +193,7 @@ def run(
     info('')
 
     print_contents(
-        df,
+        samples_df,
         pairs_df,
         somalier_samples_fpath,
         somalier_pairs_fpath,

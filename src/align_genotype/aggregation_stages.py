@@ -183,11 +183,7 @@ def _update_meta(output_path: str) -> dict:
 #     """
 #
 #     def expected_outputs(self, dataset: Dataset) -> dict[str, Path]:
-#         """
-#         Expected to produce an HTML and a corresponding JSON file.
-#         """
-#         if config_retrieve(['workflow', 'skip_qc'], False):
-#             return {}
+#         """Expected to produce an HTML and a corresponding JSON file."""
 #
 #         # get the unique hash for these Sequencing Groups
 #         sg_hash = dataset.get_alignment_inputs_hash()

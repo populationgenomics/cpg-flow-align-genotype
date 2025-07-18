@@ -93,7 +93,7 @@ def _check_pedigree(
     python3 -m align_genotype.scripts.check_pedigree \\
     --somalier-samples {samples_file} \\
     --somalier-pairs {pairs_file} \\
-    --expected-ped {expected_ped} \\
+    --ped {expected_ped} \\
     --html-url {somalier_html_url} \\
     --dataset {dataset_name} \\
     --title "{title}" \\
