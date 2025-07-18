@@ -193,7 +193,7 @@ class GvcfMultiQC(stage.DatasetStage):
         """Collect gVCF QC."""
         outputs = self.expected_outputs(dataset)
 
-        paths = [content['qc_detail'] for content in inputs.as_dict_by_target(RunGvcfQc).values()]
+        paths = [content['detail'] for content in inputs.as_dict_by_target(RunGvcfQc).values()]
 
         jobs = multiqc.multiqc(
             dataset=dataset,
