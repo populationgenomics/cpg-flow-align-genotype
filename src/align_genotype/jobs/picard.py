@@ -3,6 +3,7 @@ Create Hail Batch jobs to run Picard tools (marking duplicates, QC).
 """
 
 import hailtop.batch as hb
+import loguru
 from cpg_flow import resources, utils
 from cpg_utils import Path, config, hail_batch
 from hailtop.batch.job import BashJob
@@ -216,7 +217,7 @@ def collect_metrics(
       CollectMultipleMetrics \\
       -I {cram_localised} \\
       -R {reference.base} \\
-      -O {job.output_rg} \\
+      -O $BATCH_TMPDIR/prefix \\
       -AS True \\
       --VALIDATION_STRINGENCY SILENT \\
       -PROGRAM null \\
@@ -227,11 +228,20 @@ def collect_metrics(
       -PROGRAM CollectQualityYieldMetrics \\
       -LEVEL null \\
       -LEVEL SAMPLE
+
+    cp $BATCH_TMPDIR/prefix.alignment_summary_metrics {job.summary}
+    cp $BATCH_TMPDIR/prefix.base_distribution_by_cycle_metrics {job.base_dist}
+    cp $BATCH_TMPDIR/prefix.insert_size_metrics {job.insert_size}
+    cp $BATCH_TMPDIR/prefix.quality_by_cycle_metrics {job.qual_by_cycle}
+    cp $BATCH_TMPDIR/prefix.quality_yield_metrics {job.yield_metrics}
     """,
     )
-    for key, value in outputs.items():
-        batch_instance.write_output(job.output_rg[key], value)
-    return job
+
+    batch_instance.write_output(job.summary, outputs['summary'])
+    batch_instance.write_output(job.base_dist, outputs['base_dist'])
+    batch_instance.write_output(job.insert_size, outputs['insert_size'])
+    batch_instance.write_output(job.qual_by_cycle, outputs['qual_by_cycle'])
+    batch_instance.write_output(job.yield_metrics, outputs['yield'])
 
 
 def hs_metrics(
