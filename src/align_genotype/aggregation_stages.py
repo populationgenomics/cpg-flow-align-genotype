@@ -98,9 +98,8 @@ class CramMultiQC(stage.DatasetStage):
         Call a function from the `jobs` module using inputs from `cramqc` and `somalier` stages.
         """
         outputs = self.expected_outputs(dataset)
-        html_path = outputs['html']
 
-        paths = [inputs.as_dict(dataset, SomalierPedigree).values()]
+        paths = [str(each_path) for each_path in inputs.as_dict(dataset, SomalierPedigree).values()]
 
         ending_to_trim = {
             '.alignment_summary_metrics',
