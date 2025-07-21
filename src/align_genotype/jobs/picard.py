@@ -117,7 +117,7 @@ def get_intervals(
         attributes=(job_attrs or {}) | {'tool': 'picard IntervalListTools'},
     )
     job.image(config.config_retrieve(['images', 'picard']))
-    resources.STANDARD.set_resources(job, storage_gb=16, mem_gb=2)
+    resources.STANDARD.set_resources(j=job, storage_gb=16, mem_gb=2)
 
     break_bands_at_multiples_of = {
         'genome': 100000,
@@ -370,7 +370,7 @@ def vcf_qc(
     )
     job.image(config.config_retrieve(['images', 'picard']))
 
-    res = resources.STANDARD.set_resources(job, storage_gb=20, mem_gb=3)
+    res = resources.STANDARD.set_resources(j=job, storage_gb=20, mem_gb=3)
 
     dbsnp_vcf = config.config_retrieve(['references', 'dbsnp_vcf'])
     dbsnp_vcf_localised = batch_instance.read_input_group(
