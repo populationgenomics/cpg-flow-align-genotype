@@ -201,9 +201,6 @@ def _align_one(
         job_attrs ():
         shard_string (str | None): if populated, a String in the form 'X/Y', this is string formatted as a CLI argument
         should_sort ():
-
-    Returns:
-
     """
 
     batch_instance = hail_batch.get_batch()
@@ -216,6 +213,7 @@ def _align_one(
 
     vm_type = resources.HIGHMEM if config.config_retrieve(['workflow', 'align_use_highmem']) else resources.STANDARD
 
+    # confused by this error message
     nthreads = vm_type.set_resources(
         j=job,
         nthreads=config.config_retrieve(['workflow', 'align_threads'], resources.STANDARD.max_threads()),
