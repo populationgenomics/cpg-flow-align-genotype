@@ -22,7 +22,7 @@ def samtools_stats(
     )
 
     job.image(config.config_retrieve(['images', 'samtools']))
-    res = resources.STANDARD.set_resources(job, fraction=1)
+    res = resources.STANDARD.set_resources(j=job, fraction=1)
     reference = hail_batch.fasta_res_group(batch_instance)
 
     # read in the CRAM and index

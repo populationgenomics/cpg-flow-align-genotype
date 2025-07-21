@@ -126,7 +126,7 @@ def align(
         merge_j.image(config.config_retrieve(['images', 'samtools']))
 
         nthreads = resources.STANDARD.set_resources(
-            merge_j,
+            j=merge_j,
             nthreads=config.config_retrieve(['workflow', 'align_threads'], resources.STANDARD.max_threads()),
             # for FASTQ or BAM inputs, requesting more disk (400G). Example when
             # default is not enough: https://batch.hail.populationgenomics.org.au/batches/73892/jobs/56
