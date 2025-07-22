@@ -126,7 +126,7 @@ def align(
         merge_j.image(config.config_retrieve(['images', 'samtools']))
 
         nthreads = resources.STANDARD.set_resources(
-            merge_j,
+            j=merge_j,
             nthreads=config.config_retrieve(['workflow', 'align_threads'], resources.STANDARD.max_threads()),
             # for FASTQ or BAM inputs, requesting more disk (400G). Example when
             # default is not enough: https://batch.hail.populationgenomics.org.au/batches/73892/jobs/56
@@ -201,9 +201,6 @@ def _align_one(
         job_attrs ():
         shard_string (str | None): if populated, a String in the form 'X/Y', this is string formatted as a CLI argument
         should_sort ():
-
-    Returns:
-
     """
 
     batch_instance = hail_batch.get_batch()
@@ -212,12 +209,13 @@ def _align_one(
 
     job_name = f'Align {shard_string} ' if shard_string else f'Align {alignment_input}'
 
-    j = batch_instance.new_bash_job(name=job_name, attributes=(job_attrs or {}) | {'tool': 'dragmap'})
+    job = batch_instance.new_bash_job(name=job_name, attributes=(job_attrs or {}) | {'tool': 'dragmap'})
 
     vm_type = resources.HIGHMEM if config.config_retrieve(['workflow', 'align_use_highmem']) else resources.STANDARD
 
+    # confused by this error message
     nthreads = vm_type.set_resources(
-        j,
+        j=job,
         nthreads=config.config_retrieve(['workflow', 'align_threads'], resources.STANDARD.max_threads()),
         storage_gb=storage_for_align_job(alignment_input=alignment_input),
     ).get_nthreads()
@@ -292,7 +290,7 @@ def _align_one(
         """,
         )
 
-    j.image(config.config_retrieve(['images', 'dragmap']))
+    job.image(config.config_retrieve(['images', 'dragmap']))
     dragmap_index = batch_instance.read_input_group(
         **{
             k.replace('.', '_'): os.path.join(config.reference_path('broad/dragmap_prefix'), k)
@@ -312,7 +310,7 @@ def _align_one(
     # prepare command for adding sort on the end
     cmd = dedent(cmd).strip()
     if should_sort:
-        cmd += ' ' + sort_cmd(requested_nthreads) + f' -o {j.sorted_bam}'
+        cmd += ' ' + sort_cmd(requested_nthreads) + f' -o {job.sorted_bam}'
 
     if fifo_commands:
         fifo_pre = [
@@ -341,7 +339,7 @@ def _align_one(
 
         # Now prepare command
         cmd = '\n'.join([sort_index_input_cmd, *fifo_pre, cmd, fifo_post])
-    return j, cmd
+    return job, cmd
 
 
 def sort_cmd(requested_nthreads: int) -> str:
