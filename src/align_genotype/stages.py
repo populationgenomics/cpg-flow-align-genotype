@@ -57,7 +57,7 @@ class AlignWithDragmap(stage.SequencingGroupStage):
 
 
 @stage.stage(
-    required_stages=AlignWithDragmap,
+    required_stages=[AlignWithDragmap],
     analysis_type='gvcf',
 )
 class GenotypeWithGatk(stage.SequencingGroupStage):
@@ -91,7 +91,7 @@ class GenotypeWithGatk(stage.SequencingGroupStage):
         return self.make_outputs(sequencing_group, data=output, jobs=jobs)
 
 
-@stage.stage(required_stages=AlignWithDragmap)
+@stage.stage(required_stages=[AlignWithDragmap])
 class CramQcSomalier(stage.SequencingGroupStage):
     """Run somalier extract on a CRAM file."""
 
@@ -112,7 +112,7 @@ class CramQcSomalier(stage.SequencingGroupStage):
         return self.make_outputs(sequencing_group, data=output, jobs=jobs)
 
 
-@stage.stage(required_stages=AlignWithDragmap)
+@stage.stage(required_stages=[AlignWithDragmap])
 class CramQcVerifyBamId(stage.SequencingGroupStage):
     """Run verifyBamId on a CRAM file."""
 
@@ -133,7 +133,7 @@ class CramQcVerifyBamId(stage.SequencingGroupStage):
         return self.make_outputs(sequencing_group, data=output, jobs=jobs)
 
 
-@stage.stage(required_stages=AlignWithDragmap)
+@stage.stage(required_stages=[AlignWithDragmap])
 class CramQcSamtoolsStats(stage.SequencingGroupStage):
     """Run Samtools  on a CRAM file."""
 
@@ -154,7 +154,7 @@ class CramQcSamtoolsStats(stage.SequencingGroupStage):
         return self.make_outputs(sequencing_group, data=output, jobs=jobs)
 
 
-@stage.stage(required_stages=AlignWithDragmap)
+@stage.stage(required_stages=[AlignWithDragmap])
 class CramQcPicardMultiMetrics(stage.SequencingGroupStage):
     """
     Run Picard CollectMetrics  on a CRAM file.
@@ -193,7 +193,7 @@ class CramQcPicardMultiMetrics(stage.SequencingGroupStage):
         return self.make_outputs(sequencing_group, data=outputs, jobs=jobs)
 
 
-@stage.stage(required_stages=AlignWithDragmap)
+@stage.stage(required_stages=[AlignWithDragmap])
 class CramQcPicardCollectMetrics(stage.SequencingGroupStage):
     """
     Run Picard CollectMetrics on a CRAM file.
@@ -230,10 +230,11 @@ class CramQcPicardCollectMetrics(stage.SequencingGroupStage):
 
         else:
             raise ValueError(f'Unsupported sequencing type: {sequencing_group.sequencing_type}')
+
         return self.make_outputs(sequencing_group, data=output, jobs=job)
 
 
-@stage.stage(required_stages=GenotypeWithGatk)
+@stage.stage(required_stages=[GenotypeWithGatk])
 class RunGvcfQc(stage.SequencingGroupStage):
     """
     Run GVCF QC tools on a GVCF file.

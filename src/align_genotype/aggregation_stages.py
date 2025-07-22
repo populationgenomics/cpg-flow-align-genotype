@@ -170,9 +170,7 @@ def _update_meta(output_path: str) -> dict:
 
 
 @stage.stage(
-    required_stages=[
-        RunGvcfQc,
-    ],
+    required_stages=[RunGvcfQc],
     analysis_type='qc',
     analysis_keys=['json'],
     update_analysis_meta=_update_meta,

@@ -256,7 +256,9 @@ def hs_metrics(
 
     batch_instance = hail_batch.get_batch()
 
-    job = batch_instance.new_job('Picard CollectHsMetrics', attributes=job_attrs | {'tool': 'picard_CollectHsMetrics'})
+    job = batch_instance.new_bash_job(
+        'Picard CollectHsMetrics', attributes=job_attrs | {'tool': 'picard_CollectHsMetrics'}
+    )
     job.image(config.config_retrieve(['images', 'picard']))
     res = resources.STANDARD.request_resources(ncpu=2)
     res.attach_disk_storage_gb = config.config_retrieve(['workflow', 'exome_cram_gb'])
@@ -317,7 +319,7 @@ def wgs_metrics(
 
     batch_instance = hail_batch.get_batch()
 
-    job = batch_instance.new_job(
+    job = batch_instance.new_bash_job(
         'Picard CollectWgsMetrics',
         attributes=job_attrs | {'tool': 'picard_CollectWgsMetrics'},
     )
@@ -365,7 +367,7 @@ def vcf_qc(
     """Run Picard CollectVariantCallingMetrics."""
 
     batch_instance = hail_batch.get_batch()
-    job = batch_instance.new_job(
+    job = batch_instance.new_bash_job(
         'CollectVariantCallingMetrics', attributes=job_attrs | {'tool': 'picard CollectVariantCallingMetrics'}
     )
     job.image(config.config_retrieve(['images', 'picard']))
