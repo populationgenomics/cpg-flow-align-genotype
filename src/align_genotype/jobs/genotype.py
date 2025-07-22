@@ -276,7 +276,7 @@ def postprocess_gvcf(
     # Enough to fit a pre-reblocked GVCF, which can be as big as 10G,
     # the reblocked result (1G), and ref data (5G).
     storage_gb = config.config_retrieve(['workflow', 'postproc_gvcf_storage'])
-    job_res = resources.STANDARD.set_resources(job, ncpu=2, storage_gb=storage_gb)
+    job_res = resources.STANDARD.set_resources(j=job, ncpu=2, storage_gb=storage_gb)
 
     job.declare_resource_group(
         output_gvcf={

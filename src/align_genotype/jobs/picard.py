@@ -117,7 +117,7 @@ def get_intervals(
         attributes=(job_attrs or {}) | {'tool': 'picard IntervalListTools'},
     )
     job.image(config.config_retrieve(['images', 'picard']))
-    resources.STANDARD.set_resources(job, storage_gb=16, mem_gb=2)
+    resources.STANDARD.set_resources(j=job, storage_gb=16, mem_gb=2)
 
     break_bands_at_multiples_of = {
         'genome': 100000,
@@ -166,7 +166,7 @@ def get_intervals(
 
 def collect_metrics(
     cram_path: str,
-    out_prefix: str,
+    outputs: dict[str, Path],
     job_attrs: dict,
 ) -> BashJob:
     """
@@ -196,11 +196,11 @@ def collect_metrics(
     # declare a resource group to catch all the outputs
     job.declare_resource_group(
         output_rg={
-            'alignment_summary_metrics': '{root}.alignment_summary_metrics',
-            'base_distribution_by_cycle_metrics': '{root}.base_distribution_by_cycle_metrics',
-            'insert_size_metrics': '{root}.insert_size_metrics',
-            'quality_by_cycle_metrics': '{root}.quality_by_cycle_metrics',
-            'quality_yield_metrics': '{root}.quality_yield_metrics',
+            'summary': '{root}.alignment_summary_metrics',
+            'base_dist': '{root}.base_distribution_by_cycle_metrics',
+            'insert_size': '{root}.insert_size_metrics',
+            'qual_by_cycle': '{root}.quality_by_cycle_metrics',
+            'yield': '{root}.quality_yield_metrics',
         },
     )
 
@@ -216,7 +216,7 @@ def collect_metrics(
       CollectMultipleMetrics \\
       -I {cram_localised} \\
       -R {reference.base} \\
-      -O {job.output_rg} \\
+      -O $BATCH_TMPDIR/prefix \\
       -AS True \\
       --VALIDATION_STRINGENCY SILENT \\
       -PROGRAM null \\
@@ -227,10 +227,20 @@ def collect_metrics(
       -PROGRAM CollectQualityYieldMetrics \\
       -LEVEL null \\
       -LEVEL SAMPLE
+
+    cp $BATCH_TMPDIR/prefix.alignment_summary_metrics {job.summary}
+    cp $BATCH_TMPDIR/prefix.base_distribution_by_cycle_metrics {job.base_dist}
+    cp $BATCH_TMPDIR/prefix.insert_size_metrics {job.insert_size}
+    cp $BATCH_TMPDIR/prefix.quality_by_cycle_metrics {job.qual_by_cycle}
+    cp $BATCH_TMPDIR/prefix.quality_yield_metrics {job.yield_metrics}
     """,
     )
-    batch_instance.write_output(job.output_rg, out_prefix)
-    return job
+
+    batch_instance.write_output(job.summary, outputs['summary'])
+    batch_instance.write_output(job.base_dist, outputs['base_dist'])
+    batch_instance.write_output(job.insert_size, outputs['insert_size'])
+    batch_instance.write_output(job.qual_by_cycle, outputs['qual_by_cycle'])
+    batch_instance.write_output(job.yield_metrics, outputs['yield'])
 
 
 def hs_metrics(
@@ -246,7 +256,9 @@ def hs_metrics(
 
     batch_instance = hail_batch.get_batch()
 
-    job = batch_instance.new_job('Picard CollectHsMetrics', attributes=job_attrs | {'tool': 'picard_CollectHsMetrics'})
+    job = batch_instance.new_bash_job(
+        'Picard CollectHsMetrics', attributes=job_attrs | {'tool': 'picard_CollectHsMetrics'}
+    )
     job.image(config.config_retrieve(['images', 'picard']))
     res = resources.STANDARD.request_resources(ncpu=2)
     res.attach_disk_storage_gb = config.config_retrieve(['workflow', 'exome_cram_gb'])
@@ -307,7 +319,7 @@ def wgs_metrics(
 
     batch_instance = hail_batch.get_batch()
 
-    job = batch_instance.new_job(
+    job = batch_instance.new_bash_job(
         'Picard CollectWgsMetrics',
         attributes=job_attrs | {'tool': 'picard_CollectWgsMetrics'},
     )
@@ -355,12 +367,12 @@ def vcf_qc(
     """Run Picard CollectVariantCallingMetrics."""
 
     batch_instance = hail_batch.get_batch()
-    job = batch_instance.new_job(
+    job = batch_instance.new_bash_job(
         'CollectVariantCallingMetrics', attributes=job_attrs | {'tool': 'picard CollectVariantCallingMetrics'}
     )
     job.image(config.config_retrieve(['images', 'picard']))
 
-    res = resources.STANDARD.set_resources(job, storage_gb=20, mem_gb=3)
+    res = resources.STANDARD.set_resources(j=job, storage_gb=20, mem_gb=3)
 
     dbsnp_vcf = config.config_retrieve(['references', 'dbsnp_vcf'])
     dbsnp_vcf_localised = batch_instance.read_input_group(

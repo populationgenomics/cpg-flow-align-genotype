@@ -21,8 +21,9 @@ classifiers=[
 ]
 
 dependencies=[
-    'cpg-flow==v0.2.4',
+    'cpg-flow==v0.3.2',
     'hatchling',
+    'peddy',
 ]
 
 [project.urls]
@@ -39,6 +40,7 @@ test = [
 
 # the workflow runner script - entrypoint for the pipeline
 run_workflow = 'align_genotype.run_workflow:cli_main'
+dataset_workflow = 'align_genotype.dataset_workflow:cli_main'
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/align_genotype"]
@@ -97,7 +99,12 @@ ignore = [
     "G004", # Logging statement uses f-string
     "PLW0603", # Using the global statement to update `<VAR>` is discouraged
     "Q000", # Single quotes found but double quotes preferred
+    "PD901", # Avoid using the generic variable name `df` for DataFrames
 ]
 
 [tool.ruff.lint.isort]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/align_genotype/scripts/check_pedigree.py" = ["C901", "PLR0912", "PLR0913", "PLR0915"]  # ignore complexity for this script
+"src/align_genotype/jobs/somalier.py" = ["C901", "PLR0912", "PLR0913", "PLR0915"]  # ignore complexity for this script
