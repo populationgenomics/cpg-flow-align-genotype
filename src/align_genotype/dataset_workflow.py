@@ -4,7 +4,7 @@ from argparse import ArgumentParser
 
 from cpg_flow.workflow import run_workflow
 
-from align_genotype.aggregation_stages import CramMultiQC, GvcfMultiQC, SomalierPedigree
+from align_genotype.dataset_stages import CramMultiQC, GvcfMultiQC, SomalierPedigree
 
 
 def cli_main():
