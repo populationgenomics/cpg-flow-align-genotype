@@ -13,7 +13,7 @@ def markdup(
     sorted_bam: hb.Resource,
     job_attrs: dict,
     output_path: Path,
-    out_markdup_metrics_path: Path,
+    out_markdup_metrics_path: str,
 ) -> BashJob:
     """
     Make job that runs Picard MarkDuplicates and converts the result to CRAM.
@@ -241,6 +241,8 @@ def collect_metrics(
     batch_instance.write_output(job.insert_size, outputs['insert_size'])
     batch_instance.write_output(job.qual_by_cycle, outputs['qual_by_cycle'])
     batch_instance.write_output(job.yield_metrics, outputs['yield'])
+
+    return job
 
 
 def hs_metrics(
