@@ -13,7 +13,7 @@ def markdup(
     sorted_bam: hb.Resource,
     job_attrs: dict,
     output_path: Path,
-    out_markdup_metrics_path: Path,
+    out_markdup_metrics_path: str,
 ) -> BashJob:
     """
     Make job that runs Picard MarkDuplicates and converts the result to CRAM.

@@ -21,7 +21,7 @@ def align(
     job_attrs: dict,
     output_path: Path,
     sorted_bam_path: str,
-    markdup_metrics_path: Path,
+    markdup_metrics_path: str,
 ) -> list[BashJob]:
     """
     - if the input is 1 fastq pair, submits one alignment job.
@@ -361,7 +361,7 @@ def finalise_alignment(  # noqa: PLR0913
     job_attrs: dict,
     output_path: Path,
     sorted_bam_path: str,
-    out_markdup_metrics_path: Path,
+    out_markdup_metrics_path: str,
 ) -> BashJob:
     """
     For `MarkDupTool.PICARD`, creates a new job, as Picard can't read from stdin.

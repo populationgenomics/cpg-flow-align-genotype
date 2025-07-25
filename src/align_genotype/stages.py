@@ -22,14 +22,18 @@ class AlignWithDragmap(stage.SequencingGroupStage):
     This is a generic stage that runs a bash command.
     """
 
-    def expected_outputs(self, sequencing_group: targets.SequencingGroup) -> Path:
+    def expected_outputs(self, sequencing_group: targets.SequencingGroup) -> dict[str, Path | str]:
+        """
+        n.b. markduplicates-metrics are a String here so their existence isn't detected during DAG assembly.
+        This means we will not accidentally restart alignment where this optional accessory file doesn't exist.
+        """
         cram_path = sequencing_group.cram if sequencing_group.cram else sequencing_group.make_cram_path()
         return {
             'cram': cram_path.path,
             'sorted_bam': str(
                 sequencing_group.dataset.prefix(category='tmp') / 'align' / f'{sequencing_group.id}.sorted.bam'
             ),
-            'markdup': (
+            'markdup': str(
                 sequencing_group.dataset.prefix()
                 / 'qc'
                 / 'markduplicates_metrics'
