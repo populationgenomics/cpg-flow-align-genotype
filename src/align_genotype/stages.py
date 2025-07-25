@@ -208,7 +208,7 @@ class CramQcPicardCollectMetrics(stage.SequencingGroupStage):
         qc_prefix = sequencing_group.dataset.prefix() / 'qc'
         # genomes use wgs, exome uses hs - this is in the path and file extension
         qc_type = 'wgs' if sequencing_group.sequencing_type == 'genome' else 'hs'
-        return qc_prefix / f'picard-{qc_type}-metrics/{sequencing_group.id}.picard-{qc_type}-metrics'
+        return qc_prefix / f'picard_{qc_type}_metrics/{sequencing_group.id}.picard-{qc_type}-metrics'
 
     def queue_jobs(self, sequencing_group: targets.SequencingGroup, inputs: stage.StageInput) -> stage.StageOutput:
         output = self.expected_outputs(sequencing_group)
