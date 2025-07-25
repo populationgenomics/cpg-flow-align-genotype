@@ -10,7 +10,7 @@ Cram QC: https://github.com/populationgenomics/production-pipelines/blob/main/cp
 
 gVCF QC: https://github.com/populationgenomics/production-pipelines/blob/main/cpg_workflows/stages/gvcf_qc.py
 
-These workflows start with the single-sample assay data we've received from our collaborators, FastQ, BAM, or FQ.ora, 
+These workflows start with the single-sample assay data we've received from our collaborators, FastQ, BAM, or FQ.ora,
 and carry out the alignment and genotyping steps of the analysis, including:
 - Aligning the reads to the reference genome using DRAGMAP (Dragen-OS)
 - Generating alignment quality metrics using Samtools, Picard, and Somalier fingerprinting
