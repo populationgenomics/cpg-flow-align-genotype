@@ -48,6 +48,10 @@ status_reporter = 'metamist'
 exome_cram_gb = 20
 genome_cram_gb = 100
 
+[references.broad]
+# still required in cpg-flow setup
+ref_fasta = "gs://cpg-common-main/references/hg38/v0/dragen_reference/Homo_sapiens_assembly38_masked.fasta"
+
 [images]
 dragmap = "australia-southeast1-docker.pkg.dev/cpg-common/images/dragmap:1.3.0-tokenizer-next-fix"
 gatk = "australia-southeast1-docker.pkg.dev/cpg-common/images/gatk:4.2.6.1"

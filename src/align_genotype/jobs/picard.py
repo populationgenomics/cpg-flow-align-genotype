@@ -242,6 +242,8 @@ def collect_metrics(
     batch_instance.write_output(job.qual_by_cycle, outputs['qual_by_cycle'])
     batch_instance.write_output(job.yield_metrics, outputs['yield'])
 
+    return job
+
 
 def hs_metrics(
     cram_path: str,
