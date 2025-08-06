@@ -18,8 +18,8 @@ def extract_somalier(
     job = batch_instance.new_job('Somalier extract', attributes=job_attrs | {'tool': 'somalier'})
 
     job.image(config.config_retrieve(['images', 'somalier']))
-
-    storage_gb = 100 if config.config_retrieve(['workflow', 'sequencing_type']) == 'genome' else 10
+    sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
+    storage_gb = config.config_retrieve(['workflow', f'{sequencing_type}_cram_gb'], default=100)
     job.storage(f'{storage_gb}GB')
 
     ref = hail_batch.fasta_res_group(batch_instance)
