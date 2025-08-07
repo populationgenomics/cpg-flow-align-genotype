@@ -24,6 +24,7 @@ dependencies=[
     'cpg-flow==v0.3.2',
     'hatchling',
     'peddy',
+    'slack_sdk',
 ]
 
 [project.urls]
