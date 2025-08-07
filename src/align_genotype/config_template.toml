@@ -30,6 +30,9 @@ reblock_gq_bands = [13, 20, 30, 40]
 # set to assign a specific amount of RAM to the picard jobs, defaults available
 #picard_mem_gb
 
+# set to use highmem workers for picard qc metrics jobs, defaults to false
+picard_metrics_use_highmem = false
+
 # set to override the picard attached storage, default 250
 picard_storage_gb = 250
 

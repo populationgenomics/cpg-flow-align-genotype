@@ -164,6 +164,15 @@ def get_intervals(
     return job, intervals
 
 
+def get_metrics_job_resources():
+    """
+    Get the resources for Picard metrics jobs.
+    """
+    if config.config_retrieve(['workflow', 'picard_metrics_use_highmem'], default=False):
+        return resources.HIGHMEM.request_resources(ncpu=4, mem_gb=16)
+    return resources.STANDARD.request_resources(ncpu=2, mem_gb=8)  # Default memory for metrics jobs
+
+
 def collect_metrics(
     cram_path: str,
     outputs: dict[str, Path],
@@ -183,12 +192,9 @@ def collect_metrics(
     job.image(config.config_retrieve(['images', 'picard']))
     # estimate CRAM size
 
-    res = resources.STANDARD.request_resources(ncpu=2)
-
+    res = get_metrics_job_resources()
     sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
-
     res.attach_disk_storage_gb = config.config_retrieve(['workflow', f'{sequencing_type}_cram_gb'])
-
     res.set_to_job(job)
 
     reference = hail_batch.fasta_res_group(batch_instance)
@@ -262,7 +268,7 @@ def hs_metrics(
         'Picard CollectHsMetrics', attributes=job_attrs | {'tool': 'picard_CollectHsMetrics'}
     )
     job.image(config.config_retrieve(['images', 'picard']))
-    res = resources.STANDARD.request_resources(ncpu=2)
+    res = get_metrics_job_resources()
     res.attach_disk_storage_gb = config.config_retrieve(['workflow', 'exome_cram_gb'])
     res.set_to_job(job)
     reference = hail_batch.fasta_res_group(batch_instance)
@@ -327,7 +333,7 @@ def wgs_metrics(
     )
 
     job.image(config.config_retrieve(['images', 'picard']))
-    res = resources.STANDARD.request_resources(ncpu=2)
+    res = get_metrics_job_resources()
     res.attach_disk_storage_gb = config.config_retrieve(['workflow', 'genome_cram_gb'])
     res.set_to_job(job)
 
