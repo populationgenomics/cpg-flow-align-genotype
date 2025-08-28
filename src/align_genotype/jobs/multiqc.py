@@ -2,8 +2,7 @@
 Batch jobs to run MultiQC.
 """
 
-from cpg_flow import targets
-from cpg_flow import resources
+from cpg_flow import resources, targets
 from cpg_utils import Path, config, hail_batch
 from hailtop.batch import Batch, ResourceFile
 from hailtop.batch.job import Job
