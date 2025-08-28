@@ -91,7 +91,7 @@ def run(  # noqa: C901, PLR0912
         ),
     ]:
         threshold_d = config.config_retrieve(['qc_thresholds', seq_type, config_key], {})
-        for section in sections:
+        for section in sections.values():
             for sample, val_by_metric in section.items():
                 for metric, threshold in threshold_d.items():
                     if metric in val_by_metric:
