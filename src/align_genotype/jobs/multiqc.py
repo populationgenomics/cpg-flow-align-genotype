@@ -130,7 +130,7 @@ def check_report_job(  # noqa: PLR0913
         title += f' [{label}]'
     check_j = b.new_job(f'{title} check', (job_attrs or {}) | {'tool': 'python'})
     resources.STANDARD.set_resources(j=check_j, ncpu=2)
-    check_j.image(config.config_retrieve(['images', 'cpg-flow-align-genotype']))
+    check_j.image(config.config_retrieve(['workflow', 'driver_image']))
 
     cmd = f"""\
     {rich_sequencing_group_id_seds(rich_id_map, [multiqc_json_file]) if rich_id_map else ''}
