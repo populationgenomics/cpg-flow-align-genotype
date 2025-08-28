@@ -3,7 +3,7 @@ Batch jobs to run MultiQC.
 """
 
 from cpg_flow import targets
-from cpg_flow.resources import STANDARD
+from cpg_flow import resources
 from cpg_utils import Path, config, hail_batch
 from hailtop.batch import Batch, ResourceFile
 from hailtop.batch.job import Job
@@ -130,7 +130,7 @@ def check_report_job(  # noqa: PLR0913
     if label:
         title += f' [{label}]'
     check_j = b.new_job(f'{title} check', (job_attrs or {}) | {'tool': 'python'})
-    STANDARD.set_resources(check_j, ncpu=2)
+    resources.STANDARD.set_resources(j=check_j, ncpu=2)
     check_j.image(config.config_retrieve(['images', 'cpg-flow-align-genotype']))
 
     cmd = f"""\
