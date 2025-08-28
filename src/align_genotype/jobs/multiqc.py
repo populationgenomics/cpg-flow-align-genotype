@@ -94,7 +94,7 @@ def multiqc(  # noqa: PLR0913
     batch_instance.write_output(mqc_j.html, outputs['html'])
     batch_instance.write_output(mqc_j.json, outputs['json'])
     jobs: list[Job] = [mqc_j]
-    if config.config_retrieve[('qc_thresholds')]:
+    if config.config_retrieve(['qc_thresholds']):
         check_j = check_report_job(
             b=batch_instance,
             multiqc_json_file=mqc_j.json,
