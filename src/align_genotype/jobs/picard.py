@@ -340,7 +340,7 @@ def wgs_metrics(
     reference = hail_batch.fasta_res_group(batch_instance)
     interval_file = batch_instance.read_input(
         config.config_retrieve(
-            ['references', 'genome_evaluation_interval_lists'],
+            ['references', 'genome_coverage_interval_list'],
         ),
     )
 

@@ -136,6 +136,11 @@ class CramMultiQC(stage.DatasetStage):
         paths.extend(inputs.as_path_by_target(CramQcSamtoolsStats).values())
         paths.extend(inputs.as_path_by_target(CramQcPicardCollectMetrics).values())
 
+        if base_url := dataset.web_url():
+            html_url = str(outputs['html']).replace(str(dataset.web_prefix()), base_url)
+        else:
+            html_url = None
+
         sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
         if sequencing_type == 'genome':
             ending_to_trim.add('.picard-wgs-metrics')
@@ -144,6 +149,10 @@ class CramMultiQC(stage.DatasetStage):
             ending_to_trim.add('.picard-hs-metrics')
             modules_to_trim_endings.add('picard/hsmetrics')
 
+        send_to_slack = config.config_retrieve(['workflow', 'cram_multiqc', 'send_to_slack'], default=True)
+        extra_config = config.config_retrieve(['workflow', 'cram_multiqc', 'extra_config'], default={})
+        extra_config['table_columns_visible'] = {'FastQC': False}
+
         jobs = multiqc.multiqc(
             tmp_prefix=dataset.tmp_prefix() / 'multiqc' / 'cram',
             paths=paths,
@@ -151,10 +160,13 @@ class CramMultiQC(stage.DatasetStage):
             modules_to_trim_endings=modules_to_trim_endings,
             dataset=dataset,
             outputs=outputs,
+            out_checks_path=outputs['checks'],
+            out_html_url=html_url,
             job_attrs=self.get_job_attrs(dataset),
             sequencing_group_id_map=dataset.rich_id_map(),
             label='CRAM',
-            extra_config="{'FastQC': False}",
+            extra_config=extra_config,
+            send_to_slack=send_to_slack,
         )
         return self.make_outputs(dataset, data=outputs, jobs=jobs)
 
@@ -193,16 +205,28 @@ class GvcfMultiQC(stage.DatasetStage):
 
         paths = [content['detail'] for content in inputs.as_dict_by_target(RunGvcfQc).values()]
 
+        if base_url := dataset.web_url():
+            html_url = str(outputs['html']).replace(str(dataset.web_prefix()), base_url)
+        else:
+            html_url = None
+
+        send_to_slack = config.config_retrieve(['workflow', 'cram_multiqc', 'send_to_slack'], default=True)
+        extra_config = config.config_retrieve(['workflow', 'cram_multiqc', 'extra_config'], default={})
+        extra_config['table_columns_visible'] = {'Picard': True}
+
         jobs = multiqc.multiqc(
             dataset=dataset,
             outputs=outputs,
+            out_html_url=html_url,
+            out_checks_path=outputs['checks'],
             tmp_prefix=dataset.tmp_prefix() / 'multiqc' / 'gvcf',
             paths=paths,
             ending_to_trim={'.variant_calling_detail_metrics'},
             modules_to_trim_endings={'picard/variant_calling_metrics'},
             job_attrs=self.get_job_attrs(dataset),
             sequencing_group_id_map=dataset.rich_id_map(),
-            extra_config="{'Picard': True}",
             label='GVCF',
+            extra_config=extra_config,
+            send_to_slack=send_to_slack,
         )
         return self.make_outputs(dataset, data=outputs, jobs=jobs)

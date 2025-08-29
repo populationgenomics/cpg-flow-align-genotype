@@ -2,8 +2,9 @@
 Batch jobs to run MultiQC.
 """
 
-from cpg_flow import targets
+from cpg_flow import resources, targets
 from cpg_utils import Path, config, hail_batch
+from hailtop.batch import Batch, ResourceFile
 from hailtop.batch.job import Job
 
 
@@ -12,12 +13,15 @@ def multiqc(  # noqa: PLR0913
     tmp_prefix: Path,
     paths: list[Path],
     outputs: dict[str, Path],
+    out_html_url: str | None,
+    out_checks_path: Path | None,
     label: str,
     ending_to_trim: set[str],
     modules_to_trim_endings: set[str],
     job_attrs: dict,
     sequencing_group_id_map: dict[str, str],
     extra_config: str,
+    send_to_slack: bool = True,
 ) -> Job:
     """
     Run MultiQC for the files in `qc_paths`
@@ -34,6 +38,8 @@ def multiqc(  # noqa: PLR0913
     @param job_attrs: attributes to add to Hail Batch job
     @param sequencing_group_id_map: sequencing group ID map for bulk sequencing group renaming:
         (https://multiqc.info/docs/#bulk-sample-renaming-in-reports)
+    @param extra_config: additional configuration options for MultiQC
+    @param send_to_slack: whether or not to send a Slack message to the qc channel
     """
 
     batch_instance = hail_batch.get_batch()
@@ -81,7 +87,88 @@ def multiqc(  # noqa: PLR0913
         cp output/report_data/multiqc_data.json {mqc_j.json}
         """
     )
+    if out_html_url:
+        mqc_j.command(f'echo "HTML URL: {out_html_url}"')
 
     batch_instance.write_output(mqc_j.html, outputs['html'])
     batch_instance.write_output(mqc_j.json, outputs['json'])
-    return mqc_j
+    jobs: list[Job] = [mqc_j]
+    if config.config_retrieve(['qc_thresholds']):
+        check_j = check_report_job(
+            b=batch_instance,
+            multiqc_json_file=mqc_j.json,
+            multiqc_html_url=out_html_url,
+            rich_id_map=dataset.rich_id_map(),
+            dataset_name=dataset.name,
+            label=label,
+            out_checks_path=out_checks_path,
+            job_attrs=job_attrs,
+            send_to_slack=send_to_slack,
+        )
+        check_j.depends_on(mqc_j)
+        jobs.append(check_j)
+    return jobs
+
+
+def check_report_job(  # noqa: PLR0913
+    b: Batch,
+    multiqc_json_file: ResourceFile,
+    dataset_name: str,
+    multiqc_html_url: str | None = None,
+    label: str | None = None,
+    rich_id_map: dict[str, str] | None = None,
+    out_checks_path: Path | None = None,
+    job_attrs: dict | None = None,
+    send_to_slack: bool = True,
+) -> Job:
+    """
+    Run job that checks MultiQC JSON result and sends a Slack notification
+    about failed samples.
+    """
+    title = 'MultiQC'
+    if label:
+        title += f' [{label}]'
+    check_j = b.new_job(f'{title} check', (job_attrs or {}) | {'tool': 'python'})
+    resources.STANDARD.set_resources(j=check_j, ncpu=2)
+    check_j.image(config.config_retrieve(['workflow', 'driver_image']))
+
+    cmd = f"""\
+    {rich_sequencing_group_id_seds(rich_id_map, [multiqc_json_file]) if rich_id_map else ''}
+
+    python3 -m align_genotype.scripts.check_multiqc \\
+    --multiqc-json {multiqc_json_file} \\
+    --html-url {multiqc_html_url} \\
+    --dataset {dataset_name} \\
+    --title "{title}" \\
+    --{'no-' if not send_to_slack else ''}send-to-slack
+
+    touch {check_j.output}
+    echo "HTML URL: {multiqc_html_url}"
+    """
+
+    check_j.command(cmd)
+
+    if out_checks_path:
+        b.write_output(check_j.output, str(out_checks_path))
+    return check_j
+
+
+def rich_sequencing_group_id_seds(
+    rich_id_map: dict[str, str],
+    file_names: list[str | ResourceFile],
+) -> str:
+    """
+    Helper function to add seds into a command that would extend sequencing group IDs
+    in each file in `file_names` with an external ID, only if external ID is
+    different from the original.
+
+    @param rich_id_map: map used to replace sequencing groups, e.g. {'CPGAA': 'CPGAA|EXTID'}
+    @param file_names: file names and Hail Batch Resource files where to replace IDs
+    @return: bash command that does replacement
+    """
+    cmd = ''
+    for sgid, rich_sgid in rich_id_map.items():
+        for fname in file_names:
+            cmd += f"sed -iBAK 's/{sgid}/{rich_sgid}/g' {fname}"
+            cmd += '\n'
+    return cmd
