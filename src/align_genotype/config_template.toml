@@ -81,6 +81,7 @@ genome_evaluation_interval_lists = "gs://cpg-common-main/references/hg38/v0/wgs_
 exome_evaluation_interval_lists = "gs://cpg-common-main/references/hg38/v0/exome_evaluation_regions.v1.interval_list"
 noalt_bed = "gs://cpg-common-main/references/hg38/v0/sv-resources/resources/v1/primary_contigs_plus_mito.bed.gz"
 genome_calling_interval_lists = "gs://cpg-common-main/references/hg38/v0/wgs_calling_regions.hg38.interval_list"
+genome_coverage_interval_list='gs://cpg-common-main/references/hg38/v0/wgs_coverage_regions.hg38.interval_list'
 exome_calling_interval_lists = "gs://cpg-common-main/references/hg38/v0/exome_calling_regions.v1.interval_list"
 hg38_telomeres_and_centromeres_intervals_list = "gs://cpg-common-main/references/hg38/v0/hg38.telomeresAndMergedCentromeres.interval_list"
 somalier_sites = "gs://cpg-common-main/references/somalier/sites.hg38.vcf.gz"
