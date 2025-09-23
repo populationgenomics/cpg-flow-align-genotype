@@ -12,6 +12,14 @@ from align_genotype.stages import (
 )
 
 
+def filter_to_dataset_sgids(
+    inputs_by_sgid: dict,
+    dataset: targets.Dataset,
+):
+    """Filter a dict of inputs by sequencing group ID to only those in the dataset."""
+    return {k: v for k, v in inputs_by_sgid.items() if k in dataset.get_sequencing_group_ids()}
+
+
 @stage.stage(required_stages=[CramQcVerifyBamId, CramQcSomalier])
 class SomalierPedigree(stage.DatasetStage):
     """
@@ -44,8 +52,8 @@ class SomalierPedigree(stage.DatasetStage):
 
         outputs = self.expected_outputs(dataset)
 
-        verifybamid_by_sgid = inputs.as_path_by_target(CramQcVerifyBamId)
-        somalier_path_by_sgid = inputs.as_path_by_target(CramQcSomalier)
+        verifybamid_by_sgid = filter_to_dataset_sgids(inputs.as_path_by_target(CramQcVerifyBamId), dataset)
+        somalier_path_by_sgid = filter_to_dataset_sgids(inputs.as_path_by_target(CramQcSomalier), dataset)
 
         html_url = str(outputs['html']).replace(str(dataset.web_prefix()), dataset.web_url())
 
@@ -121,7 +129,7 @@ class CramMultiQC(stage.DatasetStage):
         }
 
         # add in alignemnt metrics
-        for content in inputs.as_dict_by_target(CramQcPicardMultiMetrics).values():
+        for _, content in filter_to_dataset_sgids(inputs.as_dict_by_target(CramQcPicardMultiMetrics), dataset).items():
             paths.extend(
                 [
                     content['summary'],
@@ -131,10 +139,10 @@ class CramMultiQC(stage.DatasetStage):
                     content['yield'],
                 ]
             )
-        paths.extend(inputs.as_path_by_target(CramQcSomalier).values())
-        paths.extend(inputs.as_path_by_target(CramQcVerifyBamId).values())
-        paths.extend(inputs.as_path_by_target(CramQcSamtoolsStats).values())
-        paths.extend(inputs.as_path_by_target(CramQcPicardCollectMetrics).values())
+        paths.extend(filter_to_dataset_sgids(inputs.as_path_by_target(CramQcSomalier), dataset).values())
+        paths.extend(filter_to_dataset_sgids(inputs.as_path_by_target(CramQcVerifyBamId), dataset).values())
+        paths.extend(filter_to_dataset_sgids(inputs.as_path_by_target(CramQcSamtoolsStats), dataset).values())
+        paths.extend(filter_to_dataset_sgids(inputs.as_path_by_target(CramQcPicardCollectMetrics), dataset).values())
 
         if base_url := dataset.web_url():
             html_url = str(outputs['html']).replace(str(dataset.web_prefix()), base_url)
@@ -203,7 +211,10 @@ class GvcfMultiQC(stage.DatasetStage):
         """Collect gVCF QC."""
         outputs = self.expected_outputs(dataset)
 
-        paths = [content['detail'] for content in inputs.as_dict_by_target(RunGvcfQc).values()]
+        paths = [
+            content['detail']
+            for content in filter_to_dataset_sgids(inputs.as_dict_by_target(RunGvcfQc), dataset).values()
+        ]
 
         if base_url := dataset.web_url():
             html_url = str(outputs['html']).replace(str(dataset.web_prefix()), base_url)
