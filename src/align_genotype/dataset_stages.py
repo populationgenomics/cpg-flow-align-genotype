@@ -129,7 +129,7 @@ class CramMultiQC(stage.DatasetStage):
         }
 
         # add in alignemnt metrics
-        for _, content in filter_to_dataset_sgids(inputs.as_dict_by_target(CramQcPicardMultiMetrics), dataset).items():
+        for content in filter_to_dataset_sgids(inputs.as_dict_by_target(CramQcPicardMultiMetrics), dataset).values():
             paths.extend(
                 [
                     content['summary'],
