@@ -1,5 +1,7 @@
 [workflow]
 
+name = 'align_genotype'
+
 # exome/genome workflows choose one of these default values
 exome_realignment_shards = 1
 genome_realignment_shards = 10
@@ -36,15 +38,8 @@ picard_metrics_use_highmem = false
 # set to override the picard attached storage, default 250
 picard_storage_gb = 250
 
-name = 'align_genotype'
-
-input_cohorts = ["COH7059"]
-sequencing_type = 'exome'
-
 # used to make sure we don't repeat previously completed stages
 check_expected_outputs = true
-
-force_stages = ["GenotypeWithGatk"]
 
 # the method to register outputs, can be missing - will not generate metamist analysis entries
 status_reporter = 'metamist'
