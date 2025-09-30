@@ -291,9 +291,9 @@ def _align_one(
             ls $BATCH_TMPDIR
             ls $BATCH_TMPDIR/**
             orad -c --ora-reference $BATCH_TMPDIR/oradata_homo_sapiens {fastq_pair.r1} > {r1_param}
-            rm fastq_pair.r1
+            rm {fastq_pair.r1}
             orad -c --ora-reference $BATCH_TMPDIR/oradata_homo_sapiens {fastq_pair.r2} {r2_param}
-            rm fastq_pair.r2
+            rm {fastq_pair.r2}
         """,
         )
 
