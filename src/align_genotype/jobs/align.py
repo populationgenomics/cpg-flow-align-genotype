@@ -286,11 +286,14 @@ def _align_one(
         r2_param = '$BATCH_TMPDIR/R2.fq.gz'
         # Need file names to end with ".gz" for BWA or DRAGMAP to parse correctly:
         prepare_fastq_cmd = dedent(
-            f"""\
-        orad -c {fastq_pair.r1} > {r1_param}
-        rm fastq_pair.r1
-        orad -c {fastq_pair.r2} {r2_param}
-        rm fastq_pair.r2
+            f"""
+            tar -xf {fastq_pair.reference} -C $BATCH_TMPDIR
+            ls $BATCH_TMPDIR
+            ls $BATCH_TMPDIR/**
+            orad -c --ora-reference $BATCH_TMPDIR/oradata/Homo_sapiens {fastq_pair.r1} > {r1_param}
+            rm fastq_pair.r1
+            orad -c --ora-reference $BATCH_TMPDIR/oradata/Homo_sapiens {fastq_pair.r2} {r2_param}
+            rm fastq_pair.r2
         """,
         )
 
