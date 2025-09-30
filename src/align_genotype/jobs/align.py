@@ -280,7 +280,6 @@ def _align_one(
 
     # new functionality,
     elif isinstance(alignment_input, filetypes.FastqOraPair):
-        cast(filetypes.FastqOraPair, alignment_input)
         fastq_pair = alignment_input.as_resources(batch_instance)
         use_bazam = False
         r1_param = '$BATCH_TMPDIR/R1.fq.gz'
@@ -290,7 +289,9 @@ def _align_one(
             f"""
             tar -xf {fastq_pair.reference} -C $BATCH_TMPDIR
             orad -c --ora-reference $BATCH_TMPDIR/oradata_homo_sapiens {fastq_pair.r1} > {r1_param}
+            rm {fastq_pair.r1}
             orad -c --ora-reference $BATCH_TMPDIR/oradata_homo_sapiens {fastq_pair.r2} > {r2_param}
+            rm {fastq_pair.r2}
         """,
         )
 
