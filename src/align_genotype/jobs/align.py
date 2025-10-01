@@ -212,6 +212,9 @@ def _align_one(
 
     job = batch_instance.new_bash_job(name=job_name, attributes=job_attrs | {'tool': 'dragmap'})
 
+    # allow alignment jobs to be non-spot
+    job.spot(config.config_retrieve(['workflow', 'align_spot'], True))
+
     vm_type = resources.HIGHMEM if config.config_retrieve(['workflow', 'align_use_highmem']) else resources.STANDARD
 
     # confused by this error message

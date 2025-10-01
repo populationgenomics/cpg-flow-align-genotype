@@ -2,6 +2,9 @@
 
 name = 'align_genotype'
 
+# set this to false if we want to use non-preemptible machines
+align_spot = true
+
 # exome/genome workflows choose one of these default values
 exome_realignment_shards = 1
 genome_realignment_shards = 10
