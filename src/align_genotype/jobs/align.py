@@ -354,7 +354,7 @@ def sort_cmd(requested_nthreads: int) -> str:
     ).strip()
 
 
-def finalise_alignment(  # noqa: PLR0913
+def finalise_alignment(
     align_cmd: str,
     stdout_is_sorted: bool,
     job: BashJob,
