@@ -2,10 +2,7 @@
 Alignment and genotyping... oof. Where to start.
 """
 
-from cpg_flow import stage, targets
-from cpg_flow.stage import StageInput, StageOutput
-from cpg_flow.targets import MultiCohort
-from cpg_flow.workflow import get_multicohort
+from cpg_flow import stage, targets, workflow
 from cpg_utils import Path, config, to_path
 
 from align_genotype.jobs.align import align
@@ -18,15 +15,15 @@ from align_genotype.jobs.picard import collect_metrics, generate_intervals, hs_m
 
 @stage.stage
 class GenerateIntervalsOnce(stage.MultiCohortStage):
-    def expected_outputs(self, multicohort: MultiCohort) -> dict[str, list[Path]]:  # noqa: ARG002
+    def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, list[Path]]:  # noqa: ARG002
         scatter_count = config.config_retrieve(['workflow', 'scatter_count_genotype'])
         return {'intervals': [to_path(f'{idx}.interval_list') for idx in range(1, scatter_count + 1)]}
 
     def queue_jobs(
         self,
-        multicohort: MultiCohort,
-        inputs: StageInput,  # noqa: ARG002
-    ) -> StageOutput:
+        multicohort: targets.MultiCohort,
+        inputs: stage.StageInput,  # noqa: ARG002
+    ) -> stage.StageOutput:
         outputs = self.expected_outputs(multicohort)
         job = generate_intervals(outputs['intervals'], self.get_job_attrs(multicohort))
         return self.make_outputs(multicohort, jobs=job, data=outputs)
@@ -103,7 +100,7 @@ class GenotypeWithGatk(stage.SequencingGroupStage):
         output = self.expected_outputs(sequencing_group)
 
         cram = inputs.as_str(sequencing_group, AlignWithDragmap, 'cram')
-        intervals = inputs.as_dict(get_multicohort(), GenerateIntervalsOnce)['intervals']
+        intervals = inputs.as_dict(workflow.get_multicohort(), GenerateIntervalsOnce)['intervals']
 
         jobs = genotype(
             output_path=output,
