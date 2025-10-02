@@ -283,18 +283,18 @@ def _align_one(
 
     # new functionality,
     elif isinstance(alignment_input, filetypes.FastqOraPair):
-        fastq_pair = alignment_input.as_resources(batch_instance)
+        fqo_resource_group = alignment_input.resource_group(batch_instance)
         use_bazam = False
         r1_param = '$BATCH_TMPDIR/R1.fq.gz'
         r2_param = '$BATCH_TMPDIR/R2.fq.gz'
         # Need file names to end with ".gz" for BWA or DRAGMAP to parse correctly:
         prepare_fastq_cmd = dedent(
             f"""
-            tar -xf {fastq_pair.reference} -C $BATCH_TMPDIR
-            orad -c --ora-reference $BATCH_TMPDIR/oradata_homo_sapiens {fastq_pair.r1} > {r1_param}
-            rm {fastq_pair.r1}
-            orad -c --ora-reference $BATCH_TMPDIR/oradata_homo_sapiens {fastq_pair.r2} > {r2_param}
-            rm {fastq_pair.r2}
+            tar -xf {fqo_resource_group.reference} -C $BATCH_TMPDIR
+            orad -c --ora-reference $BATCH_TMPDIR/oradata_homo_sapiens {fqo_resource_group.r1} > {r1_param}
+            rm {fqo_resource_group.r1}
+            orad -c --ora-reference $BATCH_TMPDIR/oradata_homo_sapiens {fqo_resource_group.r2} > {r2_param}
+            rm {fqo_resource_group.r2}
         """,
         )
 

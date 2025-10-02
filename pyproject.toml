@@ -21,7 +21,7 @@ classifiers=[
 ]
 
 dependencies=[
-    'cpg-flow==v0.4.0',
+    'cpg-flow>=v0.4.1',
     'hatchling',
     'peddy',
     'slack_sdk',
@@ -54,19 +54,6 @@ include_package_data = true
 
 [options.package_data]
 'align_genotype'=  ['config_template.toml']
-
-[tool.black]
-line-length = 120
-skip-string-normalization = true
-exclude = '''
-/(
-  venv
-  | \.mypy_cache
-  | \.venv
-  | build
-  | dist
-)/
-'''
 
 [tool.mypy]
 ignore_missing_imports = true
