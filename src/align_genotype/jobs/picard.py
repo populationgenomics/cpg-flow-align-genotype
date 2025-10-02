@@ -143,7 +143,7 @@ def generate_intervals(output_paths: list[Path], job_attrs: dict[str, str]) -> B
     -OUTPUT $BATCH_TMPDIR/out
     """
 
-    for idx in range(len(output_paths)):
+    for idx in range(scatter_count):
         name = f'temp_{str(idx + 1).zfill(4)}_of_{scatter_count}'
         cmd += f"""
         ln $BATCH_TMPDIR/out/{name}/scattered.interval_list {job[f'{idx + 1}.interval_list']}
@@ -151,7 +151,7 @@ def generate_intervals(output_paths: list[Path], job_attrs: dict[str, str]) -> B
 
     job.command(cmd)
 
-    for idx in range(len(output_paths)):
+    for idx in range(scatter_count):
         batch_instance.write_output(job[f'{idx + 1}.interval_list'], output_paths[idx])
 
     return job
