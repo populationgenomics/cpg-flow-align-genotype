@@ -8,7 +8,7 @@ from hailtop.batch import Batch, ResourceFile
 from hailtop.batch.job import Job
 
 
-def multiqc(  # noqa: PLR0913
+def multiqc(
     dataset: targets.Dataset,
     tmp_prefix: Path,
     paths: list[Path],
@@ -110,7 +110,7 @@ def multiqc(  # noqa: PLR0913
     return jobs
 
 
-def check_report_job(  # noqa: PLR0913
+def check_report_job(
     b: Batch,
     multiqc_json_file: ResourceFile,
     dataset_name: str,

@@ -13,19 +13,19 @@ from align_genotype.jobs.cram_qc_samtools import samtools_stats
 from align_genotype.jobs.cram_qc_somalier import extract_somalier
 from align_genotype.jobs.cram_qc_verify import verifybamid
 from align_genotype.jobs.genotype import genotype
-from align_genotype.jobs.picard import collect_metrics, hs_metrics, vcf_qc, wgs_metrics, generate_intervals
+from align_genotype.jobs.picard import collect_metrics, generate_intervals, hs_metrics, vcf_qc, wgs_metrics
 
 
 @stage.stage
 class GenerateIntervalsOnce(stage.MultiCohortStage):
-    def expected_outputs(self, multicohort: MultiCohort) -> dict[str, list[Path]]:
+    def expected_outputs(self, multicohort: MultiCohort) -> dict[str, list[Path]]:  # noqa: ARG002
         scatter_count = config.config_retrieve(['workflow', 'scatter_count_genotype'])
         return {'intervals': [to_path(f'{idx}.interval_list') for idx in range(1, scatter_count + 1)]}
 
     def queue_jobs(
         self,
         multicohort: MultiCohort,
-        inputs: StageInput,
+        inputs: StageInput,  # noqa: ARG002
     ) -> StageOutput:
         outputs = self.expected_outputs(multicohort)
         job = generate_intervals(outputs['intervals'], self.get_job_attrs(multicohort))

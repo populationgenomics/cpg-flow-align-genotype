@@ -9,7 +9,6 @@ from cpg_flow import filetypes, resources, utils
 from cpg_utils import Path, config, hail_batch
 from hailtop.batch.job import BashJob
 
-
 GLOBAL_INTERVALS: list[hb.ResourceFile] | None = None
 
 
@@ -58,7 +57,7 @@ def genotype(
     return jobs
 
 
-def haplotype_caller(  # noqa: PLR0913
+def haplotype_caller(
     sequencing_group_name: str,
     cram_path: str,
     tmp_prefix: Path,
