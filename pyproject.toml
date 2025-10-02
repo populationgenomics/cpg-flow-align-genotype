@@ -8,7 +8,7 @@ description='Dragmap align & genotype workflow, using CPG-Flow'
 readme = "README.md"
 # currently cpg-flow is pinned to this version
 requires-python = ">=3.10,<3.11"
-version="0.2.0"
+version="0.2.1"
 license={ "file" = "LICENSE" }
 classifiers=[
     'Environment :: Console',
@@ -112,7 +112,7 @@ section-order = ["future", "standard-library", "third-party", "first-party", "lo
 "src/align_genotype/jobs/somalier.py" = ["C901", "PLR0912", "PLR0913", "PLR0915"]  # ignore complexity for this script
 
 [tool.bumpversion]
-current_version = "0.2.0"
+current_version = "0.2.1"
 parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)"
 serialize = ["{major}.{minor}.{patch}"]
 commit = true
