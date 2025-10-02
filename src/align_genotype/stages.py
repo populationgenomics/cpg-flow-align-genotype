@@ -15,9 +15,10 @@ from align_genotype.jobs.picard import collect_metrics, generate_intervals, hs_m
 
 @stage.stage
 class GenerateIntervalsOnce(stage.MultiCohortStage):
-    def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, list[Path]]:  # noqa: ARG002
+    def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, list[Path]]:
         scatter_count = config.config_retrieve(['workflow', 'scatter_count_genotype'])
-        return {'intervals': [to_path(f'{idx}.interval_list') for idx in range(1, scatter_count + 1)]}
+        prefix = multicohort.analysis_dataset.prefix(category='tmp') / 'genotype' / 'intervals'
+        return {'intervals': [prefix / to_path(f'{idx}.interval_list') for idx in range(1, scatter_count + 1)]}
 
     def queue_jobs(
         self,
