@@ -72,52 +72,47 @@ def markdup(
     return job
 
 
-def get_intervals(
-    b: hb.Batch,
-    scatter_count: int,
-    job_attrs: dict[str, str],
-    output_prefix: Path,
-) -> tuple[BashJob | None, list[hb.Resource]]:
+def generate_intervals(output_paths: list[Path], job_attrs: dict[str, str]) -> BashJob:
     """
-    Add a job that splits genome/exome intervals into sub-intervals to be used to
-    parallelize variant calling.
-
-    @param b: Hail Batch object,
-    @param scatter_count: number of target sub-intervals,
-    @param job_attrs: attributes for Hail Batch job,
-    @param output_prefix: path optionally to save split subintervals.
+    Add a job that splits genome/exome intervals into sub-intervals to be used to parallelize variant calling.
+    Optional out if no splitting is required - this just writes the whole interval list to the output path
 
     The job calls picard IntervalListTools to scatter the input interval list
     into scatter_count sub-interval lists, inspired by this WARP task :
     https://github.com/broadinstitute/warp/blob/bc90b0db0138747685b459c83ce52c8576ce03cd/tasks/broad/Utilities.wdl
 
     Note that we use the mode INTERVAL_SUBDIVISION instead of
-    BALANCING_WITHOUT_INTERVAL_SUBDIVISION_WITH_OVERFLOW. Modes other than
-    INTERVAL_SUBDIVISION produce an unpredictable number of intervals. WDL can
-    handle that, but Hail Batch is not dynamic and expects a certain number
-    of output files.
+    BALANCING_WITHOUT_INTERVAL_SUBDIVISION_WITH_OVERFLOW. Modes other than INTERVAL_SUBDIVISION produce an unpredictable
+    number of intervals. WDL can handle that, but Hail Batch is not dynamic and expects a certain number of output files
+
+    Args:
+        output_paths: list of Paths, an ordered list of the intended output paths.
+        job_attrs: dictionary of attributes for Hail Batch job,
+
+    Returns:
+        the Hail Batch BashJob
     """
+
+    batch_instance = hail_batch.get_batch()
     sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
     source_intervals_path = config.config_retrieve(['references', f'{sequencing_type}_calling_interval_lists'])
     exclude_intervals_path = config.config_retrieve(['references', 'hg38_telomeres_and_centromeres_intervals_list'])
 
-    if scatter_count == 1:
-        # Special case when we don't need to split
-        return None, [b.read_input(source_intervals_path)]
+    scatter_count = len(output_paths)
 
-    if output_prefix:
-        interval_lists_exist = all(
-            utils.exists(output_prefix / f'{idx}.interval_list') for idx in range(1, scatter_count + 1)
-        )
-        if interval_lists_exist:
-            return None, [b.read_input(str(output_prefix / f'{idx + 1}.interval_list')) for idx in range(scatter_count)]
-
-    job = b.new_bash_job(
+    job = batch_instance.new_bash_job(
         f'Make {scatter_count} intervals for {sequencing_type}',
         attributes=(job_attrs or {}) | {'tool': 'picard IntervalListTools'},
     )
     job.image(config.config_retrieve(['images', 'picard']))
     resources.STANDARD.set_resources(j=job, storage_gb=16, mem_gb=2)
+
+    # Special case when we don't need to split
+    if scatter_count == 1:
+        intervals_in = batch_instance.read_input(source_intervals_path)
+        batch_instance.write_output(intervals_in, output_paths[0])
+        job.command('echo "Nothing to do"')
+        return job
 
     break_bands_at_multiples_of = {
         'genome': 100000,
@@ -125,7 +120,11 @@ def get_intervals(
     }.get(sequencing_type, 0)
 
     # If there are intervals to exclude, subtract them from the source intervals
-    extra_cmd = f'-ACTION SUBTRACT -SI {b.read_input(str(exclude_intervals_path))}' if exclude_intervals_path else ''
+    extra_cmd = (
+        f'-ACTION SUBTRACT -SI {batch_instance.read_input(str(exclude_intervals_path))}'
+        if exclude_intervals_path
+        else ''
+    )
 
     cmd = f"""
     set -o pipefail
@@ -140,11 +139,11 @@ def get_intervals(
     -UNIQUE true \
     -SORT true \
     -BREAK_BANDS_AT_MULTIPLES_OF {break_bands_at_multiples_of} \
-    -I {b.read_input(source_intervals_path)} {extra_cmd} \
+    -I {batch_instance.read_input(source_intervals_path)} {extra_cmd} \
     -OUTPUT $BATCH_TMPDIR/out
     """
 
-    for idx in range(scatter_count):
+    for idx in range(len(output_paths)):
         name = f'temp_{str(idx + 1).zfill(4)}_of_{scatter_count}'
         cmd += f"""
         ln $BATCH_TMPDIR/out/{name}/scattered.interval_list {job[f'{idx + 1}.interval_list']}
@@ -152,16 +151,10 @@ def get_intervals(
 
     job.command(cmd)
 
-    if output_prefix:
-        for idx in range(scatter_count):
-            b.write_output(
-                job[f'{idx + 1}.interval_list'],
-                str(output_prefix / f'{idx + 1}.interval_list'),
-            )
+    for idx in range(len(output_paths)):
+        batch_instance.write_output(job[f'{idx + 1}.interval_list'], output_paths[idx])
 
-    intervals = [job[f'{idx + 1}.interval_list'] for idx in range(scatter_count)]
-
-    return job, intervals
+    return job
 
 
 def get_metrics_job_resources(ncpu: int = 2, mem_gb: int = 8) -> resources.JobResource:

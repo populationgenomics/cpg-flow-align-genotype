@@ -9,7 +9,8 @@ from cpg_flow import filetypes, resources, utils
 from cpg_utils import Path, config, hail_batch
 from hailtop.batch.job import BashJob
 
-from align_genotype.jobs.picard import get_intervals
+
+GLOBAL_INTERVALS: list[hb.ResourceFile] | None = None
 
 
 def genotype(
@@ -17,6 +18,7 @@ def genotype(
     tmp_prefix: Path,
     cram_path: str,
     output_path: Path,
+    intervals: list[Path],
     job_attrs: dict[str, str],
 ) -> list[BashJob]:
     """
@@ -33,6 +35,7 @@ def genotype(
             output_path=hc_gvcf_path,
             cram_path=cram_path,
             tmp_prefix=tmp_prefix,
+            intervals=intervals,
             scatter_count=config.config_retrieve(['workflow', 'scatter_count_genotype']),
         )
         if job is not None
@@ -55,14 +58,12 @@ def genotype(
     return jobs
 
 
-intervals: list[hb.ResourceFile] | None = None
-
-
 def haplotype_caller(  # noqa: PLR0913
     sequencing_group_name: str,
     cram_path: str,
     tmp_prefix: Path,
     scatter_count: int,
+    intervals: list[Path],
     job_attrs: dict[str, str],
     output_path: Path,
 ) -> list[BashJob]:
@@ -74,16 +75,9 @@ def haplotype_caller(  # noqa: PLR0913
     jobs = []
 
     if scatter_count > 1:
-        global intervals
-        if intervals is None:
-            intervals_j, intervals = get_intervals(
-                b=batch_instance,
-                scatter_count=scatter_count,
-                job_attrs=job_attrs,
-                output_prefix=tmp_prefix / f'intervals_{scatter_count}',
-            )
-            if intervals_j:
-                jobs.append(intervals_j)
+        global GLOBAL_INTERVALS
+        if GLOBAL_INTERVALS is None:
+            GLOBAL_INTERVALS = [batch_instance.read_input(each_interval) for each_interval in intervals]
 
         hc_fragments = []
         # Splitting variant calling by intervals
@@ -94,7 +88,7 @@ def haplotype_caller(  # noqa: PLR0913
                 sequencing_group_name=sequencing_group_name,
                 cram_path=cram_path,
                 job_attrs=job_attrs | {'part': f'{idx + 1}/{scatter_count}'},
-                interval=intervals[idx],
+                interval=GLOBAL_INTERVALS[idx],
                 out_gvcf_path=fragment,
             )
             hc_fragments.append(result)

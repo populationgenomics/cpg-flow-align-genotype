@@ -3,14 +3,33 @@ Alignment and genotyping... oof. Where to start.
 """
 
 from cpg_flow import stage, targets
-from cpg_utils import Path
+from cpg_flow.stage import StageInput, StageOutput
+from cpg_flow.targets import MultiCohort
+from cpg_flow.workflow import get_multicohort
+from cpg_utils import Path, config, to_path
 
 from align_genotype.jobs.align import align
 from align_genotype.jobs.cram_qc_samtools import samtools_stats
 from align_genotype.jobs.cram_qc_somalier import extract_somalier
 from align_genotype.jobs.cram_qc_verify import verifybamid
 from align_genotype.jobs.genotype import genotype
-from align_genotype.jobs.picard import collect_metrics, hs_metrics, vcf_qc, wgs_metrics
+from align_genotype.jobs.picard import collect_metrics, hs_metrics, vcf_qc, wgs_metrics, generate_intervals
+
+
+@stage.stage
+class GenerateIntervalsOnce(stage.MultiCohortStage):
+    def expected_outputs(self, multicohort: MultiCohort) -> dict[str, list[Path]]:
+        scatter_count = config.config_retrieve(['workflow', 'scatter_count_genotype'])
+        return {'intervals': [to_path(f'{idx}.interval_list') for idx in range(1, scatter_count + 1)]}
+
+    def queue_jobs(
+        self,
+        multicohort: MultiCohort,
+        inputs: StageInput,
+    ) -> StageOutput:
+        outputs = self.expected_outputs(multicohort)
+        job = generate_intervals(outputs['intervals'], self.get_job_attrs(multicohort))
+        return self.make_outputs(multicohort, jobs=job, data=outputs)
 
 
 @stage.stage(
@@ -61,7 +80,7 @@ class AlignWithDragmap(stage.SequencingGroupStage):
 
 
 @stage.stage(
-    required_stages=[AlignWithDragmap],
+    required_stages=[AlignWithDragmap, GenerateIntervalsOnce],
     analysis_type='gvcf',
 )
 class GenotypeWithGatk(stage.SequencingGroupStage):
@@ -84,12 +103,14 @@ class GenotypeWithGatk(stage.SequencingGroupStage):
         output = self.expected_outputs(sequencing_group)
 
         cram = inputs.as_str(sequencing_group, AlignWithDragmap, 'cram')
+        intervals = inputs.as_dict(get_multicohort(), GenerateIntervalsOnce)['intervals']
 
         jobs = genotype(
             output_path=output,
             sequencing_group_name=sequencing_group.id,
             cram_path=cram,
             tmp_prefix=self.tmp_prefix / sequencing_group.id,
+            intervals=intervals,
             job_attrs=self.get_job_attrs(sequencing_group),
         )
         return self.make_outputs(sequencing_group, data=output, jobs=jobs)
