@@ -91,7 +91,8 @@ def align(
         jobs.append(align_j)
         merge_or_align_j = align_j
 
-    else:  # Aligning in parallel and merging afterwards
+    # Aligning in parallel and merging afterwards
+    else:
         if sharded_fq:  # Aligning each lane separately, merging after
             # running alignment for each fastq pair in parallel
             fastq_pairs = cast('filetypes.FastqPairs', alignment_input)
@@ -180,8 +181,8 @@ def storage_for_align_job(alignment_input: filetypes.AlignmentInput) -> int:
     return storage_gb
 
 
-def _align_one(
-    alignment_input: filetypes.FastqPair | filetypes.CramPath | filetypes.BamPath,
+def _align_one(  # noqa: PLR0915
+    alignment_input: filetypes.FastqPair | filetypes.FastqOraPair | filetypes.CramPath | filetypes.BamPath,
     sequencing_group_name: str,
     job_attrs: dict,
     shard_string: str | None = None,
@@ -193,14 +194,6 @@ def _align_one(
     and/or deduplication can be appended to the command later.
 
     Note: When this function is called within the align function, DRAGMAP is used as the default tool.
-
-    Args:
-        batch_instance ():
-        alignment_input ():
-        sequencing_group_name ():
-        job_attrs ():
-        shard_string (str | None): if populated, a String in the form 'X/Y', this is string formatted as a CLI argument
-        should_sort ():
     """
 
     batch_instance = hail_batch.get_batch()
@@ -209,7 +202,10 @@ def _align_one(
 
     job_name = f'Align {shard_string} ' if shard_string else f'Align {alignment_input}'
 
-    job = batch_instance.new_bash_job(name=job_name, attributes=(job_attrs or {}) | {'tool': 'dragmap'})
+    job = batch_instance.new_bash_job(name=job_name, attributes=job_attrs | {'tool': 'dragmap'})
+
+    # allow alignment jobs to be non-spot
+    job.spot(config.config_retrieve(['workflow', 'align_spot'], True))
 
     vm_type = resources.HIGHMEM if config.config_retrieve(['workflow', 'align_use_highmem']) else resources.STANDARD
 
@@ -277,6 +273,23 @@ def _align_one(
         r2_param = ''
         fifo_commands[r1_param] = bazam_cmd
 
+    # new functionality,
+    elif isinstance(alignment_input, filetypes.FastqOraPair):
+        fqo_resource_group = alignment_input.resource_group(batch_instance)
+        use_bazam = False
+        r1_param = '$BATCH_TMPDIR/R1.fq.gz'
+        r2_param = '$BATCH_TMPDIR/R2.fq.gz'
+        # Need file names to end with ".gz" for BWA or DRAGMAP to parse correctly:
+        prepare_fastq_cmd = dedent(
+            f"""
+            tar -xf {fqo_resource_group.reference} -C $BATCH_TMPDIR
+            orad -c --ora-reference $BATCH_TMPDIR/oradata_homo_sapiens {fqo_resource_group.r1} > {r1_param}
+            rm {fqo_resource_group.r1}
+            orad -c --ora-reference $BATCH_TMPDIR/oradata_homo_sapiens {fqo_resource_group.r2} > {r2_param}
+            rm {fqo_resource_group.r2}
+        """,
+        )
+
     else:  # only for BAMs that are missing index
         fastq_pair = alignment_input.as_resources(batch_instance)
         use_bazam = False
@@ -290,10 +303,12 @@ def _align_one(
         """,
         )
 
+    # this uses the DRAGMAP base image, but with the ORAD decompression software added in (see config)
     job.image(config.config_retrieve(['images', 'dragmap']))
+
     dragmap_index = batch_instance.read_input_group(
         **{
-            k.replace('.', '_'): os.path.join(config.reference_path('broad/dragmap_prefix'), k)
+            k.replace('.', '_'): os.path.join(config.config_retrieve(['references', 'dragmap_prefix']), k)
             for k in DRAGMAP_INDEX_FILES
         },
     )
