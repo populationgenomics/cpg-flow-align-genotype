@@ -181,7 +181,7 @@ def storage_for_align_job(alignment_input: filetypes.AlignmentInput) -> int:
     return storage_gb
 
 
-def _align_one(
+def _align_one(  # noqa: PLR0915
     alignment_input: filetypes.FastqPair | filetypes.FastqOraPair | filetypes.CramPath | filetypes.BamPath,
     sequencing_group_name: str,
     job_attrs: dict,
