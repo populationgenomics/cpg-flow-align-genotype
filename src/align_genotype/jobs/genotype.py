@@ -176,7 +176,7 @@ def _haplotype_caller_one(
 
     cram_resource_group = batch_instance.read_input_group(**{'cram': cram_path, 'cram.crai': f'{cram_path!s}.crai'})
 
-    cmd = f"""\
+    job.command(f"""\
     gatk --java-options \
     "{job_res.java_mem_options()} \
     -XX:GCTimeLimit=50 \
@@ -193,8 +193,7 @@ def _haplotype_caller_one(
     -GQB 10 -GQB 20 -GQB 30 -GQB 40 -GQB 50 -GQB 60 -GQB 70 -GQB 80 -GQB 90 \\
     -ERC GVCF \\
     --create-output-variant-index
-    """
-    job.command(hail_batch.command(cmd, monitor_space=True, setup_gcp=True, define_retry_function=True))
+    """)
     if out_gvcf_path:
         batch_instance.write_output(job.output_gvcf, str(out_gvcf_path).replace('.g.vcf.gz', ''))
 
