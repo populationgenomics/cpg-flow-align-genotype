@@ -157,6 +157,7 @@ def _haplotype_caller_one(
     # default to 40Gb for genomes then use a run specific confg to run the rare
     # sequencing group that will fail from this limit.
     storage_default = 40 if config.config_retrieve(['workflow', 'sequencing_type']) == 'genome' else None
+
     # enough for input CRAM and output GVCF
     job_res = resources.HIGHMEM.request_resources(
         ncpu=config.config_retrieve(['workflow', 'haplotypecaller_cpu'], 2),
@@ -173,21 +174,16 @@ def _haplotype_caller_one(
 
     reference = hail_batch.fasta_res_group(batch_instance)
 
+    cram_resource_group = batch_instance.read_input_group(**{'cram': cram_path, 'cram.crai': f'{cram_path!s}.crai'})
+
     cmd = f"""\
-    CRAM=$BATCH_TMPDIR/{sequencing_group_name}.cram
-    CRAI=$BATCH_TMPDIR/{sequencing_group_name}.cram.crai
-
-    # Retrying copying to avoid google bandwidth limits
-    retry_gs_cp {cram_path} $CRAM
-    retry_gs_cp {f'{cram_path}.crai'} $CRAI
-
     gatk --java-options \
     "{job_res.java_mem_options()} \
     -XX:GCTimeLimit=50 \
     -XX:GCHeapFreeLimit=10" \\
     HaplotypeCaller \\
     -R {reference.base} \\
-    -I $CRAM \\
+    -I {cram_resource_group.cram} \\
     --read-index $CRAI \\
     {f'-L {interval} ' if interval is not None else ''} \\
     --disable-spanning-event-genotyping \\
@@ -201,6 +197,7 @@ def _haplotype_caller_one(
     job.command(hail_batch.command(cmd, monitor_space=True, setup_gcp=True, define_retry_function=True))
     if out_gvcf_path:
         batch_instance.write_output(job.output_gvcf, str(out_gvcf_path).replace('.g.vcf.gz', ''))
+
     return job, job.output_gvcf
 
 
