@@ -194,14 +194,6 @@ def _align_one(  # noqa: PLR0915
     and/or deduplication can be appended to the command later.
 
     Note: When this function is called within the align function, DRAGMAP is used as the default tool.
-
-    Args:
-        batch_instance ():
-        alignment_input ():
-        sequencing_group_name ():
-        job_attrs ():
-        shard_string (str | None): if populated, a String in the form 'X/Y', this is string formatted as a CLI argument
-        should_sort ():
     """
 
     batch_instance = hail_batch.get_batch()
