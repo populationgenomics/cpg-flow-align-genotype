@@ -5,6 +5,10 @@ name = 'align_genotype'
 # set this to false if we want to use non-preemptible machines
 align_spot = true
 
+# for HaplotypeCaller
+# Maximum number of reads to retain per alignment start position. Reads above this threshold will be downsampled. Set to 0 to disable.
+downsample_reads = 30
+
 # exome/genome workflows choose one of these default values
 exome_realignment_shards = 1
 genome_realignment_shards = 10
@@ -51,7 +55,7 @@ status_reporter = 'metamist'
 exome_cram_gb = 20
 genome_cram_gb = 100
 
-haplotypecaller_cpu = 2
+haplotypecaller_cpu = 8
 
 [qc_thresholds.genome.min]
 "MEDIAN_COVERAGE" = 10

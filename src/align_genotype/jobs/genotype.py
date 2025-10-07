@@ -131,6 +131,8 @@ def _haplotype_caller_one(
 
     batch_instance = hail_batch.get_batch()
 
+    sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
+
     if utils.can_reuse(out_gvcf_path):
         logging.info(f'Reusing HaplotypeCaller {out_gvcf_path}, job attrs: {job_attrs}')
         # localise the output GVCF and return it
@@ -156,7 +158,7 @@ def _haplotype_caller_one(
     # Based on an audit of RD crams on 19/05/23, 99% of crams are <34Gb. Will set the
     # default to 40Gb for genomes then use a run specific confg to run the rare
     # sequencing group that will fail from this limit.
-    storage_default = 40 if config.config_retrieve(['workflow', 'sequencing_type']) == 'genome' else None
+    storage_default = 40 if sequencing_type == 'genome' else None
 
     # enough for input CRAM and output GVCF
     job_res = resources.HIGHMEM.request_resources(
@@ -176,6 +178,13 @@ def _haplotype_caller_one(
 
     cram_resource_group = batch_instance.read_input_group(**{'cram': cram_path, 'cram.crai': f'{cram_path!s}.crai'})
 
+    # insert a step to downsample the reads, preventing bottlenecks around MEGA high depth regions
+    # genome only, we don't want to limit this for PCR samples
+    downsample_command = ''
+    if sequencing_type == 'genome':
+        downsample_number = config.config_retrieve(['workflow', 'downsample_reads'])
+        downsample_command = f'--max-reads-per-alignment-start {downsample_number} '
+
     job.command(f"""\
     gatk --java-options \
     "{job_res.java_mem_options()} \
@@ -192,7 +201,7 @@ def _haplotype_caller_one(
     -G AS_StandardAnnotation \\
     -GQB 10 -GQB 20 -GQB 30 -GQB 40 -GQB 50 -GQB 60 -GQB 70 -GQB 80 -GQB 90 \\
     -ERC GVCF \\
-    --create-output-variant-index
+    --create-output-variant-index {downsample_command}
     """)
     if out_gvcf_path:
         batch_instance.write_output(job.output_gvcf, str(out_gvcf_path).replace('.g.vcf.gz', ''))
