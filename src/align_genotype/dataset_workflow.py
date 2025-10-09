@@ -17,7 +17,7 @@ def cli_main():
 
     stages = [SomalierPedigree, CramMultiQC, GvcfMultiQC]
 
-    run_workflow(stages=stages, dry_run=args.dry_run)
+    run_workflow(name='align_genotype', stages=stages, dry_run=args.dry_run)
 
 
 if __name__ == '__main__':

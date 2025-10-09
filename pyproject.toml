@@ -21,7 +21,7 @@ classifiers=[
 ]
 
 dependencies=[
-    'cpg-flow>=v0.4.1',
+    'cpg-flow>=1',
     'hatchling',
     'peddy',
     'slack_sdk',
