@@ -1,13 +1,11 @@
 [workflow]
 
-name = 'align_genotype'
-
 # set this to false if we want to use non-preemptible machines
 align_spot = true
 
 # for HaplotypeCaller
 # Maximum number of reads to retain per alignment start position. Reads above this threshold will be downsampled. Set to 0 to disable.
-downsample_reads = 30
+downsample_reads = 20
 
 # exome/genome workflows choose one of these default values
 exome_realignment_shards = 1
@@ -55,11 +53,12 @@ status_reporter = 'metamist'
 exome_cram_gb = 20
 genome_cram_gb = 100
 
-haplotypecaller_cpu = 8
+haplotypecaller_cpu = 2
 
 [qc_thresholds.genome.min]
 "MEDIAN_COVERAGE" = 10
 "PCT_PF_READS_ALIGNED" = 0.80
+
 [qc_thresholds.genome.max]
 "FREEMIX" = 0.04
 "PERCENT_DUPLICATION" = 25
@@ -89,6 +88,6 @@ noalt_bed = "gs://cpg-common-main/references/hg38/v0/sv-resources/resources/v1/p
 genome_calling_interval_lists = "gs://cpg-common-main/references/hg38/v0/wgs_calling_regions.hg38.interval_list"
 genome_coverage_interval_list='gs://cpg-common-main/references/hg38/v0/wgs_coverage_regions.hg38.interval_list'
 exome_calling_interval_lists = "gs://cpg-common-main/references/hg38/v0/exome_calling_regions.v1.interval_list"
-hg38_telomeres_and_centromeres_intervals_list = "gs://cpg-common-main/references/hg38/v0/hg38.telomeresAndMergedCentromeres.interval_list"
+hg38_telomeres_and_centromeres_intervals_list = "gs://cpg-common-main/references/hg38/v0/hg38.telomeres_centromeres_and_hard_calling_exclusions.interval_list"
 somalier_sites = "gs://cpg-common-main/references/somalier/sites.hg38.vcf.gz"
 dbsnp_vcf = "gs://cpg-common-main/references/hg38/v0/Homo_sapiens_assembly38.dbsnp138.vcf"
