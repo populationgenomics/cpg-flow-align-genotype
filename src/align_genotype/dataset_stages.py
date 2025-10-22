@@ -57,18 +57,16 @@ class SomalierPedigree(stage.DatasetStage):
 
         html_url = str(outputs['html']).replace(str(dataset.web_prefix()), dataset.web_url())
 
-        if any(sg.pedigree.dad or sg.pedigree.mom for sg in dataset.get_sequencing_groups()):
-            jobs = somalier.pedigree(
-                dataset=dataset,
-                somalier_path_by_sgid=somalier_path_by_sgid,
-                verifybamid_by_sgid=verifybamid_by_sgid,
-                outputs=outputs,
-                out_html_url=html_url,
-                label='Somalier',
-                job_attrs=self.get_job_attrs(dataset),
-            )
-            return self.make_outputs(dataset, data=outputs, jobs=jobs)
-        return self.make_outputs(dataset, skipped=True)
+        jobs = somalier.pedigree(
+            dataset=dataset,
+            somalier_path_by_sgid=somalier_path_by_sgid,
+            verifybamid_by_sgid=verifybamid_by_sgid,
+            outputs=outputs,
+            out_html_url=html_url,
+            label='Somalier',
+            job_attrs=self.get_job_attrs(dataset),
+        )
+        return self.make_outputs(dataset, data=outputs, jobs=jobs)
 
 
 @stage.stage(
