@@ -61,7 +61,7 @@ haplotypecaller_cpu = 2
 
 [qc_thresholds.genome.max]
 "FREEMIX" = 0.04
-"PERCENT_DUPLICATION" = 25
+"PERCENT_DUPLICATION" = 0.25
 
 [references.broad]
 ref_fasta = "gs://cpg-common-main/references/hg38/v0/dragen_reference/Homo_sapiens_assembly38_masked.fasta"
