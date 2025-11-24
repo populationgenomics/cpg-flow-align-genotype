@@ -20,7 +20,7 @@ def multiqc(
     modules_to_trim_endings: set[str],
     job_attrs: dict,
     sequencing_group_id_map: dict[str, str],
-    extra_config: str,
+    extra_config: dict,
     send_to_slack: bool = True,
 ) -> Job:
     """
@@ -70,6 +70,15 @@ def multiqc(
     joined_endings = ', '.join(ending_to_trim)
     joined_modules = ', '.join(modules_to_trim_endings)
 
+    if extra_config:
+        extra_config_param = ''
+        for k, v in extra_config.items():
+            serialised = f'{k}: {v}'
+            extra_config_param += f'''--cl-config "{serialised}" \\
+            '''  # noqa: Q001
+    else:
+        extra_config_param = ''
+
     mqc_j.command(
         f"""
         mkdir inputs
@@ -82,7 +91,7 @@ def multiqc(
         --cl-config "extra_fn_clean_exts: [{joined_endings}]" \\
         --cl-config "max_table_rows: 10000" \\
         --cl-config "use_filename_as_sample_name: [{joined_modules}]" \\
-        --cl-config "table_columns_visible: {extra_config}"
+        {extra_config_param}
 
         cp output/report.html {mqc_j.html}
         cp output/report_data/multiqc_data.json {mqc_j.json}
