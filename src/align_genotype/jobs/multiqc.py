@@ -48,7 +48,8 @@ def multiqc(
 
     mqc_j = batch_instance.new_bash_job(title, job_attrs | {'tool': 'MultiQC'})
     mqc_j.image(config.config_retrieve(['images', 'multiqc']))
-    mqc_j.cpu(16)
+    mqc_j.cpu(8)
+    mqc_j.storage('20Gi')
 
     file_list_path = tmp_prefix / f'{dataset.get_alignment_inputs_hash()}_multiqc-file-list.txt'
     dry_run = config.config_retrieve(['workflow', 'dry_run'], False)
