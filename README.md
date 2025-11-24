@@ -21,7 +21,7 @@ This single-sample workflow has a dedicated entrypoint, and can be operated thro
 
 ```bash
 analysis-runner --skip-repo-checkout \
-    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.3.1 \
+    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.3.2 \
     --config CONFIG_FILE.toml \
     --dataset seqr \
     --description 'Single-Sample data generation' \
@@ -38,7 +38,7 @@ A secondary workflow continues on from the single-sample steps, and produces Dat
 This Dataset-level workflow can be run in a similar way, but with a different entrypoint:
 ```bash
 analysis-runner --skip-repo-checkout \
-    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.3.1 \
+    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.3.2 \
     --config CONFIG_FILE.toml \
     --dataset seqr \
     --description 'Dataset-Level QC workflow' \
