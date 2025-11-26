@@ -205,7 +205,7 @@ def run(
         title = 'Somalier pedigree report'
     text = '\n'.join([title, *_messages])
 
-    if config.config_retrieve(['workflow', 'send_to_slack'], default=True):
+    if config.config_retrieve(['workflow', 'somalier_pedigree', 'send_to_slack'], default=True):
         slack.send_message(text)
 
 

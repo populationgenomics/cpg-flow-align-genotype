@@ -55,6 +55,21 @@ genome_cram_gb = 100
 
 haplotypecaller_cpu = 2
 
+[workflow.somalier_pedigree]
+send_to_slack = true
+
+[workflow.cram_multiqc]
+send_to_slack = true
+[workflow.cram_multiqc.extra_config]
+plots_force_interactive = true
+
+[workflow.gvcf_multiqc]
+send_to_slack = true
+[workflow.gvcf_multiqc.extra_config]
+plots_force_interactive = true
+
+
+
 [qc_thresholds.genome.min]
 "MEDIAN_COVERAGE" = 10
 "PCT_PF_READS_ALIGNED" = 0.80

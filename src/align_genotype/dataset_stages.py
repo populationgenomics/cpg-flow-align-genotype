@@ -155,8 +155,8 @@ class CramMultiQC(stage.DatasetStage):
             ending_to_trim.add('.picard-hs-metrics')
             modules_to_trim_endings.add('picard/hsmetrics')
 
-        send_to_slack = config.config_retrieve(['workflow', 'cram_multiqc', 'send_to_slack'], default=True)
-        extra_config = config.config_retrieve(['workflow', 'cram_multiqc', 'extra_config'], default={})
+        send_to_slack = config.config_retrieve(['workflow', 'gvcf_multiqc', 'send_to_slack'], default=True)
+        extra_config = config.config_retrieve(['workflow', 'gvcf_multiqc', 'extra_config'], default={})
         extra_config['table_columns_visible'] = {'FastQC': False}
 
         jobs = multiqc.multiqc(
