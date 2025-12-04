@@ -72,7 +72,7 @@ def get_next_version_tag(folder: str, version: str) -> str:
 
 def main():
     dockerfile_name = 'Dockerfile'
-    container_name = 'cpg-flow-gatk-sv'
+    container_name = 'cpg-flow-align-genotype'
     current_version = extract_version_from_file(dockerfile_name)
     if current_version is None:
         # Throw an error here
