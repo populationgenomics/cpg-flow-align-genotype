@@ -86,7 +86,7 @@ dragmap = "australia-southeast1-docker.pkg.dev/cpg-common/images/dragmap_plus_or
 gatk = "australia-southeast1-docker.pkg.dev/cpg-common/images/gatk:4.6.2.0-1"
 picard = "australia-southeast1-docker.pkg.dev/cpg-common/images/picard:2.27.4"
 samtools = "australia-southeast1-docker.pkg.dev/cpg-common/images/samtools:1.18"
-somalier = "australia-southeast1-docker.pkg.dev/cpg-common/images/somalier:0.2.15"
+somalier = "australia-southeast1-docker.pkg.dev/cpg-common/images/somalier:0.3.1-1"
 verifybamid = "australia-southeast1-docker.pkg.dev/cpg-common/images/verifybamid:2.0.1"
 
 [references]
