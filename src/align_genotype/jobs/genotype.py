@@ -161,10 +161,16 @@ def _haplotype_caller_one(
     storage_default = 40 if sequencing_type == 'genome' else None
 
     # enough for input CRAM and output GVCF
-    job_res = resources.HIGHMEM.request_resources(
-        ncpu=config.config_retrieve(['workflow', 'haplotypecaller_cpu'], 2),
-        storage_gb=config.config_retrieve(['workflow', 'haplotypecaller_storage'], storage_default),
-    )
+    if config.config_retrieve(['workflow', 'haplotypecaller_machine_type']) == 'highmem':
+        job_res = resources.HIGHMEM.request_resources(
+            ncpu=config.config_retrieve(['workflow', 'haplotypecaller_cpu'], 2),
+            storage_gb=config.config_retrieve(['workflow', 'haplotypecaller_storage'], storage_default),
+        )
+    else:
+        job_res = resources.STANDARD.request_resources(
+            ncpu=config.config_retrieve(['workflow', 'haplotypecaller_cpu'], 2),
+            storage_gb=config.config_retrieve(['workflow', 'haplotypecaller_storage'], storage_default),
+        )
     job_res.set_to_job(job)
 
     job.declare_resource_group(
