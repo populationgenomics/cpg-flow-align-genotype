@@ -1,7 +1,7 @@
 FROM australia-southeast1-docker.pkg.dev/cpg-common/images/cpg_hail_gcloud:0.2.134.cpg2-2
 
 ENV PYTHONDONTWRITEBYTECODE=1
-ENV VERSION=0.3.5
+ENV VERSION=0.4.0
 
 WORKDIR /align_genotype
 
