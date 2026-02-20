@@ -1,11 +1,6 @@
 [workflow]
-
 # set this to false if we want to use non-preemptible machines
 align_spot = true
-
-# for HaplotypeCaller
-# Maximum number of reads to retain per alignment start position. Reads above this threshold will be downsampled. Set to 0 to disable.
-downsample_reads = 20
 
 # exome/genome workflows choose one of these default values
 exome_realignment_shards = 1
@@ -16,17 +11,6 @@ align_use_highmem = false
 
 # whether to bank the sorted BAM to GCP (temp) prior to markdup
 checkpoint_sorted_bam = false
-
-scatter_count_genotype = 50
-
-# storage required for the post-processing of the gVCF files
-postproc_gvcf_storage = 20
-
-# Experimentally validated best reblocking bands for GATK ReblockGVCF, from seqr-loader config
-reblock_gq_bands = [13, 20, 30, 40]
-
-# attached storage for haplotypecaller jobs, defaulting to 40 for Genomes, and None for other seqencing_types
-#haplotypecaller_storage = 100
 
 # number of threads to use for alignment, defaulting to 32 on a 16-core machine
 #align_threads
@@ -53,7 +37,27 @@ status_reporter = 'metamist'
 exome_cram_gb = 20
 genome_cram_gb = 100
 
-haplotypecaller_cpu = 2
+# for HaplotypeCaller
+# Maximum number of reads to retain per alignment start position. Reads above this threshold will be downsampled. Set to 0 to disable.
+downsample_reads = 20
+
+# Shard count for HaplotypeCaller
+scatter_count_genotype = 50
+
+# HaplotypeCaller resource options
+# Best performance for genomes - highmem, 4 cpus, 4 pairhmm threads
+haplotypecaller_cpu = 4
+haplotypecaller_machine_type = 'highmem'
+pairhmm_threads = 4
+
+# attached storage for haplotypecaller jobs, defaulting to 40 for Genomes, and None for other seqencing_types
+#haplotypecaller_storage = 100
+
+# storage required for the post-processing of the gVCF files
+postproc_gvcf_storage = 20
+
+# Experimentally validated best reblocking bands for GATK ReblockGVCF, from seqr-loader config
+reblock_gq_bands = [13, 20, 30, 40]
 
 [workflow.somalier_pedigree]
 send_to_slack = true
@@ -83,7 +87,7 @@ ref_fasta = "gs://cpg-common-main/references/hg38/v0/dragen_reference/Homo_sapie
 
 [images]
 dragmap = "australia-southeast1-docker.pkg.dev/cpg-common/images/dragmap_plus_ora:2.7.0-1"
-gatk = "australia-southeast1-docker.pkg.dev/cpg-common/images/gatk:4.6.2.0-1"
+gatk = "australia-southeast1-docker.pkg.dev/cpg-common/images/gatk:4.6.2.0-2"
 picard = "australia-southeast1-docker.pkg.dev/cpg-common/images/picard:2.27.4"
 samtools = "australia-southeast1-docker.pkg.dev/cpg-common/images/samtools:1.18"
 somalier = "australia-southeast1-docker.pkg.dev/cpg-common/images/somalier:0.3.1-1"

@@ -161,10 +161,16 @@ def _haplotype_caller_one(
     storage_default = 40 if sequencing_type == 'genome' else None
 
     # enough for input CRAM and output GVCF
-    job_res = resources.HIGHMEM.request_resources(
-        ncpu=config.config_retrieve(['workflow', 'haplotypecaller_cpu'], 2),
-        storage_gb=config.config_retrieve(['workflow', 'haplotypecaller_storage'], storage_default),
-    )
+    if config.config_retrieve(['workflow', 'haplotypecaller_machine_type'], 'highmem') == 'standard':
+        job_res = resources.STANDARD.request_resources(
+            ncpu=config.config_retrieve(['workflow', 'haplotypecaller_cpu'], 2),
+            storage_gb=config.config_retrieve(['workflow', 'haplotypecaller_storage'], storage_default),
+        )
+    else:
+        job_res = resources.HIGHMEM.request_resources(
+            ncpu=config.config_retrieve(['workflow', 'haplotypecaller_cpu'], 2),
+            storage_gb=config.config_retrieve(['workflow', 'haplotypecaller_storage'], storage_default),
+        )
     job_res.set_to_job(job)
 
     job.declare_resource_group(
@@ -185,6 +191,8 @@ def _haplotype_caller_one(
         downsample_number = config.config_retrieve(['workflow', 'downsample_reads'])
         downsample_command = f'--max-reads-per-alignment-start {downsample_number} '
 
+    pairhmm_threads = config.config_retrieve(['workflow', 'pairhmm_threads'], 4)
+
     job.command(f"""\
     gatk --java-options \
     "{job_res.java_mem_options()} \
@@ -197,6 +205,7 @@ def _haplotype_caller_one(
     {f'-L {interval} ' if interval is not None else ''} \\
     --disable-spanning-event-genotyping \\
     --dragen-mode \\
+    --native-pair-hmm-threads {pairhmm_threads} \\
     -O {job.output_gvcf['g.vcf.gz']} \\
     -G AS_StandardAnnotation \\
     -GQB 10 -GQB 20 -GQB 30 -GQB 40 -GQB 50 -GQB 60 -GQB 70 -GQB 80 -GQB 90 \\
