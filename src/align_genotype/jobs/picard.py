@@ -47,6 +47,15 @@ def markdup(
 
     fasta_reference = hail_batch.fasta_res_group(batch_instance)
 
+    # Check size of input bam before running markduplicates - if it's very small, likely an error file, so fail early
+    cmd = f"""
+    if [ $(stat -c%s {sorted_bam}) -lt 1000000 ]; then
+        echo "Input BAM is less than 1MB, likely empty or an error file. Exiting."
+        exit 1
+    fi
+    """
+    job.command(cmd)
+
     cmd = f"""
     picard {resource.java_mem_options()} MarkDuplicates \\
     I={sorted_bam} O={job.temp_bam} M={job.markdup_metrics} \\
