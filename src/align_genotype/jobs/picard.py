@@ -24,6 +24,8 @@ def markdup(
     )
 
     job.image(config.config_retrieve(['images', 'picard']))
+    # allow markduplicates job to be non-spot (for particularly large & unlucky sequencing groups)
+    job.spot(config.config_retrieve(['workflow', 'picard_spot'], True))
 
     # check for a memory override for impossible sequencing groups
     # if RAM is overridden, update the memory resource setting
