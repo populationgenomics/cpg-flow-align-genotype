@@ -18,6 +18,10 @@ checkpoint_sorted_bam = false
 # to manually set the storage attached to align jobs
 #align_storage = 100
 
+# Set to false to disable the use of spot instances for the Picard MarkDuplicates jobs, which
+# can be particularly long-running and prone to multiple pre-emptions for some large sequencing groups
+picard_spot = true
+
 # set to assign a specific amount of RAM to the picard jobs, defaults available
 #picard_mem_gb
 
