@@ -46,9 +46,11 @@ def markdup(
     )
 
     fasta_reference = hail_batch.fasta_res_group(batch_instance)
+    seq_type = config.config_retrieve(['workflow', 'sequencing_type'])
+    overhead_gb = config.config_retrieve(['workflow', f'picard_markdup_{seq_type}_overhead_gb'], 1.0)
 
     cmd = f"""
-    picard {resource.java_mem_options()} MarkDuplicates \\
+    picard {resource.java_mem_options(overhead_gb=overhead_gb)} MarkDuplicates \\
     I={sorted_bam} O={job.temp_bam} M={job.markdup_metrics} \\
     TMP_DIR=$(dirname {job.output_cram.cram})/picard-tmp \\
     ASSUME_SORT_ORDER=coordinate
