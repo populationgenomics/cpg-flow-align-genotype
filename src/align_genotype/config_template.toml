@@ -29,6 +29,9 @@ picard_spot = true
 picard_markdup_exome_overhead_gb = 1.0
 picard_markdup_genome_overhead_gb = 5.0
 
+# Maximum number of records to keep in RAM for Picard MarkDuplicates
+# picard_markdup_max_records_in_ram =
+
 # set to use highmem workers for picard qc metrics jobs, defaults to false
 picard_metrics_use_highmem = false
 
