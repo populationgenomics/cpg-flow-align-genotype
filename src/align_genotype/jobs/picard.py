@@ -49,11 +49,15 @@ def markdup(
     seq_type = config.config_retrieve(['workflow', 'sequencing_type'])
     overhead_gb = config.config_retrieve(['workflow', f'picard_markdup_{seq_type}_overhead_gb'], 1.0)
 
+    max_records_in_ram_cmd = ''
+    if max_records_in_ram := config.config_retrieve(['workflow', 'picard_markdup_max_records_in_ram'], None):
+        max_records_in_ram_cmd = f'--MAX_RECORDS_IN_RAM {max_records_in_ram}'
+
     cmd = f"""
     picard {resource.java_mem_options(overhead_gb=overhead_gb)} MarkDuplicates \\
-    I={sorted_bam} O={job.temp_bam} M={job.markdup_metrics} \\
-    TMP_DIR=$(dirname {job.output_cram.cram})/picard-tmp \\
-    ASSUME_SORT_ORDER=coordinate
+    -I {sorted_bam} -O {job.temp_bam} -M {job.markdup_metrics} \\
+    -TMP_DIR $(dirname {job.output_cram.cram})/picard-tmp \\
+    -ASSUME_SORT_ORDER coordinate {max_records_in_ram_cmd}
     echo "MarkDuplicates finished successfully"
 
     rm {sorted_bam}
