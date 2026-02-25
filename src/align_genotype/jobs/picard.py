@@ -56,8 +56,8 @@ def markdup(
     cmd = f"""
     picard {resource.java_mem_options(overhead_gb=overhead_gb)} MarkDuplicates \\
     -I {sorted_bam} -O {job.temp_bam} -M {job.markdup_metrics} \\
-    -TMP_DIR $(dirname {job.output_cram.cram})/picard-tmp \\
-    -ASSUME_SORT_ORDER coordinate {max_records_in_ram_cmd}
+    --TMP_DIR $(dirname {job.output_cram.cram})/picard-tmp \\
+    --ASSUME_SORT_ORDER coordinate {max_records_in_ram_cmd}
     echo "MarkDuplicates finished successfully"
 
     rm {sorted_bam}
