@@ -5,16 +5,12 @@ Eventually this will lead to a proper evaluation, comparing the resulting alignm
 Making some big storage/cpu/memory assumptions, and can scale all of that back down once we observe performance
 """
 
-from typing import TYPE_CHECKING
-
 from argparse import ArgumentParser
+from hailtop.batch import Batch
+from hailtop.batch.job import BashJob
 
 from cpg_utils import config, hail_batch
 from cpg_flow import utils as flow_utils
-
-if TYPE_CHECKING:
-    from hailtop.batch import Batch
-    from hailtop.batch.job import BashJob
 
 
 # I'm embedding this directly to make target images super obvious
