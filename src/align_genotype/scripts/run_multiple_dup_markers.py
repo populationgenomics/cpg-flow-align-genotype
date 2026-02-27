@@ -62,6 +62,7 @@ def create_samblaster_job(batch: Batch, bamfile: str, reference: str):
     """ronseal."""
     sb_job = make_a_job(batch, 'samblaster')
 
+
 def create_streammd_job(batch: Batch, bamfile: str, outfile: str):
     """
     e.g. bwa mem ref.fa r1.fq r2.fq|streammd
@@ -81,6 +82,7 @@ def create_streammd_job(batch: Batch, bamfile: str, outfile: str):
     """)
 
     batch.write_output(streammd_job.out, outfile)
+
 
 def create_dupmark_job(batch: Batch, bamfile: str, reference: str, outfile: str):
     """
@@ -125,7 +127,7 @@ def main(bamfile: str, outdir: str) -> None:
     batch_instance.run(wait=False)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('-i', help='Sorted BAM file', required=True)
     parser.add_argument('-o', help='output root, all outputs derived from this path', required=True)
