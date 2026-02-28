@@ -36,7 +36,7 @@ def sort_by_qname(batch: Batch, bamfile: str, outfile: str) -> BashJob | None:
     """Some tools require the input to be grouped by QNAME, not coordinate."""
 
     if flow_utils.exists(outfile):
-        None
+        return None
 
     sb_job = make_a_job(batch, 'sambamba')
     sb_job.command(f"""
@@ -73,18 +73,31 @@ def create_sambamba_job(batch: Batch, bamfile: str, outfile: str) -> None:
     batch.write_output(sb_job.out, outfile)
 
 
-def create_samblaster_job(batch: Batch, bamfile: str, reference: str):
+def create_samblaster_job(batch: Batch, bamfile: str, outfile: str) -> BashJob | None:
     """ronseal."""
+    if flow_utils.exists(outfile):
+        return None
+
     sb_job = make_a_job(batch, 'samblaster')
+    sb_job.command(f"""
+    samtools view \\
+        -h \\
+        --output-fmt SAM \\
+        {bamfile} | \\
+    samblaster | \\
+        samtools view -Sb - > {sb_job.out}
+    """)
+    batch.write_output(sb_job.out, outfile)
+    return sb_job
 
 
-def create_streammd_job(batch: Batch, bamfile: str, outfile: str) -> BashJob:
+def create_streammd_job(batch: Batch, bamfile: str, outfile: str) -> BashJob | None:
     """
     e.g. bwa mem ref.fa r1.fq r2.fq|streammd
     """
 
     if flow_utils.exists(outfile):
-        return
+        return None
 
     streammd_job = make_a_job(batch, 'streammd')
     streammd_job.command(f"""
@@ -143,8 +156,12 @@ def main(bamfile: str, outdir: str) -> None:
     qname_sort = sort_by_qname(batch=batch_instance, bamfile=input_bam, outfile=qname_sort_out)
 
     streammd_job = create_streammd_job(batch_instance, input_bam, outfile=qname_sort_out)
-    if qname_sort is not None:
+    if qname_sort and streammd_job:
         streammd_job.depends_on(qname_sort)
+
+    samblaster_job = create_samblaster_job(batch_instance, input_bam, outfile=qname_sort_out)
+    if qname_sort and samblaster_job:
+        samblaster_job.depends_on(qname_sort)
 
     batch_instance.run(wait=False)
 
