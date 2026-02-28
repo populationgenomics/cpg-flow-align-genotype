@@ -32,6 +32,25 @@ def make_a_job(batch: Batch, tool: str) -> BashJob:
     return new_job
 
 
+def sort_by_qname(batch: Batch, bamfile: str, outfile: str) -> BashJob | None:
+    """Some tools require the input to be grouped by QNAME, not coordinate."""
+
+    if flow_utils.exists(outfile):
+        None
+
+    sb_job = make_a_job(batch, 'sambamba')
+    sb_job.command(f"""
+        sambamba sort \\
+            -n \\
+            -t 4 \\
+            --tmpdir=$BATCH_TMPDIR \\
+            {bamfile} \\
+        -o {sb_job.out}
+        """)
+    batch.write_output(sb_job.out, outfile)
+    return sb_job
+
+
 def create_sambamba_job(batch: Batch, bamfile: str, outfile: str) -> None:
     """
     https://lomereiter.github.io/sambamba/docs/sambamba-markdup.html
@@ -59,7 +78,7 @@ def create_samblaster_job(batch: Batch, bamfile: str, reference: str):
     sb_job = make_a_job(batch, 'samblaster')
 
 
-def create_streammd_job(batch: Batch, bamfile: str, outfile: str):
+def create_streammd_job(batch: Batch, bamfile: str, outfile: str) -> BashJob:
     """
     e.g. bwa mem ref.fa r1.fq r2.fq|streammd
     """
@@ -78,6 +97,7 @@ def create_streammd_job(batch: Batch, bamfile: str, outfile: str):
     """)
 
     batch.write_output(streammd_job.out, outfile)
+    return streammd_job
 
 
 def create_dupmark_job(batch: Batch, bamfile: str, reference: str, outfile: str):
@@ -101,7 +121,7 @@ def create_dupmark_job(batch: Batch, bamfile: str, reference: str, outfile: str)
 
     dm_job = make_a_job(batch, 'rust_dupmark')
     dm_job.command(f"""
-    cat {bamfile} | dupmark -r {reference} > {dm_job.out}
+    cat {bamfile} | dupmark --reference {reference} --expected-items 700000000 > {dm_job.out}
     """)
     batch.write_output(dm_job.out, outfile)
 
@@ -116,9 +136,15 @@ def main(bamfile: str, outdir: str) -> None:
 
     create_sambamba_job(batch_instance, input_bam, outfile=f'{outdir}/sambamba/result.bam')
 
-    create_streammd_job(batch_instance, input_bam, outfile=f'{outdir}/streammd/result.bam')
-
     create_dupmark_job(batch_instance, input_bam, outfile=f'{outdir}/rust_dupmark/result.cram', reference=ref_fa)
+
+    # these tools explicitly require QNAME sorted files as input
+    qname_sort_out = f'{outdir}/qname_sorted/result.bam'
+    qname_sort = sort_by_qname(batch=batch_instance, bamfile=input_bam, outfile=qname_sort_out)
+
+    streammd_job = create_streammd_job(batch_instance, input_bam, outfile=qname_sort_out)
+    if qname_sort is not None:
+        streammd_job.depends_on(qname_sort)
 
     batch_instance.run(wait=False)
 
