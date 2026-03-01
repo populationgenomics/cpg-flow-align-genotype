@@ -155,11 +155,11 @@ def main(bamfile: str, outdir: str) -> None:
     qname_sort_out = f'{outdir}/qname_sorted/result.bam'
     qname_sort = sort_by_qname(batch=batch_instance, bamfile=input_bam, outfile=qname_sort_out)
 
-    streammd_job = create_streammd_job(batch_instance, input_bam, outfile=qname_sort_out)
+    streammd_job = create_streammd_job(batch_instance, bamfile=qname_sort_out, outfile=f'{outdir}/streammd/result.bam')
     if qname_sort and streammd_job:
         streammd_job.depends_on(qname_sort)
 
-    samblaster_job = create_samblaster_job(batch_instance, input_bam, outfile=qname_sort_out)
+    samblaster_job = create_samblaster_job(batch_instance, bamfile=qname_sort_out, outfile=f'{outdir}/samblaster/result.bam')
     if qname_sort and samblaster_job:
         samblaster_job.depends_on(qname_sort)
 
