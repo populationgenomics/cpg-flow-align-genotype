@@ -28,7 +28,7 @@ def rewrite_cram(
         attributes=job_attrs | {'tool': 'samtools'},
     )
 
-    job.image(config.image_path('samtools', '1.18-1'))
+    job.image(config.image_path('samtools', '1.21-1'))
 
     # read in the CRAM and index
     cram_localised = batch.read_input_group(
@@ -39,6 +39,8 @@ def rewrite_cram(
     reference = hail_batch.fasta_res_group(batch)
 
     job.command(f"""\
+    set -e
+
     samtools view \\
         -@{job.attrs.get('nthreads', 4) - 1} \\
         --reference {reference.base} \\
