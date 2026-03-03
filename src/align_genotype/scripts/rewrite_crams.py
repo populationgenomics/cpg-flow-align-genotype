@@ -36,20 +36,27 @@ def rewrite_cram(
         crai=f'{cram_path}.crai',
     ).cram
 
+    job.declare_resource_group(
+        output_cram={
+            'cram': '{root}.cram',
+            'cram.crai': '{root}.cram.crai',
+        },
+    )
+
     reference = hail_batch.fasta_res_group(batch)
 
     job.command(f"""\
     set -e
 
-    samtools view \\
+    samtools view --write-index \\
         -@{job.attrs.get('nthreads', 4) - 1} \\
-        --reference {reference.base} \\
+        -T {reference.base} \\
         -O cram,version=3.0 \\
         -o {job.output_cram.cram} \\
         {cram_localised}
     """)
     # Overwrite the original CRAM file with the rewritten version.
-    batch.write_output(job.output_cram.cram, cram_path)
+    batch.write_output(job.output_cram, cram_path)
     return job
 
 
