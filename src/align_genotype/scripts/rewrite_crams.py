@@ -1,6 +1,8 @@
 """
 A wrapper script that queues Hail batch jobs to rewrite CRAM files
 with samtools from v3.1 to v3.0 format for compatibility with downstream tools.
+
+Queries datasets from CRAMs written after 25th February 2026.
 """
 
 import argparse
@@ -11,7 +13,7 @@ from hailtop.batch.job import Job
 from metamist.graphql import gql, query
 
 # The date the new Picard image with updated samtools was deployed, which produced CRAM v3.1 by default.
-FROM_DATE = datetime(2025, 2, 25, tzinfo=timezone.utc)
+FROM_DATE = datetime(2026, 2, 25, tzinfo=timezone.utc)
 
 
 def rewrite_cram(
@@ -26,7 +28,7 @@ def rewrite_cram(
         attributes=job_attrs | {'tool': 'samtools'},
     )
 
-    job.image(config.config_retrieve(['images', 'samtools']))
+    job.image(config.image_path('samtools', '1.18-1'))
 
     # read in the CRAM and index
     cram_localised = batch.read_input_group(
