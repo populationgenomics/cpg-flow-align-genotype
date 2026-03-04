@@ -103,11 +103,13 @@ class GenotypeWithGatk(stage.SequencingGroupStage):
         cram = inputs.as_str(sequencing_group, AlignWithDragmap, 'cram')
         intervals = inputs.as_dict(workflow.get_multicohort(), GenerateIntervalsOnce)['intervals']
 
+        tmp_prefix = sequencing_group.dataset.tmp_prefix() / sequencing_group.id
+
         jobs = genotype(
             output_path=output,
             sequencing_group_name=sequencing_group.id,
             cram_path=cram,
-            tmp_prefix=self.tmp_prefix / sequencing_group.id,
+            tmp_prefix=tmp_prefix,
             intervals=intervals,
             job_attrs=self.get_job_attrs(sequencing_group),
         )
