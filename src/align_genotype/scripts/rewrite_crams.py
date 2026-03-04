@@ -56,7 +56,7 @@ def rewrite_cram(
         {cram_localised}
     """)
     # Overwrite the original CRAM file with the rewritten version.
-    batch.write_output(job.output_cram, cram_path)
+    batch.write_output(job.output_cram, cram_path.removesuffix('.cram'))
     return job
 
 
