@@ -49,7 +49,7 @@ def rewrite_cram(
     set -e
 
     samtools view --write-index \\
-        -@{job.attrs.get('nthreads', 4) - 1} \\
+        -@3 \\
         -T {reference.base} \\
         -O cram,version=3.0 \\
         -o {job.output_cram.cram} \\
