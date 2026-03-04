@@ -64,7 +64,7 @@ def get_crams_to_rewrite(datasets: list[str]) -> list[str]:
     """Query the database for CRAM files that need to be rewritten."""
     query_str = gql(
         """
-        query GetCramsToRewrite(dataset: String!) {
+        query GetCramsToRewrite($dataset: String!) {
             project(name: $dataset) {
                 sequencingGroups(type: {eq: "genome"}) {
                     id
