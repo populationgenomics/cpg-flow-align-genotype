@@ -68,7 +68,7 @@ def get_crams_to_rewrite(datasets: list[str]) -> list[str]:
             project(name: $dataset) {
                 sequencingGroups(type: {eq: "genome"}) {
                     id
-                    analyses(type: {eq: "cram"}, status: {eq: "completed"}) {
+                    analyses(type: {eq: "cram"}, status: {eq: COMPLETED}) {
                         id
                         timestampCompleted
                         outputs
