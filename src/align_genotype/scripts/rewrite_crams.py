@@ -66,7 +66,7 @@ def get_crams_to_rewrite(datasets: list[str]) -> list[str]:
         """
         query GetCramsToRewrite($dataset: String!) {
             project(name: $dataset) {
-                sequencingGroups(type: {eq: "genome"}) {
+                sequencingGroups(type: {in_: ["genome", "exome"]}) {
                     id
                     analyses(type: {eq: "cram"}, status: {eq: COMPLETED}) {
                         id
