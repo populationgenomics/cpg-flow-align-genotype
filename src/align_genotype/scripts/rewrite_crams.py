@@ -29,6 +29,9 @@ def rewrite_cram(
     )
 
     job.image(config.image_path('samtools', '1.21-1'))
+    job.memory('16Gi')
+    job.storage('100Gi')
+    job.cpu(4)
 
     # read in the CRAM and index
     cram_localised = batch.read_input_group(
@@ -111,4 +114,4 @@ if __name__ == '__main__':
         batch = hail_batch.get_batch()
         for cram_path in crams_to_rewrite:
             rewrite_cram(batch, cram_path, job_attrs={'nthreads': 4})
-        batch.run()
+        batch.run(wait=False)
