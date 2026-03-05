@@ -65,7 +65,7 @@ def main(outdir: str) -> None:
         echo "samtools view finished successfully"    
         """)
 
-        batch_instance.write_output(job.out, outroot)
+        batch_instance.write_output(job.output, outroot)
 
     batch_instance.run(wait=False)
 
