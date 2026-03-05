@@ -67,7 +67,7 @@ def main(outdir: str) -> None:
             -O cram,version=3.0 \\
             -o {job.output.cram} \\
             {input_file}
-        echo "samtools view finished successfully"    
+        echo "samtools view finished successfully"
         """)
 
         batch_instance.write_output(job.output, outroot)

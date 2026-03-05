@@ -1,16 +1,18 @@
 """
-Intention here is to run a variety of tools for duplicate marking, and evaluate their runtime performance
-Eventually this will lead to a proper evaluation, comparing the resulting alignments
+NOT DONE YET
 
-Making some big storage/cpu/memory assumptions, and can scale all of that back down once we observe performance
+Secondary part of the process - now that there are some duplicate-marked files (mix of CRAM and BAM),
+run them through the variant calling process we already have, to create a gVCF per dupmark tool
 """
 
 from argparse import ArgumentParser
 from hailtop.batch import Batch
 from hailtop.batch.job import BashJob
 
-from cpg_utils import hail_batch
+from cpg_utils import config, hail_batch
 from cpg_flow import utils as flow_utils
+
+from align_genotype.jobs.genotype import genotype
 
 
 # I'm embedding this directly to make target images super obvious
@@ -73,41 +75,25 @@ def create_sambamba_job(batch: Batch, bamfile: str, outfile: str) -> None:
     batch.write_output(sb_job.out, outfile)
 
 
-def create_samblaster_job(batch: Batch, bamfile: str, outfile: str, reference: str) -> BashJob | None:
+def create_samblaster_job(batch: Batch, bamfile: str, outfile: str) -> BashJob | None:
     """ronseal."""
     if flow_utils.exists(outfile):
         return None
 
     sb_job = make_a_job(batch, 'samblaster')
-
-    sb_job.declare_resource_group(
-        output={
-            'cram': '{root}.cram',
-            'cram.crai': '{root}.cram.crai',
-        },
-    )
-
     sb_job.command(f"""
-    mkdir $BATCH_TMPDIR/sort_tmp
     samtools view \\
         -h \\
         --output-fmt SAM \\
         {bamfile} | \\
     samblaster | \\
-    samtools sort \\
-        --reference {reference} \\
-        -O CRAM,version=3.0 \\
-        -T $BATCH_TMPDIR/sort_tmp \\
-        --write-index \\
-        -o {sb_job.output.cram} \\
-        -
+        samtools view -Sb - > {sb_job.out}
     """)
-    batch.write_output(sb_job.output, outfile)
-
+    batch.write_output(sb_job.out, outfile)
     return sb_job
 
 
-def create_streammd_job(batch: Batch, bamfile: str, outfile: str, reference: str) -> BashJob | None:
+def create_streammd_job(batch: Batch, bamfile: str, outfile: str) -> BashJob | None:
     """
     e.g. bwa mem ref.fa r1.fq r2.fq|streammd
     """
@@ -116,31 +102,16 @@ def create_streammd_job(batch: Batch, bamfile: str, outfile: str, reference: str
         return None
 
     streammd_job = make_a_job(batch, 'streammd')
-
-    streammd_job.declare_resource_group(
-        output={
-            'cram': '{root}.cram',
-            'cram.crai': '{root}.cram.crai',
-        },
-    )
-
     streammd_job.command(f"""
-    mkdir $BATCH_TMPDIR/sort_tmp
     samtools view \\
         -h \\
         --output-fmt SAM \\
         {bamfile} | \\
-    streammd | \\
-    samtools sort \\
-        --reference {reference} \\
-        -O CRAM,version=3.0 \\
-        -T $BATCH_TMPDIR/sort_tmp \\
-        --write-index \\
-        -o {streammd_job.output.cram} \\
-        -
+    streammd \
+        --output {streammd_job.out}
     """)
 
-    batch.write_output(streammd_job.output, outfile.removesuffix('.cram'))
+    batch.write_output(streammd_job.out, outfile)
     return streammd_job
 
 
@@ -173,6 +144,8 @@ def create_dupmark_job(batch: Batch, bamfile: str, reference: str, outfile: str)
 def main(bamfile: str, outdir: str) -> None:
     batch_instance = hail_batch.get_batch(name='Various Duplicate Markers test.')
 
+    previous_outputs = ...
+
     # set with workflow.ref_fasta
     ref_fa = hail_batch.fasta_res_group(batch_instance).base
 
@@ -188,15 +161,11 @@ def main(bamfile: str, outdir: str) -> None:
 
     qname_result = batch_instance.read_input(qname_sort_out)
 
-    streammd_job = create_streammd_job(
-        batch_instance, bamfile=qname_result, outfile=f'{outdir}/streammd/result.cram', reference=ref_fa
-    )
+    streammd_job = create_streammd_job(batch_instance, bamfile=qname_result, outfile=f'{outdir}/streammd/result.bam')
     if qname_sort and streammd_job:
         streammd_job.depends_on(qname_sort)
 
-    samblaster_job = create_samblaster_job(
-        batch_instance, bamfile=qname_result, outfile=f'{outdir}/samblaster/result.cram', reference=ref_fa
-    )
+    samblaster_job = create_samblaster_job(batch_instance, bamfile=qname_result, outfile=f'{outdir}/samblaster/result.bam')
     if qname_sort and samblaster_job:
         samblaster_job.depends_on(qname_sort)
 

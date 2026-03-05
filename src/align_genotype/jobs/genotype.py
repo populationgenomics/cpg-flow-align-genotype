@@ -201,7 +201,6 @@ def _haplotype_caller_one(
     HaplotypeCaller \\
     -R {reference.base} \\
     -I {cram_resource_group.cram} \\
-    --read-index {cram_resource_group['cram.crai']} \\
     {f'-L {interval} ' if interval is not None else ''} \\
     --disable-spanning-event-genotyping \\
     --dragen-mode \\
