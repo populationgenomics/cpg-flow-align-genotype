@@ -9,7 +9,7 @@ from argparse import ArgumentParser
 from hailtop.batch import Batch
 from hailtop.batch.job import BashJob
 
-from cpg_utils import config, hail_batch
+from cpg_utils import hail_batch
 from cpg_flow import utils as flow_utils
 
 
@@ -73,25 +73,41 @@ def create_sambamba_job(batch: Batch, bamfile: str, outfile: str) -> None:
     batch.write_output(sb_job.out, outfile)
 
 
-def create_samblaster_job(batch: Batch, bamfile: str, outfile: str) -> BashJob | None:
+def create_samblaster_job(batch: Batch, bamfile: str, outfile: str, reference: str) -> BashJob | None:
     """ronseal."""
     if flow_utils.exists(outfile):
         return None
 
     sb_job = make_a_job(batch, 'samblaster')
+
+    sb_job.declare_resource_group(
+        output={
+            'cram': '{root}.cram',
+            'cram.crai': '{root}.cram.crai',
+        },
+    )
+
     sb_job.command(f"""
+    mkdir $BATCH_TMPDIR/sort_tmp
     samtools view \\
         -h \\
         --output-fmt SAM \\
         {bamfile} | \\
     samblaster | \\
-        samtools view -Sb - > {sb_job.out}
+    samtools sort \\
+        --reference {reference} \\
+        -O CRAM,version=3.0 \\
+        -T $BATCH_TMPDIR/sort_tmp \\
+        --write-index \\
+        -o {sb_job.output.cram} \\
+        -
     """)
-    batch.write_output(sb_job.out, outfile)
+    batch.write_output(sb_job.output, outfile)
+
     return sb_job
 
 
-def create_streammd_job(batch: Batch, bamfile: str, outfile: str) -> BashJob | None:
+def create_streammd_job(batch: Batch, bamfile: str, outfile: str, reference: str) -> BashJob | None:
     """
     e.g. bwa mem ref.fa r1.fq r2.fq|streammd
     """
@@ -100,16 +116,31 @@ def create_streammd_job(batch: Batch, bamfile: str, outfile: str) -> BashJob | N
         return None
 
     streammd_job = make_a_job(batch, 'streammd')
+
+    streammd_job.declare_resource_group(
+        output={
+            'cram': '{root}.cram',
+            'cram.crai': '{root}.cram.crai',
+        },
+    )
+
     streammd_job.command(f"""
+    mkdir $BATCH_TMPDIR/sort_tmp
     samtools view \\
         -h \\
         --output-fmt SAM \\
         {bamfile} | \\
-    streammd \
-        --output {streammd_job.out}
+    streammd | \\
+    samtools sort \\
+        --reference {reference} \\
+        -O CRAM,version=3.0 \\
+        -T $BATCH_TMPDIR/sort_tmp \\
+        --write-index \\
+        -o {streammd_job.output.cram} \\
+        -
     """)
 
-    batch.write_output(streammd_job.out, outfile)
+    batch.write_output(streammd_job.output, outfile.removesuffix('.cram'))
     return streammd_job
 
 
@@ -157,11 +188,11 @@ def main(bamfile: str, outdir: str) -> None:
 
     qname_result = batch_instance.read_input(qname_sort_out)
 
-    streammd_job = create_streammd_job(batch_instance, bamfile=qname_result, outfile=f'{outdir}/streammd/result.bam')
+    streammd_job = create_streammd_job(batch_instance, bamfile=qname_result, outfile=f'{outdir}/streammd/result.cram', reference=ref_fa)
     if qname_sort and streammd_job:
         streammd_job.depends_on(qname_sort)
 
-    samblaster_job = create_samblaster_job(batch_instance, bamfile=qname_result, outfile=f'{outdir}/samblaster/result.bam')
+    samblaster_job = create_samblaster_job(batch_instance, bamfile=qname_result, outfile=f'{outdir}/samblaster/result.cram', reference=ref_fa)
     if qname_sort and samblaster_job:
         samblaster_job.depends_on(qname_sort)
 

@@ -6,7 +6,7 @@ from argparse import ArgumentParser
 from hailtop.batch import Batch
 from hailtop.batch.job import BashJob
 
-from cpg_utils import hail_batch
+from cpg_utils import hail_batch, to_path
 
 
 # I'm embedding this directly to make target images super obvious
@@ -21,9 +21,11 @@ IMAGES: dict[str, str] = {
 OUTPUTS: dict[str, str] = {
     'rust_dupmark': 'gs://cpg-ghfm-kidgen-test/duplicate_marker_test/rust_dupmark/result.cram',
     'sambamba': 'gs://cpg-ghfm-kidgen-test/duplicate_marker_test/sambamba/result.bam',
-    'samblaster': 'gs://cpg-ghfm-kidgen-test/duplicate_marker_test/samblaster/result.bam',
-    'streammd': 'gs://cpg-ghfm-kidgen-test/duplicate_marker_test/streammd/result.bam',
+    # 'samblaster': 'gs://cpg-ghfm-kidgen-test/duplicate_marker_test/samblaster/result.cram',  # already handled
+    # 'streammd': 'gs://cpg-ghfm-kidgen-test/duplicate_marker_test/streammd/result.cram',  # already handled
 }
+
+needs_sorting = ['samblaster', 'streammd']
 
 
 def make_a_job(batch: Batch, tool: str) -> BashJob:
@@ -44,6 +46,9 @@ def main(outdir: str) -> None:
 
     for tool, file in OUTPUTS.items():
         outroot = f'{outdir}/{tool}/result'
+
+        if to_path(f'{outroot}.cram').exists():
+            continue
 
         input_file = batch_instance.read_input(file)
 
