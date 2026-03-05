@@ -64,7 +64,7 @@ def markdup(
 
     samtools view --write-index -@{resource.get_nthreads() - 1} \\
     -T {fasta_reference.base} \\
-    -O cram \\
+    -O cram,version=3.0 \\
     -o {job.output_cram.cram} \\
     {job.temp_bam}
     echo "samtools view finished successfully"
