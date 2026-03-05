@@ -189,13 +189,13 @@ def main(bamfile: str, outdir: str) -> None:
     qname_result = batch_instance.read_input(qname_sort_out)
 
     streammd_job = create_streammd_job(
-        batch_instance, bamfile=qname_result, outfile=f'{outdir}/streammd/result.cram', reference=ref_fa
+        batch_instance, bamfile=qname_result, outfile=f'{outdir}/streammd/result', reference=ref_fa
     )
     if qname_sort and streammd_job:
         streammd_job.depends_on(qname_sort)
 
     samblaster_job = create_samblaster_job(
-        batch_instance, bamfile=qname_result, outfile=f'{outdir}/samblaster/result.cram', reference=ref_fa
+        batch_instance, bamfile=qname_result, outfile=f'{outdir}/samblaster/result', reference=ref_fa
     )
     if qname_sort and samblaster_job:
         samblaster_job.depends_on(qname_sort)
