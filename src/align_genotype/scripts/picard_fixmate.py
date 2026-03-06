@@ -38,7 +38,9 @@ def run_fixmate(batch: hail_batch.Batch, bam_path: str, out_bam_path: str) -> Jo
         -I {bam_localised} \\
         -O {job.output_bam} \\
         --ADD_MATE_CIGAR true \\
-        --IGNORE_MISSING_MATES false
+        --IGNORE_MISSING_MATES false \\
+        --SORT_ORDER coordinate \\
+        --TMP_DIR $BATCH_TMPDIR
     """)
     batch.write_output(job.output_bam, out_bam_path.removesuffix('.bam'))
     return job
