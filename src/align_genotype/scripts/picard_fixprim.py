@@ -54,7 +54,7 @@ with pysam.AlignmentFile("{bam_localised}", "rb") as inf:
                 # We have already seen a primary for this name/pair-end.
                 # Convert this one to SUPPLEMENTARY (0x800)
                 read_type = "R1" if read.is_read1 else "R2"
-                print(f"Changed {read.query_name} ({read_type}) from primary to supplementary")
+                print(f"Changed {{read.query_name}} ({{read_type}}) from primary to supplementary")
                 read.is_supplementary = True
             else:
                 # First time seeing this name, keep it as Primary
