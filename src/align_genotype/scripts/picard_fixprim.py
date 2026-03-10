@@ -1,5 +1,5 @@
 import argparse
-from cpg_utils import hail_batch
+from cpg_utils import config, hail_batch
 from hailtop.batch.job import Job
 
 def run_fixmate(batch: hail_batch.Batch, bam_path: str, out_bam_path: str) -> Job:
@@ -8,6 +8,9 @@ def run_fixmate(batch: hail_batch.Batch, bam_path: str, out_bam_path: str) -> Jo
     job = batch.new_job(
         'Picard FixMateInformation',
     )
+
+    # Use the custom image that has pysam installed
+    job.image('australia-southeast1-docker.pkg.dev/cpg-common/images-dev/cpg-flow-align-genotype:0.4.5-2')
     job.memory('16Gi')
     job.storage('250Gi')
     job.cpu(4)
@@ -30,7 +33,7 @@ def run_fixmate(batch: hail_batch.Batch, bam_path: str, out_bam_path: str) -> Jo
     job.command(f'''
         set -ex
         
-        python << 'EOF'
+        cat > fix_primary.py << 'EOF'
 import pysam
 
 seen_primary_r1 = set()
@@ -59,6 +62,9 @@ with pysam.AlignmentFile("{bam_localised}", "rb") as inf:
 
             outf.write(read)
 EOF
+        
+        # Run the Python script using the Python interpreter
+        /usr/bin/env python fix_primary.py
         
         # Index the output BAM
         samtools index {job.output_bam.bam}
