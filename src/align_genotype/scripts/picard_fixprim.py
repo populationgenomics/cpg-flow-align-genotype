@@ -1,5 +1,5 @@
 import argparse
-from cpg_utils import config, hail_batch
+from cpg_utils import hail_batch
 from hailtop.batch.job import Job
 
 def run_fixmate(batch: hail_batch.Batch, bam_path: str, out_bam_path: str) -> Job:
@@ -30,7 +30,7 @@ def run_fixmate(batch: hail_batch.Batch, bam_path: str, out_bam_path: str) -> Jo
     job.command(f'''
         set -ex
         
-        python3 << 'EOF'
+        python << 'EOF'
 import pysam
 
 seen_primary_r1 = set()
