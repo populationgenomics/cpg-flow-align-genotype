@@ -8,7 +8,9 @@ def run_fixmate(batch: hail_batch.Batch, bam_path: str, out_bam_path: str) -> Jo
     job.image('australia-southeast1-docker.pkg.dev/cpg-common/images-dev/cpg-flow-align-genotype:0.4.5-2')
     job.memory('16Gi')
     job.storage('250Gi')
-    job.cpu(8)
+
+    cpu_count = 8
+    job.cpu(cpu_count)
 
     bam_localised = batch.read_input_group(bam=bam_path, bai=f'{bam_path}.bai')
 
@@ -20,7 +22,7 @@ def run_fixmate(batch: hail_batch.Batch, bam_path: str, out_bam_path: str) -> Jo
         set -ex
         
         # 1. Sort by NAME to group duplicates together
-        samtools sort -n -@ {job.cpu} -o name_sorted.bam {bam_localised.bam}
+        samtools sort -n -@ {cpu_count} -o name_sorted.bam {bam_localised.bam}
 
         # 2. Process with Python
         cat > fix_primary.py << EOF
@@ -69,7 +71,7 @@ EOF
         /usr/bin/env python fix_primary.py
         
         # 3. Restore Coordinate Sort order and Index
-        samtools sort -@ {job.cpu} -o {job.output_bam.bam} fixed_name_sorted.bam
+        samtools sort -@ {cpu_count} -o {job.output_bam.bam} fixed_name_sorted.bam
         samtools index {job.output_bam.bam}
     ''')
 
