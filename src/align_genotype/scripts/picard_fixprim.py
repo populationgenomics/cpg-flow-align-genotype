@@ -7,10 +7,7 @@ def run_fixmate(batch: hail_batch.Batch, bam_path: str, out_bam_path: str) -> Jo
 
     job = batch.new_job(
         'Picard FixMateInformation',
-        attributes={'tool': 'picard'},
     )
-
-    job.image(config.image_path('picard', '3.4.0-3'))
     job.memory('16Gi')
     job.storage('250Gi')
     job.cpu(4)
