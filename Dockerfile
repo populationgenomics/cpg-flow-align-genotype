@@ -9,4 +9,5 @@ COPY src src/
 COPY LICENSE pyproject.toml README.md ./
 
 # pip install but don't retain the cache files
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir . && \
+    pip install --no-cache-dir pysam
