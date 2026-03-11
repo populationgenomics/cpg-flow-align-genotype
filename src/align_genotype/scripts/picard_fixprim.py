@@ -92,16 +92,16 @@ def process_read_group(reads, read_type):
             # This read needs to be marked as supplementary
             mapq = read.mapping_quality
             as_score = get_alignment_score(read)
-            as_str = f"AS={as_score}" if as_score is not None else "AS=None"
+            as_str = "AS=" + str(as_score) if as_score is not None else "AS=None"
             chrom = read.reference_name if read.reference_name else "unmapped"
-            pos = read.reference_start if read.reference_start is not None else "N/A"
+            pos = str(read.reference_start) if read.reference_start is not None else "N/A"
             
-            print(f"BEFORE: {read.query_name} ({read_type}) - {chrom}:{pos} MAPQ={mapq} {as_str} Flags={read.flag}")
+            print("BEFORE: " + read.query_name + " (" + read_type + ") - " + chrom + ":" + pos + " MAPQ=" + str(mapq) + " " + as_str + " Flags=" + str(read.flag))
             
             read.is_supplementary = True
             modified_count += 1
             
-            print(f"AFTER:  {read.query_name} ({read_type}) - {chrom}:{pos} MAPQ={mapq} {as_str} Flags={read.flag} [NOW SUPPLEMENTARY]")
+            print("AFTER:  " + read.query_name + " (" + read_type + ") - " + chrom + ":" + pos + " MAPQ=" + str(mapq) + " " + as_str + " Flags=" + str(read.flag) + " [NOW SUPPLEMENTARY]")
             print()
             
             result_reads.append(read)
@@ -140,9 +140,9 @@ with pysam.AlignmentFile("{name_sorted_bam}", "rb") as inf:
             for r in process_read_group(current_r2_reads, "R2"):
                 outf.write(r)
 
-print(f"--- Processing Summary ---")
-print(f"Total reads processed: {{total_count}}")
-print(f"Reads converted to supplementary: {{modified_count}}")
+print("--- Processing Summary ---")
+print("Total reads processed: " + str(total_count))
+print("Reads converted to supplementary: " + str(modified_count))
 EOF
         
         /usr/bin/env python fix_primary.py
