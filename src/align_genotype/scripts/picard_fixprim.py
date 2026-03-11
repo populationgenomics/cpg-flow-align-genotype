@@ -22,7 +22,7 @@ def run_fixmate(batch: hail_batch.Batch, bam_path: str, out_bam_path: str) -> Jo
         set -ex
         
         # 1. Sort by NAME to group duplicates together
-        samtools sort -n -@ {cpu_count} -o name_sorted.bam {bam_localised.bam}
+        samtools sort -n -@ {cpu_count} -o name_sorted.bam {bam_localised.bam} -T $BATCH_TMPDIR
 
         # 2. Process with Python
         cat > fix_primary.py << EOF
@@ -71,7 +71,7 @@ EOF
         /usr/bin/env python fix_primary.py
         
         # 3. Restore Coordinate Sort order and Index
-        samtools sort -@ {cpu_count} -o {job.output_bam.bam} fixed_name_sorted.bam
+        samtools sort -@ {cpu_count} -o {job.output_bam.bam} fixed_name_sorted.bam -T $BATCH_TMPDIR
         samtools index {job.output_bam.bam}
     ''')
 
