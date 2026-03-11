@@ -7,7 +7,7 @@ def run_fixmate(batch: hail_batch.Batch, bam_path: str, out_bam_path: str) -> Jo
 
     job.image('australia-southeast1-docker.pkg.dev/cpg-common/images-dev/cpg-flow-align-genotype:0.4.5-2')
     job.memory('16Gi')
-    job.storage('250Gi')
+    job.storage('500Gi')
 
     cpu_count = 8
     job.cpu(cpu_count)
