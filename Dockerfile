@@ -8,5 +8,10 @@ WORKDIR /align_genotype
 COPY src src/
 COPY LICENSE pyproject.toml README.md ./
 
-# pip install but don't retain the cache files
-RUN pip install --no-cache-dir .
+# Install samtools and pip packages
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends samtools && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    pip install --no-cache-dir . && \
+    pip install --no-cache-dir pysam
