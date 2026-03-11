@@ -22,7 +22,7 @@ def run_fixmate(batch: hail_batch.Batch, bam_path: str, out_bam_path: str) -> Jo
         set -ex
         
         # 1. Sort by NAME to group duplicates together
-        samtools sort -n -@ {cpu_count} -o name_sorted.bam {bam_localised.bam} -T $BATCH_TMPDIR
+        samtools sort -n -@ {cpu_count} -o $BATCH_TMPDIR/name_sorted.bam {bam_localised.bam} -T $BATCH_TMPDIR
 
         # 2. Process with Python
         cat > fix_primary.py << EOF
@@ -34,8 +34,8 @@ r2_primary_found = False
 modified_count = 0
 total_count = 0
 
-with pysam.AlignmentFile("name_sorted.bam", "rb") as inf:
-    with pysam.AlignmentFile("fixed_name_sorted.bam", "wb", template=inf) as outf:
+with pysam.AlignmentFile("$BATCH_TMPDIR/name_sorted.bam", "rb") as inf:
+    with pysam.AlignmentFile("$BATCH_TMPDIR/fixed_name_sorted.bam", "wb", template=inf) as outf:
         for read in inf:
             total_count += 1
             
@@ -71,7 +71,7 @@ EOF
         /usr/bin/env python fix_primary.py
         
         # 3. Restore Coordinate Sort order and Index
-        samtools sort -@ {cpu_count} -o {job.output_bam.bam} fixed_name_sorted.bam -T $BATCH_TMPDIR
+        samtools sort -@ {cpu_count} -o {job.output_bam.bam} $BATCH_TMPDIR/fixed_name_sorted.bam -T $BATCH_TMPDIR
         samtools index {job.output_bam.bam}
     ''')
 
