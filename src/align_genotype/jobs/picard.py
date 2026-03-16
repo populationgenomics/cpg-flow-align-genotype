@@ -169,8 +169,11 @@ def get_metrics_job_resources(ncpu: int = 2, mem_gb: int = 8) -> resources.JobRe
     """
     Get the resources for Picard metrics jobs.
     """
+    ncpu = config.config_retrieve(['workflow', 'picard_metrics_ncpu'], default=ncpu)
+    mem_gb = config.config_retrieve(['workflow', 'picard_metrics_mem_gb'], default=mem_gb)
+
     if config.config_retrieve(['workflow', 'picard_metrics_use_highmem'], default=False):
-        return resources.HIGHMEM.request_resources(ncpu=4, mem_gb=16)
+        return resources.HIGHMEM.request_resources(ncpu=ncpu, mem_gb=mem_gb)
     return resources.STANDARD.request_resources(ncpu=ncpu, mem_gb=mem_gb)  # Default memory for metrics jobs
 
 
@@ -381,7 +384,7 @@ def vcf_qc(
     )
     job.image(config.config_retrieve(['images', 'picard']))
 
-    res = get_metrics_job_resources(mem_gb=3)
+    res = get_metrics_job_resources()
     sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
     res.attach_disk_storage_gb = config.config_retrieve(['workflow', f'{sequencing_type}_cram_gb'])
     res.set_to_job(job)

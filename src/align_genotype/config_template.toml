@@ -34,6 +34,8 @@ picard_markdup_genome_overhead_gb = 5.0
 
 # set to use highmem workers for picard qc metrics jobs, defaults to false
 picard_metrics_use_highmem = false
+picard_metrics_ncpu = 2
+picard_metrics_mem_gb = 8
 
 # set to override the picard attached storage, default 250
 picard_storage_gb = 250
