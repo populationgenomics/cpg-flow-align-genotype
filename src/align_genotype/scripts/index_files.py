@@ -6,7 +6,8 @@ from cpg_utils.hail_batch import Batch, command, get_batch
 from google.cloud import storage
 from loguru import logger
 
-TEN_GB = 10 * 1024 ** 3
+TEN_GB = 10 * 1024**3
+
 
 def find_files_to_index(
     path: Path,
@@ -18,7 +19,7 @@ def find_files_to_index(
     bucket = client.bucket(bucket_name, user_project=get_gcp_project())
 
     # Find all files with the given extensions
-    files_to_index = {'samtools': [], 'bcftools': []}
+    files_to_index: dict[str, list] = {'samtools': [], 'bcftools': []}
     blobs = bucket.list_blobs(prefix=prefix)
     blob_names = [f'gs://{bucket_name}/{blob.name}' for blob in blobs]
     for blob_name in blob_names:
