@@ -58,7 +58,7 @@ def index_with_samtools(
         storage_gb = int(disk_size) if disk_size else 20 if to_path(file_to_index_path).stat().st_size < TEN_GB else 100
         nthreads = 8
         res = STANDARD.set_resources(
-            j,
+            j=j,
             ncpu=nthreads,
             storage_gb=storage_gb,
         )
@@ -83,7 +83,7 @@ def index_with_bcftools(
         storage_gb = int(disk_size) if disk_size else 20 if to_path(file_to_index_path).stat().st_size < TEN_GB else 100
         nthreads = 4
         res = STANDARD.set_resources(
-            j,
+            j=j,
             ncpu=nthreads,
             storage_gb=storage_gb,
         )
