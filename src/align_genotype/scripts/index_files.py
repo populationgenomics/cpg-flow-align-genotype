@@ -106,7 +106,7 @@ def main(input_path: str, disk_size: str | None):
     logger.info(f'Found {len(files_to_index["bcftools"])} VCF.GZ files to index')
     index_with_samtools(get_batch(), files_to_index['samtools'], disk_size)
     index_with_bcftools(get_batch(), files_to_index['bcftools'], disk_size)
-    get_batch().run()
+    get_batch().run(wait=False)
 
 
 if __name__ == '__main__':
