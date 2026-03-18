@@ -81,13 +81,14 @@ def index_with_bcftools(
         j.image(image_path('bcftools'))
         # Set resource requirements
         storage_gb = int(disk_size) if disk_size else 20 if to_path(file_to_index_path).stat().st_size < TEN_GB else 100
-        nthreads = 8
+        nthreads = 4
         res = STANDARD.set_resources(
             j,
             ncpu=nthreads,
             storage_gb=storage_gb,
         )
-        cmd = f'bcftools index -@ {res.get_nthreads() - 1} {input_file} -o {j.output}'
+        res.set_to_job(j)
+        cmd = f'bcftools index --tbi {input_file} -o {j.output}'
         j.command(command(cmd, monitor_space=True))
         b.write_output(j.output, index_file_path)
 
