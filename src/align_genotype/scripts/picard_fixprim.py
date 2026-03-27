@@ -15,7 +15,7 @@ import argparse
 from cpg_utils import hail_batch
 from hailtop.batch.job import Job
 
-DOCKER_IMAGE = 'australia-southeast1-docker.pkg.dev/cpg-common/images-dev/cpg-flow-align-genotype:0.4.5-2'
+DOCKER_IMAGE = 'australia-southeast1-docker.pkg.dev/cpg-common/images-dev/cpg-flow-align-genotype:0.4.6-1'
 
 
 def job_name_sort(batch: hail_batch.Batch, bam_path: str) -> Job:
