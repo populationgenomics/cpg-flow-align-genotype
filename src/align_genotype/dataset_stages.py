@@ -20,7 +20,7 @@ def filter_to_dataset_sgids(
     return {k: v for k, v in inputs_by_sgid.items() if k in dataset.get_sequencing_group_ids()}
 
 
-@stage.stage(required_stages=[CramQcVerifyBamId, CramQcSomalier])
+@stage.stage(required_stages=[CramQcVerifyBamId, CramQcSomalier], analysis_type='web', analysis_keys=['html'])
 class SomalierPedigree(stage.DatasetStage):
     """
     Checks pedigree from CRAM fingerprints.
