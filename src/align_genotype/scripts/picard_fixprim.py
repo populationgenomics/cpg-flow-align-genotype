@@ -40,7 +40,7 @@ def main(bam_in: str, bam_out: str) -> None:
         samtools sort -@ {cpu_count} -o {job.output_bam.bam} $BATCH_TMPDIR/name_sorted.bam -T $BATCH_TMPDIR
         rm $BATCH_TMPDIR/name_sorted.bam
         samtools index {job.output_bam.bam}
-    """)
+    """)  # noqa: E501
 
     batch.write_output(job.output_bam, bam_out.removesuffix('.bam'))
 
