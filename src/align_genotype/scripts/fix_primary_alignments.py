@@ -27,7 +27,7 @@ def get_sort_key(read):
     """Return tuple for sorting: (MAPQ, AS, random). Higher is better."""
     as_score = get_alignment_score(read)
     # Use -1 for missing AS so it sorts lower than any real score
-    return (read.mapping_quality, as_score if as_score is not None else -1, random.random())  # noqa: S311
+    return read.mapping_quality, as_score if as_score is not None else -1, random.random()  # noqa: S311
 
 
 def process_read_group(reads, read_type, modified_count):
