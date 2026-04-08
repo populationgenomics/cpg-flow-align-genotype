@@ -38,7 +38,7 @@ def main(bam_in: str, bam_out: str) -> None:
         python -m align_genotype.scripts.fix_primary_alignments --input $BATCH_TMPDIR/name_sorted.bam --output $BATCH_TMPDIR/fixed.bam
         rm $BATCH_TMPDIR/name_sorted.bam
         samtools sort -@ {cpu_count} -o {job.output_bam.bam} $BATCH_TMPDIR/name_sorted.bam -T $BATCH_TMPDIR
-        rm $BATCH_TMPDIR/name_sorted.bam
+        rm $BATCH_TMPDIR/fixed.bam
         samtools index {job.output_bam.bam}
     """)  # noqa: E501
 
