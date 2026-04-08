@@ -2,6 +2,8 @@
 # set this to false if we want to use non-preemptible machines
 align_spot = true
 
+sequencing_type = 'genome'
+
 # exome/genome workflows choose one of these default values
 exome_realignment_shards = 1
 genome_realignment_shards = 10
@@ -53,7 +55,7 @@ genome_cram_gb = 100
 downsample_reads = 20
 
 # Shard count for HaplotypeCaller
-scatter_count_genotype = 50
+scatter_count_genotype = 30
 
 # HaplotypeCaller resource options
 # Best performance for genomes - highmem, 4 cpus, 4 pairhmm threads

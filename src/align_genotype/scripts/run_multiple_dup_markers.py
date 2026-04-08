@@ -13,7 +13,6 @@ from cpg_utils import hail_batch
 from cpg_flow import utils as flow_utils
 
 
-# I'm embedding this directly to make target images super obvious
 IMAGES: dict[str, str] = {
     'rust_dupmark': 'australia-southeast1-docker.pkg.dev/cpg-common/images-dev/rust_dupmarker:0.1.0-1',
     'samblaster': 'australia-southeast1-docker.pkg.dev/cpg-common/images/samblaster:0.1.26-1',
@@ -75,7 +74,7 @@ def create_sambamba_job(batch: Batch, bamfile: str, outfile: str) -> None:
 
 def create_samblaster_job(batch: Batch, bamfile: str, outfile: str, reference: str) -> BashJob | None:
     """ronseal."""
-    if flow_utils.exists(outfile):
+    if flow_utils.exists(f'{outfile}.cram'):
         return None
 
     sb_job = make_a_job(batch, 'samblaster')
@@ -112,7 +111,7 @@ def create_streammd_job(batch: Batch, bamfile: str, outfile: str, reference: str
     e.g. bwa mem ref.fa r1.fq r2.fq|streammd
     """
 
-    if flow_utils.exists(outfile):
+    if flow_utils.exists(f'{outfile}.cram'):
         return None
 
     streammd_job = make_a_job(batch, 'streammd')
@@ -140,7 +139,7 @@ def create_streammd_job(batch: Batch, bamfile: str, outfile: str, reference: str
         -
     """)
 
-    batch.write_output(streammd_job.output, outfile.removesuffix('.cram'))
+    batch.write_output(streammd_job.output, outfile)
     return streammd_job
 
 
