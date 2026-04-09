@@ -85,8 +85,6 @@ send_to_slack = true
 [workflow.gvcf_multiqc.extra_config]
 plots_force_interactive = true
 
-
-
 [qc_thresholds.genome.min]
 "MEDIAN_COVERAGE" = 10
 "PCT_PF_READS_ALIGNED" = 0.80
