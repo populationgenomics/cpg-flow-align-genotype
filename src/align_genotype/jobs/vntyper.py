@@ -2,7 +2,6 @@
 CRAM to VNtyper results: create Hail Batch jobs to run VNtyper on individual sequencing groups.
 """
 
-import hailtop.batch as hb
 from cpg_flow import resources
 from cpg_utils import Path, config, hail_batch
 from hailtop.batch.job import BashJob
@@ -46,7 +45,7 @@ def vntyper(
     cram_path: str,
     out_paths: dict[str, Path],
     job_attrs: dict[str, str],
-) -> tuple[BashJob | None, hb.Resource]:
+) -> BashJob:
     """
     Add one VNtyper job.
     """
@@ -87,4 +86,4 @@ def vntyper(
     batch_instance.write_output(job.html, str(out_paths['html']))
     batch_instance.write_output(job.kestrel, str(out_paths['kestrel']))
 
-    return job, job.output_files
+    return job
