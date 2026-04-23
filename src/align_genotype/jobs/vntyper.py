@@ -69,7 +69,7 @@ def vntyper(
     cram_resource_group = batch_instance.read_input_group(**{'cram': cram_path, 'cram.crai': f'{cram_path!s}.crai'})
 
     job.command(f"""\
-    export REF_PATH={reference['base']} && \
+    export CRAM_REFERENCE={reference['base']} && \
 
     vntyper pipeline \
         --cram {cram_resource_group.cram} \
