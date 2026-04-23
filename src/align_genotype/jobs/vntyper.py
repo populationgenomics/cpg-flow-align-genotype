@@ -75,7 +75,6 @@ def vntyper(
     vntyper pipeline \
         --cram {cram_resource_group.cram} \
         --reference-assembly hg38 \
-        -ref ./references \
         -o ./results \
         --threads 4
     """)
