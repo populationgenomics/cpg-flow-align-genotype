@@ -82,8 +82,8 @@ def vntyper(
     """
     # Optional config override
     if vntyper_config_path := config.config_retrieve(['workflow', 'vntyper_config_path']):
-        config = batch_instance.read_input(vntyper_config_path)
-        vntyper_command_str += f" --config {config}"
+        vntyper_config = batch_instance.read_input(vntyper_config_path)
+        vntyper_command_str += f" --config {vntyper_config}"
     if log_level := config.config_retrieve(['workflow', 'vntyper_log_level']):
         vntyper_command_str += f" --log-level {log_level}"
 
