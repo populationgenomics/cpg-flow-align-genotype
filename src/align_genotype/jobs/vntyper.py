@@ -68,9 +68,20 @@ def vntyper(
 
     cram_resource_group = batch_instance.read_input_group(**{'cram': cram_path, 'cram.crai': f'{cram_path!s}.crai'})
 
+    config_path = '/usr/local/lib/python3.11/site-packages/vntyper/config.json'
     job.command(f"""\
+    #Require CRAM_REFERENCE env var for VNtyper to find the reference FASTA
     export CRAM_REFERENCE={reference['base']} && \
+    echo "Using reference: $CRAM_REFERENCE" && \
 
+    echo "Original vntyper config:" && cat {config_path} && \
+    #Update vntyper config to set cli_defaults.log_level to "DEBUG" for more verbose logging
+    sed -i 's/"log_level": "INFO"/"log_level": "DEBUG"/' {config_path} && \
+    echo "Updated vntyper config:" && cat {config_path}
+    """
+    )
+
+    job.command(f"""\
     vntyper pipeline \
         --cram {cram_resource_group.cram} \
         --reference-assembly hg38 \
