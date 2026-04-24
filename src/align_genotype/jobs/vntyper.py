@@ -89,6 +89,18 @@ def vntyper(
 
     job.command(vntyper_command_str)
 
+    if config.config_retrieve(['workflow', 'print_sort_fastq_log'], False):
+        sort_fastq_log_path = 'results/fastq_bam_processing/output_sort_fastq.log'
+        job.command(f"""\
+        # Check if sort_fastq log file exists and print its contents for debugging
+        if [ -f {sort_fastq_log_path} ]; then \
+            echo "sort_fastq log file found: {sort_fastq_log_path}" && \
+            cat {sort_fastq_log_path}; \
+        else \
+            echo "sort_fastq log file not found: {sort_fastq_log_path}"; \
+        fi
+        """)
+
     if config.config_retrieve(['workflow', 'print_kestrel_log'], False):
         kestrel_log_path = 'results/kestrel/kestrel_kmer_20.log'
         job.command(f"""\
