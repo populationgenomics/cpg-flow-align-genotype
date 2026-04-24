@@ -65,29 +65,41 @@ def vntyper(
     job_res.set_to_job(job)
 
     reference = hail_batch.fasta_res_group(batch_instance)
-
     cram_resource_group = batch_instance.read_input_group(**{'cram': cram_path, 'cram.crai': f'{cram_path!s}.crai'})
 
-    config_path = '/usr/local/lib/python3.11/site-packages/vntyper/config.json'
     job.command(f"""\
     #Require CRAM_REFERENCE env var for VNtyper to find the reference FASTA
     export CRAM_REFERENCE={reference['base']} && \
     echo "Using reference: $CRAM_REFERENCE" && \
-
-    echo "Original vntyper config:" && cat {config_path} && \
-    #Update vntyper config to set cli_defaults.log_level to "DEBUG" for more verbose logging
-    sed -i 's/"log_level": "INFO"/"log_level": "DEBUG"/' {config_path} && \
-    echo "Updated vntyper config:" && cat {config_path}
     """
     )
-
-    job.command(f"""\
+    vntyper_command_str = f"""\
     vntyper pipeline \
         --cram {cram_resource_group.cram} \
         --reference-assembly hg38 \
         -o ./results \
         --threads 4
-    """)
+    """
+    # Optional config override
+    if vntyper_config_path := config.config_retrieve(['workflow', 'vntyper_config_path']):
+        config = batch_instance.read_input(vntyper_config_path)
+        vntyper_command_str += f" --config {config}"
+    if log_level := config.config_retrieve(['workflow', 'vntyper_log_level']):
+        vntyper_command_str += f" --log-level {log_level}"
+
+    job.command(vntyper_command_str)
+
+    if config.config_retrieve(['workflow', 'print_kestrel_log'], False):
+        kestrel_log_path = 'results/kestrel/kestrel_kmer_20.log'
+        job.command(f"""\
+        # Check if Kestrel log file exists and print its contents for debugging
+        if [ -f {kestrel_log_path} ]; then \
+            echo "Kestrel log file found: {kestrel_log_path}" && \
+            cat {kestrel_log_path}; \
+        else \
+            echo "Kestrel log file not found: {kestrel_log_path}"; \
+        fi
+        """)
 
     job.command(f"""\
         mv ./results/summary_report.html {job.html} && \
