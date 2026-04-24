@@ -304,9 +304,10 @@ class RunVntyper(stage.SequencingGroupStage):
         """
         Generate VNtyper results.
         """
+        web_path_prefix = sequencing_group.dataset.prefix(category='web') / 'vntyper'
         out_path_prefix = sequencing_group.dataset.prefix() / 'vntyper'
         return {
-            'html': out_path_prefix / f'{sequencing_group.id}_summary_report.html',
+            'html': web_path_prefix / f'{sequencing_group.id}_summary_report.html',
             'kestrel': out_path_prefix / f'{sequencing_group.id}_kestrel_result.tsv',
         }
 
