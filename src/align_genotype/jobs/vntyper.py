@@ -70,7 +70,7 @@ def vntyper(
     job.command(f"""\
     #Require CRAM_REFERENCE env var for VNtyper to find the reference FASTA
     export CRAM_REFERENCE={reference['base']} && \
-    echo "Using reference: $CRAM_REFERENCE" && \
+    echo "Using reference: $CRAM_REFERENCE"
     """
     )
     vntyper_command_str = f"""\
