@@ -309,6 +309,8 @@ class RunVntyper(stage.SequencingGroupStage):
         return {
             'html': web_path_prefix / f'{sequencing_group.id}_summary_report.html',
             'kestrel': out_path_prefix / f'{sequencing_group.id}_kestrel_result.tsv',
+            'kestrel_pre_filter': out_path_prefix / f'{sequencing_group.id}_kestrel_pre_result.tsv',
+            'kestrel_raw_vcf': out_path_prefix / f'{sequencing_group.id}_kestrel_output.vcf',
         }
 
     def queue_jobs(self, sequencing_group: targets.SequencingGroup, inputs: stage.StageInput) -> stage.StageOutput:

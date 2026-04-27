@@ -71,21 +71,19 @@ def vntyper(
     #Require CRAM_REFERENCE env var for VNtyper to find the reference FASTA
     export CRAM_REFERENCE={reference['base']} && \
     echo "Using reference: $CRAM_REFERENCE"
-    """
-    )
+    """)
     vntyper_command_str = f"""\
     vntyper pipeline \
         --cram {cram_resource_group.cram} \
         --reference-assembly hg38 \
         -o ./results \
-        --threads 4
-    """
+        --threads 4"""
     # Optional config override
     if vntyper_config_path := config.config_retrieve(['workflow', 'vntyper_config_path']):
         vntyper_config = batch_instance.read_input(vntyper_config_path)
-        vntyper_command_str += f" --config {vntyper_config}"
+        vntyper_command_str += f' --config {vntyper_config}'
     if log_level := config.config_retrieve(['workflow', 'vntyper_log_level']):
-        vntyper_command_str += f" --log-level {log_level}"
+        vntyper_command_str += f' --log-level {log_level}'
 
     job.command(vntyper_command_str)
 
@@ -115,10 +113,14 @@ def vntyper(
 
     job.command(f"""\
         mv ./results/summary_report.html {job.html} && \
-        mv ./results/kestrel/kestrel_result.tsv {job.kestrel}
+        mv ./results/kestrel/kestrel_result.tsv {job.kestrel} && \
+        mv ./results/kestrel/kestrel_pre_result.tsv {job.kestrel_pre} && \
+        mv ./results/kestrel/output.vcf {job.kestrel_vcf}
     """)
 
     batch_instance.write_output(job.html, str(out_paths['html']))
     batch_instance.write_output(job.kestrel, str(out_paths['kestrel']))
+    batch_instance.write_output(job.kestrel_pre, str(out_paths['kestrel_pre_filter']))
+    batch_instance.write_output(job.kestrel_vcf, str(out_paths['kestrel_raw_vcf']))
 
     return job
