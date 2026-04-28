@@ -311,6 +311,9 @@ class RunVntyper(stage.SequencingGroupStage):
             'kestrel': out_path_prefix / f'{sequencing_group.id}_kestrel_result.tsv',
             'kestrel_pre_filter': out_path_prefix / f'{sequencing_group.id}_kestrel_pre_result.tsv',
             'kestrel_raw_vcf': out_path_prefix / f'{sequencing_group.id}_kestrel_output.vcf',
+            'advntr': out_path_prefix / f'{sequencing_group.id}_advntr_raw_result.tsv',
+            'advntr_result': out_path_prefix / f'{sequencing_group.id}_advntr_processed_result.tsv',
+            'cross_match': out_path_prefix / f'{sequencing_group.id}_cross_match_results.tsv',
         }
 
     def queue_jobs(self, sequencing_group: targets.SequencingGroup, inputs: stage.StageInput) -> stage.StageOutput:

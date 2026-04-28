@@ -76,6 +76,7 @@ def vntyper(
     vntyper pipeline \
         --cram {cram_resource_group.cram} \
         --reference-assembly hg38 \
+        --extra-modules advntr \
         -o ./results \
         --threads 4"""
     # Optional config override
@@ -113,12 +114,18 @@ def vntyper(
         mv ./results/summary_report.html {job.html} && \
         mv ./results/kestrel/kestrel_result.tsv {job.kestrel} && \
         mv ./results/kestrel/kestrel_pre_result.tsv {job.kestrel_pre} && \
-        mv ./results/kestrel/output.vcf {job.kestrel_vcf}
+        mv ./results/kestrel/output.vcf {job.kestrel_vcf} && \
+        mv ./results/advntr/output_adVNTR.tsv {job.advntr} && \
+        mv ./results/advntr/output_adVNTR_result.tsv {job.advntr_result} && \
+        mv ./results/advntr/cross_match_results.tsv {job.cross_match}
     """)
 
     batch_instance.write_output(job.html, str(out_paths['html']))
     batch_instance.write_output(job.kestrel, str(out_paths['kestrel']))
     batch_instance.write_output(job.kestrel_pre, str(out_paths['kestrel_pre_filter']))
     batch_instance.write_output(job.kestrel_vcf, str(out_paths['kestrel_raw_vcf']))
+    batch_instance.write_output(job.advntr, str(out_paths['advntr']))
+    batch_instance.write_output(job.advntr_result, str(out_paths['advntr_result']))
+    batch_instance.write_output(job.cross_match, str(out_paths['cross_match']))
 
     return job
