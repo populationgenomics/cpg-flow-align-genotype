@@ -1,0 +1,11 @@
+[workflow]
+sequencing_type = 'genome'
+only_stages = [
+    'RunVntyper',
+]
+
+[vntyper]
+# Logs are very slim when set to INFO
+log_level = "DEBUG"
+# gs:// path to a config that overrides the VNtyper default
+# config_json_path = ""
