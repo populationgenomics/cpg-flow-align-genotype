@@ -35,7 +35,7 @@ results/
 ├── coverage/
 │   └── coverage_summary.tsv     # VNTR region coverage statistics
 └── advntr/                      # Only when --extra-modules advntr
-    ├── output_adVNTR.tsv         # Raw adVNTR output
+    ├── output_adVNTR.vcf         # Raw adVNTR output
     ├── output_adVNTR_result.tsv  # Processed adVNTR result
     └── cross_match_results.tsv   # Kestrel vs adVNTR comparison
 """

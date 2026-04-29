@@ -3,7 +3,7 @@ sequencing_type = 'genome'
 
 first_stages = []
 last_stages = []
-skip_stages = [] 
+skip_stages = []
 only_stages = [
     'RunVntyper',
 ]
