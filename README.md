@@ -2,50 +2,62 @@
 
 A [CPG-Flow](https://github.com/populationgenomics/cpg-flow) migration of the Alignment and Genotyping workflow from Production Pipelines.
 
-Alignment: https://github.com/populationgenomics/production-pipelines/blob/ca8741c9d34c85f3f3e0811f081e67d56086d831/cpg_workflows/stages/align.py
+These workflows start with the single-sample assay data we've received from our collaborators, FastQ, BAM, or FQ.ora, and carry out the alignment and genotyping steps of the analysis, including:
 
-Genotyping: https://github.com/populationgenomics/production-pipelines/blob/ca8741c9d34c85f3f3e0811f081e67d56086d831/cpg_workflows/stages/genotype.py
-
-Cram QC: https://github.com/populationgenomics/production-pipelines/blob/main/cpg_workflows/stages/cram_qc.py
-
-gVCF QC: https://github.com/populationgenomics/production-pipelines/blob/main/cpg_workflows/stages/gvcf_qc.py
-
-These workflows start with the single-sample assay data we've received from our collaborators, FastQ, BAM, or FQ.ora,
-and carry out the alignment and genotyping steps of the analysis, including:
 - Aligning the reads to the reference genome using DRAGMAP (Dragen-OS)
 - Generating alignment quality metrics using Samtools, Picard, and Somalier fingerprinting
 - Genotyping the aligned reads using GATK HaplotypeCaller
 - Generating gVCF quality metrics using Picard
+- Running VerifyBamID to check for contamination and sample swaps
+- Running VNtyper to genotype the VNTR regions of the genome
+
+## Running the workflows
 
 This single-sample workflow has a dedicated entrypoint, and can be operated through analysis runner as follows:
 
 ```bash
 analysis-runner --skip-repo-checkout \
-    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.4.8-1 \
-    --config CONFIG_FILE.toml \
+    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.4.9-1 \
+    --config src/align_genotype/config_template.toml \
     --dataset seqr \
     --description 'Single-Sample data generation' \
     --access-level full \
     --output-dir OUTPUT_DIR \
     run_workflow
-````
+```
 
 A secondary workflow continues on from the single-sample steps, and produces Dataset-level outputs, including:
+
 - Runs Somalier Relate on the Dataset's Somalier fingerprints to generate a Dataset-level pedigree
 - Uses the somalier outputs to check relationships against the expected pedigree
 - Runs Dataset-level MultiQC for the CRAM and gVCF metrics, publishing an HTML report, and writing the results to Slack
 
 This Dataset-level workflow can be run in a similar way, but with a different entrypoint:
+
 ```bash
 analysis-runner --skip-repo-checkout \
-    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.4.8-1 \
-    --config CONFIG_FILE.toml \
+    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.4.9-1 \
+    --config src/align_genotype/config_template.toml \
     --dataset seqr \
     --description 'Dataset-Level QC workflow' \
     --access-level full \
     --output-dir OUTPUT_DIR \
     dataset_workflow
-````
+```
+
+A third workflow is available to run VNtyper on a set of samples, which can be used to genotype the VNTR regions of the genome. This workflow requires the Align stage to have completed and can be run with the following command:
+
+```bash
+analysis-runner --skip-repo-checkout \
+    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.4.9-1 \
+    --config src/align_genotype/config_template.toml \
+    --config src/align_genotype/vntyper.toml \
+    --dataset seqr \
+    --description 'VNtyper workflow' \
+    --access-level full \
+    --output-dir OUTPUT_DIR \
+    run_workflow
+```
 
 ## Configuration
 
@@ -55,6 +67,8 @@ Two entries in the config template should be modified for each run:
 
 - `workflow.input_cohorts`:  a list of Cohort IDs to be used as input
 - `workflow.sequencing_type`: 'exome' or 'genome', depending on the type of sequencing data being processed
+
+A secondary config file is provided for the VNtyper workflow, which contains settings specific to only this stage. Without this config, the stage is always skipped. It should be last in the config list when running the workflow, so that it can override any relevant settings in the main config template.
 
 ## Structure
 
@@ -84,3 +98,12 @@ src
 │   ├── stages.py
 │   └── utils.py
 ```
+
+## Original code
+
+The original code for the alignment and genotyping workflow can be found in the Production Pipelines repository, in the following files:
+
+- [Alignment](https://github.com/populationgenomics/production-pipelines/blob/ca8741c9d34c85f3f3e0811f081e67d56086d831/cpg_workflows/stages/align.py)
+- [Genotyping](https://github.com/populationgenomics/production-pipelines/blob/ca8741c9d34c85f3f3e0811f081e67d56086d831/cpg_workflows/stages/genotype.py)
+- [Cram QC](https://github.com/populationgenomics/production-pipelines/blob/main/cpg_workflows/stages/cram_qc.py)
+- [gVCF QC](https://github.com/populationgenomics/production-pipelines/blob/main/cpg_workflows/stages/gvcf_qc.py)

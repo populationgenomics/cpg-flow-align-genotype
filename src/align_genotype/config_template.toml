@@ -1,4 +1,8 @@
 [workflow]
+
+# use the vntyper.toml config for this stage
+skip_stages = ['VNtyper',]
+
 # set this to false if we want to use non-preemptible machines
 align_spot = true
 

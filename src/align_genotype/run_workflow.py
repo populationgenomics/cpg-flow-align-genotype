@@ -12,6 +12,7 @@ from align_genotype.stages import (
     CramQcVerifyBamId,
     GenotypeWithGatk,
     RunGvcfQc,
+    RunVntyper,
 )
 
 
@@ -31,6 +32,7 @@ def cli_main():
         CramQcSamtoolsStats,
         CramQcVerifyBamId,
         RunGvcfQc,
+        RunVntyper,
     ]
 
     run_workflow(name='align_genotype', stages=stages, dry_run=args.dry_run)

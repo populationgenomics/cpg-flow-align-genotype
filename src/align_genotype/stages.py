@@ -11,6 +11,7 @@ from align_genotype.jobs.cram_qc_somalier import extract_somalier
 from align_genotype.jobs.cram_qc_verify import verifybamid
 from align_genotype.jobs.genotype import genotype
 from align_genotype.jobs.picard import collect_metrics, generate_intervals, hs_metrics, vcf_qc, wgs_metrics
+from align_genotype.jobs.vntyper import vntyper
 
 
 @stage.stage
@@ -287,3 +288,47 @@ class RunGvcfQc(stage.SequencingGroupStage):
             job_attrs=self.get_job_attrs(sequencing_group),
         )
         return self.make_outputs(sequencing_group, data=outputs, jobs=job)
+
+
+@stage.stage(
+    required_stages=[AlignWithDragmap],
+    analysis_type='web',
+    analysis_keys=['html'],
+)
+class RunVntyper(stage.SequencingGroupStage):
+    """
+    Use VNtyper to genotype individual sequencing groups (i.e. CRAM -> VNtyper results).
+    """
+
+    def expected_outputs(self, sequencing_group: targets.SequencingGroup) -> dict[str, Path]:
+        """
+        Generate VNtyper results.
+        """
+        web_path_prefix = sequencing_group.dataset.prefix(category='web') / 'vntyper'
+        out_path_prefix = sequencing_group.dataset.prefix() / 'vntyper'
+        return {
+            'html': web_path_prefix / f'{sequencing_group.id}_summary_report.html',
+            'kestrel': out_path_prefix / f'{sequencing_group.id}_kestrel_result.tsv',
+            'kestrel_pre_filter': out_path_prefix / f'{sequencing_group.id}_kestrel_pre_result.tsv',
+            'kestrel_raw_vcf': out_path_prefix / f'{sequencing_group.id}_kestrel_output.vcf',
+            'advntr': out_path_prefix / f'{sequencing_group.id}_advntr_raw_result.vcf',
+            'advntr_result': out_path_prefix / f'{sequencing_group.id}_advntr_processed_result.tsv',
+            'cross_match': out_path_prefix / f'{sequencing_group.id}_cross_match_results.tsv',
+        }
+
+    def queue_jobs(self, sequencing_group: targets.SequencingGroup, inputs: stage.StageInput) -> stage.StageOutput:
+        """
+        Queue the VNtyper job using the function from the jobs module.
+        """
+
+        outputs = self.expected_outputs(sequencing_group)
+
+        cram = inputs.as_str(sequencing_group, AlignWithDragmap, 'cram')
+
+        jobs = vntyper(
+            sequencing_group_name=sequencing_group.id,
+            cram_path=cram,
+            out_paths=outputs,
+            job_attrs=self.get_job_attrs(sequencing_group),
+        )
+        return self.make_outputs(sequencing_group, data=outputs, jobs=jobs)

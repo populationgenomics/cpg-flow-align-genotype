@@ -1,0 +1,22 @@
+[workflow]
+sequencing_type = 'genome'
+
+first_stages = []
+last_stages = []
+skip_stages = []
+only_stages = [
+    'RunVntyper',
+]
+
+input_cohorts = [
+    # only cohorts to run VNtyper on
+]
+
+[vntyper]
+# Logs are very slim when set to INFO
+log_level = "DEBUG"
+# gs:// path to a config that overrides the VNtyper default
+# config_json_path = ""
+
+[images]
+vntyper = "australia-southeast1-docker.pkg.dev/cpg-common/images/vntyper:2.0.3-2"
