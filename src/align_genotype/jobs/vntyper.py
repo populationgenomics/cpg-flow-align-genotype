@@ -73,9 +73,12 @@ def vntyper(
     echo "Using reference: $CRAM_REFERENCE"
     """)
 
-    vntyper_command_prefix = 'vntyper '
+    vntyper_command_prefix = 'vntyper'
     if log_level := config.config_retrieve(['workflow', 'vntyper_log_level'], None):
-        vntyper_command_prefix += f' --log-level {log_level} '
+        vntyper_command_prefix += f' --log-level {log_level}'
+    if vntyper_config_path := config.config_retrieve(['workflow', 'vntyper_config_path']):
+        vntyper_config = batch_instance.read_input(vntyper_config_path)
+        vntyper_command_prefix += f' --config {vntyper_config}'
     vntyper_command_str = f"""\
     {vntyper_command_prefix} pipeline \
         --cram {cram_resource_group.cram} \
@@ -83,44 +86,16 @@ def vntyper(
         --extra-modules advntr \
         -o ./results \
         --threads 4"""
-    # Optional config override
-    if vntyper_config_path := config.config_retrieve(['workflow', 'vntyper_config_path']):
-        vntyper_config = batch_instance.read_input(vntyper_config_path)
-        vntyper_command_str += f' --config {vntyper_config}'
 
     job.command(vntyper_command_str)
-
-    if config.config_retrieve(['workflow', 'print_sort_fastq_log'], False):
-        sort_fastq_log_path = 'results/fastq_bam_processing/output_sort_fastq.log'
-        job.command(f"""\
-        # Check if sort_fastq log file exists and print its contents for debugging
-        if [ -f {sort_fastq_log_path} ]; then \
-            echo "sort_fastq log file found: {sort_fastq_log_path}" && \
-            cat {sort_fastq_log_path}; \
-        else \
-            echo "sort_fastq log file not found: {sort_fastq_log_path}"; \
-        fi
-        """)
-
-    if config.config_retrieve(['workflow', 'print_kestrel_log'], False):
-        kestrel_log_path = 'results/kestrel/kestrel_kmer_20.log'
-        job.command(f"""\
-        # Check if Kestrel log file exists and print its contents for debugging
-        if [ -f {kestrel_log_path} ]; then \
-            echo "Kestrel log file found: {kestrel_log_path}" && \
-            cat {kestrel_log_path}; \
-        else \
-            echo "Kestrel log file not found: {kestrel_log_path}"; \
-        fi
-        """)
 
     job.command(f"""\
         mv ./results/summary_report.html {job.html} && \
         mv ./results/kestrel/kestrel_result.tsv {job.kestrel} && \
         mv ./results/kestrel/kestrel_pre_result.tsv {job.kestrel_pre} && \
         mv ./results/kestrel/output.vcf {job.kestrel_vcf} && \
-        mv ./results/advntr/output_adVNTR.vcf {job.advntr} && \
-        mv ./results/advntr/output_adVNTR_result.vcf {job.advntr_result} && \
+        mv ./results/advntr/output_adVNTR.tsv {job.advntr} && \
+        mv ./results/advntr/output_adVNTR_result.tsv {job.advntr_result} && \
         mv ./results/advntr/cross_match_results.tsv {job.cross_match}
     """)
 
