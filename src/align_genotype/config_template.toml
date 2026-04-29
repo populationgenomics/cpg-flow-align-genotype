@@ -103,6 +103,7 @@ picard = "australia-southeast1-docker.pkg.dev/cpg-common/images/picard:3.4.0-3"
 samtools = "australia-southeast1-docker.pkg.dev/cpg-common/images/samtools:1.18"
 somalier = "australia-southeast1-docker.pkg.dev/cpg-common/images/somalier:0.3.1-1"
 verifybamid = "australia-southeast1-docker.pkg.dev/cpg-common/images/verifybamid:2.0.1"
+vntyper = "australia-southeast1-docker.pkg.dev/cpg-common/images/vntyper:2.0.3-2"
 
 [references]
 dragmap_prefix = "gs://cpg-common-main/references/hg38/v0/dragen_reference"
