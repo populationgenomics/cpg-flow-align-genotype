@@ -72,8 +72,12 @@ def vntyper(
     export CRAM_REFERENCE={reference['base']} && \
     echo "Using reference: $CRAM_REFERENCE"
     """)
+
+    vntyper_command_prefix = 'vntyper '
+    if log_level := config.config_retrieve(['workflow', 'vntyper_log_level'], None):
+        vntyper_command_prefix += f' --log-level {log_level} '
     vntyper_command_str = f"""\
-    vntyper pipeline \
+    {vntyper_command_prefix} pipeline \
         --cram {cram_resource_group.cram} \
         --reference-assembly hg38 \
         --extra-modules advntr \
