@@ -9,3 +9,6 @@ only_stages = [
 log_level = "DEBUG"
 # gs:// path to a config that overrides the VNtyper default
 # config_json_path = ""
+
+[images]
+vntyper = "australia-southeast1-docker.pkg.dev/cpg-common/images/vntyper:2.0.3-2"
