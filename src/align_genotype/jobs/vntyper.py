@@ -5,6 +5,7 @@ CRAM to VNtyper results: create Hail Batch jobs to run VNtyper on individual seq
 from cpg_flow import resources
 from cpg_utils import Path, config, hail_batch
 from hailtop.batch.job import BashJob
+from loguru import logger
 
 """
 Possible outputs:
@@ -73,12 +74,18 @@ def vntyper(
     echo "Using reference: $CRAM_REFERENCE"
     """)
 
+    # construct the VNtyper command with optional config / logging parameters
     vntyper_command_prefix = 'vntyper'
-    if log_level := config.config_retrieve(['workflow', 'vntyper_log_level'], None):
+
+    if log_level := config.config_retrieve(['vntyper', 'log_level']):
+        logger.info(f'Setting log level: {log_level}')
         vntyper_command_prefix += f' --log-level {log_level}'
-    if vntyper_config_path := config.config_retrieve(['workflow', 'vntyper_config_path']):
+
+    if vntyper_config_path := config.config_retrieve(['vntyper', 'config_json_path']):
+        logger.info(f'Using config json from {vntyper_config_path}, overrides default ./vntyper/config.json')
         vntyper_config = batch_instance.read_input(vntyper_config_path)
         vntyper_command_prefix += f' --config {vntyper_config}'
+
     vntyper_command_str = f"""\
     {vntyper_command_prefix} pipeline \
         --cram {cram_resource_group.cram} \
