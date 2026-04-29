@@ -1,7 +1,15 @@
 [workflow]
 sequencing_type = 'genome'
+
+first_stages = []
+last_stages = []
+skip_stages = [] 
 only_stages = [
     'RunVntyper',
+]
+
+input_cohorts = [
+    # only cohorts to run VNtyper on
 ]
 
 [vntyper]
