@@ -119,8 +119,8 @@ def vntyper(
         mv ./results/kestrel/kestrel_result.tsv {job.kestrel} && \
         mv ./results/kestrel/kestrel_pre_result.tsv {job.kestrel_pre} && \
         mv ./results/kestrel/output.vcf {job.kestrel_vcf} && \
-        mv ./results/advntr/output_adVNTR.tsv {job.advntr} && \
-        mv ./results/advntr/output_adVNTR_result.tsv {job.advntr_result} && \
+        mv ./results/advntr/output_adVNTR.vcf {job.advntr} && \
+        mv ./results/advntr/output_adVNTR_result.vcf {job.advntr_result} && \
         mv ./results/advntr/cross_match_results.tsv {job.cross_match}
     """)
 

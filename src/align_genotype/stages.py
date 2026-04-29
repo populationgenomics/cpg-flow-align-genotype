@@ -311,8 +311,8 @@ class RunVntyper(stage.SequencingGroupStage):
             'kestrel': out_path_prefix / f'{sequencing_group.id}_kestrel_result.tsv',
             'kestrel_pre_filter': out_path_prefix / f'{sequencing_group.id}_kestrel_pre_result.tsv',
             'kestrel_raw_vcf': out_path_prefix / f'{sequencing_group.id}_kestrel_output.vcf',
-            'advntr': out_path_prefix / f'{sequencing_group.id}_advntr_raw_result.tsv',
-            'advntr_result': out_path_prefix / f'{sequencing_group.id}_advntr_processed_result.tsv',
+            'advntr': out_path_prefix / f'{sequencing_group.id}_advntr_raw_result.vcf',
+            'advntr_result': out_path_prefix / f'{sequencing_group.id}_advntr_processed_result.vcf',
             'cross_match': out_path_prefix / f'{sequencing_group.id}_cross_match_results.tsv',
         }
 
