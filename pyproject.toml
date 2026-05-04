@@ -7,7 +7,7 @@ name='align_genotype'
 description='Dragmap align & genotype workflow, using CPG-Flow'
 readme = "README.md"
 # currently cpg-flow is pinned to this version
-requires-python = ">=3.10,<3.11"
+requires-python = ">=3.10,<3.12"
 version="0.4.9"
 license={ "file" = "LICENSE" }
 classifiers=[
