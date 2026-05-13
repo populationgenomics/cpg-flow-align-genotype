@@ -27,6 +27,24 @@ warn()  { printf "${YLW}WARN${RST}  %s\n" "$1"; }
 fail()  { printf "${RED}FAIL${RST}  %s\n" "$1"; }
 header(){ printf "\n${BLD}── Check %s: %s${RST}\n" "$1" "$2"; }
 
+is_gcs() { [[ "$1" == gs://* ]]; }
+
+file_exists() {
+    if is_gcs "$1"; then
+        gsutil -q stat "$1" 2>/dev/null
+    else
+        [[ -f "$1" ]]
+    fi
+}
+
+file_size() {
+    if is_gcs "$1"; then
+        gsutil du "$1" 2>/dev/null | awk '{print $1}'
+    else
+        stat -f%z "$1" 2>/dev/null || stat -c%s "$1" 2>/dev/null || echo 0
+    fi
+}
+
 REF_ARG=""
 if [[ -n "$REF" ]]; then
     REF_ARG="--reference $REF"
@@ -37,7 +55,7 @@ if ! command -v samtools &>/dev/null; then
     exit 1
 fi
 
-if [[ ! -f "$CRAM" ]]; then
+if ! file_exists "$CRAM"; then
     echo "Error: CRAM file not found: $CRAM" >&2
     exit 1
 fi
@@ -260,18 +278,18 @@ fi
 header 6 "CRAM file integrity"
 # Check for truncation, missing index, and size sanity.
 # ─────────────────────────────────────────────────────────────────────
-CRAM_SIZE=$(stat -f%z "$CRAM" 2>/dev/null || stat -c%s "$CRAM" 2>/dev/null || echo 0)
+CRAM_SIZE=$(file_size "$CRAM")
 CRAM_SIZE_GB=$(awk "BEGIN {printf \"%.2f\", $CRAM_SIZE / 1073741824}")
 printf "  CRAM size: %s bytes (%s GB)\n" "$CRAM_SIZE" "$CRAM_SIZE_GB"
 
 # Check for index
 CRAI="${CRAM}.crai"
 CRAI_ALT="${CRAM%.cram}.crai"
-if [[ -f "$CRAI" ]]; then
-    CRAI_SIZE=$(stat -f%z "$CRAI" 2>/dev/null || stat -c%s "$CRAI" 2>/dev/null || echo 0)
+if file_exists "$CRAI"; then
+    CRAI_SIZE=$(file_size "$CRAI")
     printf "  CRAI index: %s (%s bytes)\n" "$CRAI" "$CRAI_SIZE"
     pass "CRAI index found"
-elif [[ -f "$CRAI_ALT" ]]; then
+elif file_exists "$CRAI_ALT"; then
     printf "  CRAI index: %s\n" "$CRAI_ALT"
     pass "CRAI index found (alternate path)"
 else
@@ -311,13 +329,18 @@ if [[ -n "$ALIGNER" ]]; then
     echo "$ALIGNER" | sed 's/^/    /'
 fi
 
-# CRAM version (from first bytes of file)
-CRAM_MAGIC=$(xxd -l 6 "$CRAM" 2>/dev/null | head -1 || true)
-if echo "$CRAM_MAGIC" | grep -q "4352 414d"; then
-    CRAM_VER=$(xxd -s 4 -l 2 -p "$CRAM" 2>/dev/null || true)
-    if [[ -n "$CRAM_VER" ]]; then
-        MAJOR=$((16#${CRAM_VER:0:2}))
-        MINOR=$((16#${CRAM_VER:2:2}))
+# CRAM version (from first 6 bytes: "CRAM" + major + minor)
+CRAM_HEAD="$TMPDIR/cram_head_bytes"
+if is_gcs "$CRAM"; then
+    gsutil cat -r 0-5 "$CRAM" > "$CRAM_HEAD" 2>/dev/null || true
+else
+    dd if="$CRAM" bs=1 count=6 > "$CRAM_HEAD" 2>/dev/null || true
+fi
+CRAM_MAGIC=$(head -c 4 "$CRAM_HEAD" 2>/dev/null || true)
+if [[ "$CRAM_MAGIC" == "CRAM" ]]; then
+    MAJOR=$(od -A n -t u1 -j 4 -N 1 "$CRAM_HEAD" 2>/dev/null | tr -d ' ')
+    MINOR=$(od -A n -t u1 -j 5 -N 1 "$CRAM_HEAD" 2>/dev/null | tr -d ' ')
+    if [[ -n "$MAJOR" && -n "$MINOR" ]]; then
         printf "  CRAM version: %d.%d\n" "$MAJOR" "$MINOR"
         if [[ "$MAJOR" -ge 3 && "$MINOR" -ge 1 ]]; then
             warn "CRAM 3.1 — older Manta versions may not support this"
