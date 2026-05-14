@@ -110,19 +110,19 @@ header 2 "Alignment flags — proper pair, mate unmapped, secondary/supplementar
 # If too many reads carry these flags, high-confidence pairs drop to 0.
 # ─────────────────────────────────────────────────────────────────────
 count_flag() {
-    # count reads where (flag & mask) != 0
+    # count reads where (flag & mask) != 0  — portable across mawk/gawk
     local mask=$1
-    awk -v m="$mask" '{if(and($2,m)) n++} END {print n+0}' "$SAMPLE_FILE"
+    awk -v m="$mask" '{if(int($2/m)%2) n++} END {print n+0}' "$SAMPLE_FILE"
 }
 
-NOT_PAIRED=$(count_flag 0x1 | xargs -I{} bash -c 'echo $(('"$SAMPLED"' - {}))')
+PAIRED=$(count_flag 1)        # 0x1
 MATE_UNMAP=$(count_flag 8)    # 0x8
 SECONDARY=$(count_flag 256)   # 0x100
 SUPPLEMENTARY=$(count_flag 2048) # 0x800
 PROPER=$(count_flag 2)        # 0x2
 DUPLICATE=$(count_flag 1024)  # 0x400
 
-printf "  Paired (0x1):          %d / %d\n" "$((SAMPLED - NOT_PAIRED))" "$SAMPLED"
+printf "  Paired (0x1):          %d / %d\n" "$PAIRED" "$SAMPLED"
 printf "  Proper pair (0x2):     %d / %d\n" "$PROPER" "$SAMPLED"
 printf "  Mate unmapped (0x8):   %d / %d\n" "$MATE_UNMAP" "$SAMPLED"
 printf "  Secondary (0x100):     %d / %d\n" "$SECONDARY" "$SAMPLED"
@@ -430,7 +430,7 @@ header 10 "Insert size distribution shape (merged library detection)"
 # ─────────────────────────────────────────────────────────────────────
 # Compute insert size stats from same-chrom, properly-paired reads
 ISIZE_FILE="$TMPDIR/isizes.txt"
-awk '$7 == "=" && and($2,0x2) && $9 > 0 {print $9}' "$SAMPLE_FILE" > "$ISIZE_FILE"
+awk '$7 == "=" && int($2/2)%2 && $9 > 0 {print $9}' "$SAMPLE_FILE" > "$ISIZE_FILE"
 ISIZE_COUNT=$(wc -l < "$ISIZE_FILE" | tr -d ' ')
 
 if [[ "$ISIZE_COUNT" -lt 100 ]]; then
@@ -510,7 +510,7 @@ fi
 
 # Check for orphaned reads — paired flag set but mate info is missing/inconsistent
 PAIRED_COUNT=$(count_flag 1)
-ORPHAN_CANDIDATES=$(awk 'and($2,0x1) && ($7 == "*" || $8 == 0) && !and($2,0x4) && !and($2,0x8) {n++} END {print n+0}' "$SAMPLE_FILE")
+ORPHAN_CANDIDATES=$(awk 'int($2)%2 && ($7 == "*" || $8 == 0) && !(int($2/4)%2) && !(int($2/8)%2) {n++} END {print n+0}' "$SAMPLE_FILE")
 if [[ "$ORPHAN_CANDIDATES" -gt 0 ]]; then
     ORPHAN_PCT=$(awk "BEGIN {printf \"%.2f\", ($ORPHAN_CANDIDATES / $SAMPLED) * 100}")
     warn "$ORPHAN_CANDIDATES reads ($ORPHAN_PCT%) are flagged as paired but have missing/zero mate position"
