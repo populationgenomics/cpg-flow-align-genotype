@@ -235,7 +235,7 @@ else
                 [[ -f "$DICT" ]] || DICT="$REF_DICT2"
 
                 while IFS=$'\t' read -r sq_name sq_md5; do
-                    REF_MD5=$(grep "SN:${sq_name}" "$DICT" 2>/dev/null \
+                    REF_MD5=$(grep -P "SN:${sq_name}\t" "$DICT" 2>/dev/null \
                         | sed -n 's/.*M5:\([a-f0-9]*\).*/\1/p' || true)
                     if [[ -n "$REF_MD5" && "$REF_MD5" != "$sq_md5" ]]; then
                         MISMATCH=$((MISMATCH + 1))
@@ -297,7 +297,7 @@ else
 fi
 
 # Quick EOF check — try reading the last region
-samtools idxstats $REF_ARG "$CRAM" > "$TMPDIR/idxstats.tsv" 2>"$TMPDIR/idx_stderr" && \
+samtools idxstats "$CRAM" > "$TMPDIR/idxstats.tsv" 2>"$TMPDIR/idx_stderr" && \
     pass "samtools idxstats succeeded (CRAM is structurally intact)" || \
     fail "samtools idxstats failed — CRAM may be truncated or corrupt"
 
