@@ -29,7 +29,9 @@ def main(cram_path: str) -> None:
         crai=f'{cram_path}.crai',
     ).cram
 
-    job.command(f'bash {SCRIPT_PATH} {cram}')
+    reference = hail_batch.fasta_res_group(batch)
+
+    job.command(f'bash {SCRIPT_PATH} {cram} {reference.base}')
 
     batch.run(wait=False)
 
