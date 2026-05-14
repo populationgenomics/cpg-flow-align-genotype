@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eu
 
 # Diagnose CRAM issues that cause Manta's "0 high-confidence read pairs" failure.
 # Each check maps to a specific failure theory — run against the exact CRAM and
