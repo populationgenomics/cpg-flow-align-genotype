@@ -1,8 +1,8 @@
 """
-Verify that missing MQ/MC tags are the cause of Manta's "0 high-confidence read pairs".
+Verify what causes Manta's "0 high-confidence read pairs" failure.
 
-Submits a batch job that localises the CRAM+CRAI and runs verify_fixmate_manta.sh.
-Results appear in the Hail Batch job log.
+Checks reference compatibility, extracts a region to BAM, and attempts
+Manta on both CRAM and BAM to isolate the issue. Results in Hail Batch job log.
 
 Usage:
     analysis-runner ... verify_fixmate_manta --cram_path gs://bucket/sample.cram
@@ -18,7 +18,7 @@ SCRIPT_PATH = '/align_genotype/src/align_genotype/scripts/verify_fixmate_manta.s
 def main(cram_path: str) -> None:
     batch = hail_batch.get_batch()
 
-    job = batch.new_job('Verify MQ/MC fix for Manta')
+    job = batch.new_job('Verify CRAM Manta compatibility')
     job.image(config.config_retrieve(['workflow', 'driver_image']))
     job.cpu(4)
     job.memory('16Gi')
@@ -37,7 +37,7 @@ def main(cram_path: str) -> None:
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Verify MQ/MC tags as Manta failure cause')
+    parser = argparse.ArgumentParser(description='Verify CRAM compatibility with Manta')
     parser.add_argument('--cram_path', type=str, required=True, help='GCS path to CRAM file (.crai must exist alongside)')
     args = parser.parse_args()
     main(cram_path=args.cram_path)
