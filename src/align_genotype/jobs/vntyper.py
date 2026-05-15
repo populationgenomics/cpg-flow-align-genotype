@@ -81,10 +81,18 @@ def vntyper(
         logger.info(f'Setting log level: {log_level}')
         vntyper_command_prefix += f' --log-level {log_level}'
 
-    if vntyper_config_path := config.config_retrieve(['vntyper', 'config_json_path']):
+    if vntyper_config_path := config.config_retrieve(['vntyper', 'vntyper_config_json_path']):
         logger.info(f'Using config json from {vntyper_config_path}, overrides default ./vntyper/config.json')
         vntyper_config = batch_instance.read_input(vntyper_config_path)
         vntyper_command_prefix += f' --config {vntyper_config}'
+
+    if kestrel_config_path := config.config_retrieve(['vntyper', 'kestrel_config_json_path']):
+        logger.info(
+            f'Using Kestrel config json from {kestrel_config_path}, '
+            f'overrides default ./vntyper/scripts/kestrel_config.json'
+        )
+        kestrel_config = batch_instance.read_input(kestrel_config_path)
+        job.command(f'cp {kestrel_config} ./vntyper/scripts/kestrel_config.json')
 
     vntyper_command_str = f"""\
     {vntyper_command_prefix} pipeline \
