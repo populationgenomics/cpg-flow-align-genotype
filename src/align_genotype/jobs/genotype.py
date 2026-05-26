@@ -296,8 +296,8 @@ def postprocess_gvcf(
     noalt_regions = batch_instance.read_input(config.config_retrieve(['references', 'noalt_bed']))
     gvcf = batch_instance.read_input(gvcf_path.path)
     gq_bands = config.config_retrieve(['workflow', 'reblock_gq_bands'])
-    expected_contigs = config.config_retrieve(['workflow', 'expected_gvcf_contigs'])
-    expected_contigs_str = ' '.join(expected_contigs)
+
+    expected_contigs = ' '.join(f'chr{i}' for i in range(1, 23)) + ' chrX'
 
     cmd = f"""\
     GVCF={gvcf}
@@ -307,14 +307,18 @@ def postprocess_gvcf(
     # Reindexing just to make sure the index is not corrupted
     bcftools index --tbi $GVCF
 
-    EXPECTED_CONTIGS="{expected_contigs_str}"
-    ACTUAL_CONTIGS=$(tabix --list-chroms $GVCF)
+    EXPECTED_CONTIGS="{expected_contigs}"
+    FAIL_FILE=$BATCH_TMPDIR/contig_check_failures.txt
+    tabix --list-chroms $GVCF > $BATCH_TMPDIR/actual_contigs.txt
     for contig in $EXPECTED_CONTIGS; do
-        if ! echo "$ACTUAL_CONTIGS" | grep -qw "$contig"; then
-            echo "ERROR: gVCF missing expected contig $contig for {sequencing_group_name}" >&2
-            exit 1
+        if ! grep -qw "$contig" $BATCH_TMPDIR/actual_contigs.txt; then
+            echo "ERROR: gVCF missing expected contig $contig for {sequencing_group_name}" | tee -a $FAIL_FILE
         fi
     done
+    if [ -f $FAIL_FILE ]; then
+        echo "FAIL: contig check failed for {sequencing_group_name}"
+        exit 1
+    fi
 
     # Remove INFO/DP field, which contradicts the FORMAT/DP, in the way that
     # it has _all_ reads, not just variant-calling-usable reads. If we keep INFO/DP,
