@@ -296,7 +296,12 @@ def postprocess_gvcf(
     noalt_regions = batch_instance.read_input(config.config_retrieve(['references', 'noalt_bed']))
     gvcf = batch_instance.read_input(gvcf_path.path)
     gq_bands = config.config_retrieve(['workflow', 'reblock_gq_bands'])
+    expected_contigs = config.config_retrieve(['workflow', 'expected_gvcf_contigs'])
+    expected_contigs_str = ' '.join(expected_contigs)
 
+    # NOTE: this contig check could be moved to a separate lightweight validation job
+    # between the merge and postprocess steps to avoid paying for GVCF localisation
+    # on failure. See genotype() for where to insert that dependency.
     cmd = f"""\
     GVCF={gvcf}
     GVCF_NODP=$BATCH_TMPDIR/{sequencing_group_name}-nodp.g.vcf.gz
@@ -304,6 +309,15 @@ def postprocess_gvcf(
 
     # Reindexing just to make sure the index is not corrupted
     bcftools index --tbi $GVCF
+
+    EXPECTED_CONTIGS="{expected_contigs_str}"
+    ACTUAL_CONTIGS=$(tabix --list-chroms $GVCF)
+    for contig in $EXPECTED_CONTIGS; do
+        if ! echo "$ACTUAL_CONTIGS" | grep -qw "$contig"; then
+            echo "ERROR: gVCF missing expected contig $contig for {sequencing_group_name}" >&2
+            exit 1
+        fi
+    done
 
     # Remove INFO/DP field, which contradicts the FORMAT/DP, in the way that
     # it has _all_ reads, not just variant-calling-usable reads. If we keep INFO/DP,
