@@ -18,7 +18,13 @@ from align_genotype.jobs.vntyper import vntyper
 class GenerateIntervalsOnce(stage.MultiCohortStage):
     def expected_outputs(self, multicohort: targets.MultiCohort) -> dict[str, list[Path]]:
         scatter_count = config.config_retrieve(['workflow', 'scatter_count_genotype'])
-        prefix = multicohort.analysis_dataset.prefix(category='tmp') / 'genotype' / 'intervals'
+        sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
+        prefix = (
+            multicohort.analysis_dataset.prefix(category='tmp')
+            / 'genotype'
+            / sequencing_type
+            / f'{scatter_count}_intervals'
+        )
         return {'intervals': [prefix / to_path(f'{idx}.interval_list') for idx in range(1, scatter_count + 1)]}
 
     def queue_jobs(
