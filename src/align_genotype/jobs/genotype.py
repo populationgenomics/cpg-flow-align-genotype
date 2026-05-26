@@ -299,9 +299,6 @@ def postprocess_gvcf(
     expected_contigs = config.config_retrieve(['workflow', 'expected_gvcf_contigs'])
     expected_contigs_str = ' '.join(expected_contigs)
 
-    # NOTE: this contig check could be moved to a separate lightweight validation job
-    # between the merge and postprocess steps to avoid paying for GVCF localisation
-    # on failure. See genotype() for where to insert that dependency.
     cmd = f"""\
     GVCF={gvcf}
     GVCF_NODP=$BATCH_TMPDIR/{sequencing_group_name}-nodp.g.vcf.gz
