@@ -20,7 +20,7 @@ class GenerateIntervalsOnce(stage.MultiCohortStage):
         scatter_count = config.config_retrieve(['workflow', 'scatter_count_genotype'])
         sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
         prefix = (
-            multicohort.analysis_dataset.prefix(category='tmp')
+            multicohort.analysis_dataset.prefix()
             / 'genotype'
             / sequencing_type
             / f'{scatter_count}_intervals'
