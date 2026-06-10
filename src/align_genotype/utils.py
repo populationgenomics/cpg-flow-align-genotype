@@ -1,5 +1,4 @@
 import pandas as pd
-
 from cpg_utils import to_path
 
 NEGATIVES = ['Not flagged', 'Not applicable', 'None']
