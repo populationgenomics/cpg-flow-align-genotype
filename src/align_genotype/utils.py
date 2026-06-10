@@ -1,3 +1,5 @@
+import pandas as pd
+
 from cpg_utils import to_path
 
 NEGATIVES = ['Not flagged', 'Not applicable', 'None']
@@ -8,7 +10,6 @@ def scan_vntyper_html(html_file: str) -> dict[str, bool]:
     Parse a VNtyper HTML file to detect positive/negative calls.
     Positive status is implied by the relevant table containing a non-negative row.
     """
-    import pandas as pd
 
     with to_path(html_file).open() as f:
         df_list = pd.read_html(f)
