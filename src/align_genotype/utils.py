@@ -1,7 +1,8 @@
+import numpy as np
 import pandas as pd
 from cpg_utils import to_path
 
-NEGATIVES = ['Not flagged', 'Not applicable', 'None']
+NEGATIVES = ['Not flagged', 'Not applicable', 'None', None, pd.NA, np.nan]
 
 
 def scan_vntyper_html(html_file: str) -> dict[str, bool]:
@@ -13,19 +14,7 @@ def scan_vntyper_html(html_file: str) -> dict[str, bool]:
     with to_path(html_file).open() as f:
         df_list = pd.read_html(f)
 
-    advntr_positive = False
-    kestrel_positive = False
-
-    # kestrel
-    for _, row in df_list[1].iterrows():
-        if row['Variant'] not in NEGATIVES:
-            kestrel_positive = True
-            break
-
-    # advntr
-    for _, row in df_list[2].iterrows():
-        if row['Variant'] not in NEGATIVES:
-            advntr_positive = True
-            break
+    kestrel_positive = bool(np.any(~(df_list[1]['Variant'].isin(NEGATIVES))))
+    advntr_positive = bool(np.any(~(df_list[2]['Variant'].isin(NEGATIVES))))
 
     return {'advntr': advntr_positive, 'kestrel': kestrel_positive}
