@@ -12,6 +12,7 @@ from align_genotype.jobs.cram_qc_verify import verifybamid
 from align_genotype.jobs.genotype import genotype
 from align_genotype.jobs.picard import collect_metrics, generate_intervals, hs_metrics, vcf_qc, wgs_metrics
 from align_genotype.jobs.vntyper import vntyper
+from align_genotype.utils import scan_vntyper_html
 
 
 @stage.stage
@@ -295,6 +296,7 @@ class RunGvcfQc(stage.SequencingGroupStage):
     required_stages=[AlignWithDragmap],
     analysis_type='web',
     analysis_keys=['html'],
+    update_analysis_meta=scan_vntyper_html,
 )
 class RunVntyper(stage.SequencingGroupStage):
     """
