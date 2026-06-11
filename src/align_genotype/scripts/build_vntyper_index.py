@@ -9,7 +9,6 @@ This will run scoped by dataset and sequencing_type.
 
 from argparse import ArgumentParser
 from pathlib import Path
-from urllib.request import proxy_bypass
 
 import jinja2
 
@@ -56,6 +55,8 @@ def query_for_reports(dataset: str, sequencing_type: str) -> dict[str, dict[str,
         dict of SGID: Report
     """
 
+    report_lookup: dict[str, dict[str, bool | str]] = {}
+
     # build a meta query object
     meta_param = {
         'sequencing_type': sequencing_type,
@@ -64,42 +65,36 @@ def query_for_reports(dataset: str, sequencing_type: str) -> dict[str, dict[str,
 
     results = graphql.query(REPORT_QUERY, variables={'project': dataset, 'meta': meta_param})
 
+    # trim `-test` off the dataset string, to present `-test-test` in the URL
     dataset_string = dataset.replace('-test', '')
 
     access_level = config.config_retrieve(['workflow', 'access_level'])
+
+    # populate the expected URL portion, and adjust if test
     web_base = WEB_BASE.format(dataset_string)
     if access_level == 'test':
         web_base = web_base.replace('main', 'test')
+
+    # populate the proxy-enabled URL portion, and adjust if test
     proxy_base = WEB_URL_BASE.format(dataset_string)
     if access_level == 'test':
         proxy_base = proxy_base.replace('main', 'test')
 
-    print(web_base, proxy_base)
-
-    report_lookup: dict[str, dict[str, bool | str]] = {}
+    # iterate over the reports and grab them all
     for report in results['project']['analyses']:
         meta_dict = report['meta']
 
-        # pull out the URL from the analysis entry
-        url = report['output']
-
-        # swap the real URL for a proxy URL
-        url = url.replace(web_base.format(dataset), proxy_base.format(dataset))
-        print(url)
-
-        print(meta_dict)
-        if 'advntr' not in meta_dict:
-            continue
+        # pull out the URL from the analysis entry, swap the real URL for a proxy URL
+        url = report['output'].replace(web_base.format(dataset), proxy_base.format(dataset))
 
         # capture a minrep of all the fields we want to present in the report
-        mini_meta = {
+        report_lookup[report['sequencingGroups'][0]['id']] = {
             'advntr': REPORT_EMOJI[meta_dict['advntr']],
             'kestrel': REPORT_EMOJI[meta_dict['kestrel']],
             'participant': meta_dict['participant_id'],
             'timestamp': report['timestampCompleted'].split('T')[0],
             'url': url,
         }
-        report_lookup[report['sequencingGroups'][0]['id']] = mini_meta
 
     return report_lookup
 
