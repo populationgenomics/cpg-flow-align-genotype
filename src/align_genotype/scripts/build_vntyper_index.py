@@ -43,7 +43,7 @@ def query_for_reports(dataset: str, sequencing_type: str) -> dict[str, dict[str,
 
     Args:
         dataset: str, the name of the dataset/project
-        sequencing_type: str, the type of assay (typicall exome/genome)
+        sequencing_type: str, the type of assay (typically exome/genome)
 
     Returns:
         dict of SGID: Report
@@ -61,7 +61,7 @@ def query_for_reports(dataset: str, sequencing_type: str) -> dict[str, dict[str,
 
     results = graphql.query(
         REPORT_QUERY,
-        variables={'project': f'{dataset}-test' if access_level == 'test' else dataset, 'meta': meta_param},
+        variables={'project': f'{dataset}-test' if access_level == 'test' else dataset, 'metaFilter': meta_param},
     )
 
     # populate the expected URL portion, and adjust if test
@@ -77,9 +77,6 @@ def query_for_reports(dataset: str, sequencing_type: str) -> dict[str, dict[str,
     # iterate over the reports and grab them all
     for report in results['project']['analyses']:
         meta_dict = report['meta']
-
-        if meta_dict['stage'] != 'RunVntyper' or meta_dict['sequencing_type'] != sequencing_type:
-            continue
 
         # pull out the URL from the analysis entry, swap the real URL for a proxy URL
         url = report['output'].replace(web_base.format(dataset), proxy_base.format(dataset))
