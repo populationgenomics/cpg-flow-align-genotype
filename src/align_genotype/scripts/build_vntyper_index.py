@@ -51,17 +51,17 @@ def query_for_reports(dataset: str, sequencing_type: str) -> dict[str, dict[str,
 
     report_lookup: dict[str, dict[str, str]] = {}
 
-    # build a meta query object
-    meta_param = {
-        'sequencing_type': sequencing_type,
-        'stage': 'RunVntyper',
-    }
-
     access_level = config.config_retrieve(['workflow', 'access_level'])
 
     results = graphql.query(
         REPORT_QUERY,
-        variables={'project': f'{dataset}-test' if access_level == 'test' else dataset, 'metaFilter': meta_param},
+        variables={
+            'project': f'{dataset}-test' if access_level == 'test' else dataset,
+            'metaFilter': {
+                'sequencing_type': sequencing_type,
+                'stage': 'RunVntyper',
+            },
+        },
     )
 
     # populate the expected URL portion, and adjust if test
