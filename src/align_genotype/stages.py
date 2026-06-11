@@ -3,6 +3,8 @@ Alignment and genotyping... oof. Where to start.
 """
 
 from cpg_flow import stage, targets, workflow
+from cpg_flow.targets import Dataset
+from cpg_flow.utils import ExpectedResultT
 from cpg_utils import Path, config, to_path
 
 from align_genotype.jobs.align import align
@@ -339,3 +341,14 @@ class RunVntyper(stage.SequencingGroupStage):
             job_attrs=self.get_job_attrs(sequencing_group),
         )
         return self.make_outputs(sequencing_group, data=outputs, jobs=jobs)
+
+
+@stage.stage(required_stages=[RunVntyper], analysis_keys=['html'], analysis_type='web')
+class VntyperIndexPage(stage.DatasetStage):
+    def expected_outputs(self, dataset: targets.Dataset) -> dict[str, Path]:
+        web_bucket = dataset.web_prefix() / 'vntyper'
+        seq_type = config.config_retrieve(['workflow', 'sequencing_type'])
+        index_name = 'exome_index.html' if seq_type == 'exome' else 'genome_index.html'
+        return {'html': web_bucket / index_name}
+
+    def queue_jobs(self, dataset: targets.Dataset) -> stage.StageOutput: ...
