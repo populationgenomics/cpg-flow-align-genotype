@@ -342,7 +342,7 @@ class RunVntyper(stage.SequencingGroupStage):
         return self.make_outputs(sequencing_group, data=outputs, jobs=jobs)
 
 
-@stage.stage(required_stages=[RunVntyper], analysis_keys=['html'], analysis_type='web')
+@stage.stage(required_stages=[RunVntyper], analysis_keys=['html'], analysis_type='web', forced=True)
 class VntyperIndexPage(stage.DatasetStage):
     def expected_outputs(self, dataset: targets.Dataset) -> dict[str, Path]:
         web_bucket = dataset.web_prefix() / 'vntyper'
