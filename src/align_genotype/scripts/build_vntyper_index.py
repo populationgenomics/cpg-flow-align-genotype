@@ -57,20 +57,20 @@ def query_for_reports(dataset: str, sequencing_type: str) -> dict[str, dict[str,
         'stage': 'RunVntyper',
     }
 
-    results = graphql.query(REPORT_QUERY, variables={'project': dataset, 'meta': meta_param})
-
-    # trim `-test` off the dataset string, to present `-test-test` in the URL
-    dataset_string = dataset.replace('-test', '')
-
     access_level = config.config_retrieve(['workflow', 'access_level'])
 
+    results = graphql.query(
+        REPORT_QUERY,
+        variables={'project': f'{dataset}-test' if access_level == 'test' else dataset, 'meta': meta_param},
+    )
+
     # populate the expected URL portion, and adjust if test
-    web_base = WEB_BASE.format(dataset_string)
+    web_base = WEB_BASE.format(dataset)
     if access_level == 'test':
         web_base = web_base.replace('main', 'test')
 
     # populate the proxy-enabled URL portion, and adjust if test
-    proxy_base = WEB_URL_BASE.format(dataset_string)
+    proxy_base = WEB_URL_BASE.format(dataset)
     if access_level == 'test':
         proxy_base = proxy_base.replace('main', 'test')
 
