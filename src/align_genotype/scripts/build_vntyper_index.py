@@ -78,6 +78,9 @@ def query_for_reports(dataset: str, sequencing_type: str) -> dict[str, dict[str,
     for report in results['project']['analyses']:
         meta_dict = report['meta']
 
+        if meta_dict['stage'] != 'RunVntyper' or meta_dict['sequencing_type'] != sequencing_type:
+            continue
+
         # pull out the URL from the analysis entry, swap the real URL for a proxy URL
         url = report['output'].replace(web_base.format(dataset), proxy_base.format(dataset))
 
@@ -95,6 +98,7 @@ def query_for_reports(dataset: str, sequencing_type: str) -> dict[str, dict[str,
 
 def main(dataset: str, output: str) -> None:
     sequencing_type = config.config_retrieve(['workflow', 'sequencing_type'])
+
     template_context = {
         'title': f'VNtyper index for {dataset}, {sequencing_type}',
         'reports': query_for_reports(dataset, sequencing_type),
