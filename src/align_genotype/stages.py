@@ -6,12 +6,14 @@ from cpg_flow import stage, targets, workflow
 from cpg_utils import Path, config, to_path
 
 from align_genotype.jobs.align import align
+from align_genotype.jobs.build_vntyper_index import vntyper_index_job
 from align_genotype.jobs.cram_qc_samtools import samtools_stats
 from align_genotype.jobs.cram_qc_somalier import extract_somalier
 from align_genotype.jobs.cram_qc_verify import verifybamid
 from align_genotype.jobs.genotype import genotype
 from align_genotype.jobs.picard import collect_metrics, generate_intervals, hs_metrics, vcf_qc, wgs_metrics
 from align_genotype.jobs.vntyper import vntyper
+from align_genotype.utils import scan_vntyper_html
 
 
 @stage.stage
@@ -295,6 +297,7 @@ class RunGvcfQc(stage.SequencingGroupStage):
     required_stages=[AlignWithDragmap],
     analysis_type='web',
     analysis_keys=['html'],
+    update_analysis_meta=scan_vntyper_html,
 )
 class RunVntyper(stage.SequencingGroupStage):
     """
@@ -337,3 +340,20 @@ class RunVntyper(stage.SequencingGroupStage):
             job_attrs=self.get_job_attrs(sequencing_group),
         )
         return self.make_outputs(sequencing_group, data=outputs, jobs=jobs)
+
+
+@stage.stage(required_stages=[RunVntyper], analysis_keys=['html'], analysis_type='web', forced=True)
+class VntyperIndexPage(stage.DatasetStage):
+    def expected_outputs(self, dataset: targets.Dataset) -> dict[str, Path]:
+        web_bucket = dataset.web_prefix() / 'vntyper'
+        seq_type = config.config_retrieve(['workflow', 'sequencing_type'])
+        index_name = 'exome_index.html' if seq_type == 'exome' else 'genome_index.html'
+        return {'html': web_bucket / index_name}
+
+    def queue_jobs(self, dataset: targets.Dataset, _inputs: stage.StageInput) -> stage.StageOutput:
+        # only run this for a subset of projects, but for all SG IDs in those projects
+        if dataset.name not in config.config_retrieve(['vntyper', 'vntyper_projects']):
+            return self.make_outputs(dataset, data=None, jobs=None)
+        output = self.expected_outputs(dataset)
+        job = vntyper_index_job(dataset=dataset.name, output=output['html'])
+        return self.make_outputs(dataset, data=output, jobs=job)
