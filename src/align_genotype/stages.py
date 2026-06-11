@@ -3,11 +3,10 @@ Alignment and genotyping... oof. Where to start.
 """
 
 from cpg_flow import stage, targets, workflow
-from cpg_flow.targets import Dataset
-from cpg_flow.utils import ExpectedResultT
 from cpg_utils import Path, config, to_path
 
 from align_genotype.jobs.align import align
+from align_genotype.jobs.build_vntyper_index import vntyper_index_job
 from align_genotype.jobs.cram_qc_samtools import samtools_stats
 from align_genotype.jobs.cram_qc_somalier import extract_somalier
 from align_genotype.jobs.cram_qc_verify import verifybamid
@@ -351,4 +350,10 @@ class VntyperIndexPage(stage.DatasetStage):
         index_name = 'exome_index.html' if seq_type == 'exome' else 'genome_index.html'
         return {'html': web_bucket / index_name}
 
-    def queue_jobs(self, dataset: targets.Dataset) -> stage.StageOutput: ...
+    def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput:
+        # only run this for a subset of projects, but for all SG IDs in those projects
+        if dataset.name not in config.config_retrieve(['vntyper', 'vntyper_projects']):
+            return self.make_outputs(dataset, data=None, jobs=None)
+        output = self.expected_outputs(dataset)
+        job = vntyper_index_job(dataset=dataset.name, output=output['html'])
+        return self.make_outputs(dataset, data=output, jobs=job)

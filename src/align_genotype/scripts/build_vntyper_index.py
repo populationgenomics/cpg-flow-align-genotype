@@ -11,10 +11,8 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 import jinja2
-
 from cpg_utils import config, to_path
 from metamist import graphql
-
 
 JINJA_TEMPLATE_DIR = Path(__file__).absolute().parent.parent / 'templates'
 
@@ -39,10 +37,6 @@ WEB_BASE: str = 'gs://cpg-{}-main-web'
 WEB_URL_BASE: str = 'https://main-web.populationgenomics.org.au/{}'
 
 
-def translate_url(og_url: str) -> str:
-    """Translate the absolute location of the HTML document to a proxy-rendered link."""
-
-
 def query_for_reports(dataset: str, sequencing_type: str) -> dict[str, dict[str, str]]:
     """
     Execute a GQL query for all relevant VNtyper reports. Minimise to one-per-SGID.
@@ -55,7 +49,7 @@ def query_for_reports(dataset: str, sequencing_type: str) -> dict[str, dict[str,
         dict of SGID: Report
     """
 
-    report_lookup: dict[str, dict[str, bool | str]] = {}
+    report_lookup: dict[str, dict[str, str]] = {}
 
     # build a meta query object
     meta_param = {
