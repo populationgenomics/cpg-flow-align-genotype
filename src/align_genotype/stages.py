@@ -120,7 +120,7 @@ class GenotypeWithGatk(stage.SequencingGroupStage):
         return self.make_outputs(sequencing_group, data=output, jobs=jobs)
 
 
-@stage.stage(required_stages=[AlignWithDragmap])
+@stage.stage(required_stages=[AlignWithDragmap], analysis_type='somalier')
 class CramQcSomalier(stage.SequencingGroupStage):
     """Run somalier extract on a CRAM file."""
 
