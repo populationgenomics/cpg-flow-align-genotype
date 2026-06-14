@@ -329,7 +329,7 @@ class RunVntyper(stage.SequencingGroupStage):
             return self.make_outputs(sequencing_group, data=None, jobs=None)
 
         # allow for skipping this Stage for specific problem samples
-        if sequencing_group.id in config.config_retrieve(['vntyper', 'vntyper_skip_sgids'], []):
+        if sequencing_group.id in config.config_retrieve(['vntyper', 'skip_sgids'], []):
             return self.make_outputs(sequencing_group, data=None, jobs=None)
 
         outputs = self.expected_outputs(sequencing_group)
