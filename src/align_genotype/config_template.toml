@@ -134,3 +134,5 @@ vntyper_config_json_path = false
 kestrel_config_json_path = false
 
 vntyper_projects = []
+skip_sgids = []
+fast = false

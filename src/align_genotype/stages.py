@@ -324,9 +324,12 @@ class RunVntyper(stage.SequencingGroupStage):
         """
         Queue the VNtyper job using the function from the jobs module.
         """
-
-        # only run this for a subset of projects, but for all SG IDs in those projects
+        # only run this for a subset of projects
         if sequencing_group.dataset.name not in config.config_retrieve(['vntyper', 'vntyper_projects']):
+            return self.make_outputs(sequencing_group, data=None, jobs=None)
+
+        # allow for skipping this Stage for specific problem samples
+        if sequencing_group.id in config.config_retrieve(['vntyper', 'skip_sgids'], []):
             return self.make_outputs(sequencing_group, data=None, jobs=None)
 
         outputs = self.expected_outputs(sequencing_group)

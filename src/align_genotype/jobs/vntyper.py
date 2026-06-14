@@ -94,13 +94,16 @@ def vntyper(
         kestrel_config = batch_instance.read_input(kestrel_config_path)
         job.command(f'cp {kestrel_config} ./vntyper/scripts/kestrel_config.json')
 
+    # allow for fast-mode to be triggered
+    fast_mode = '--fast-mode' if config.config_retrieve(['vntyper', 'fast']) else ''
+
     vntyper_command_str = f"""\
     {vntyper_command_prefix} pipeline \
         --cram {cram_resource_group.cram} \
         --reference-assembly hg38 \
         --extra-modules advntr \
         -o ./results \
-        --threads 4"""
+        --threads 4 {fast_mode}"""
 
     job.command(vntyper_command_str)
 
