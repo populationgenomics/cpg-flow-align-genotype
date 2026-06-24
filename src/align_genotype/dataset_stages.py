@@ -93,10 +93,13 @@ class CramMultiQC(stage.DatasetStage):
 
         # get the unique hash for these Sequencing Groups
         sg_hash = dataset.get_alignment_inputs_hash()
+
+        qc_subdir = f'{subdir}/qc' if (subdir := targets.sequencing_subdir()) else 'qc'
+
         return {
-            'html': dataset.web_prefix() / 'qc' / 'cram' / sg_hash / 'multiqc.html',
-            'json': dataset.prefix() / 'qc' / 'cram' / sg_hash / 'multiqc_data.json',
-            'checks': dataset.prefix() / 'qc' / 'cram' / sg_hash / '.checks',
+            'html': dataset.web_prefix() / qc_subdir / 'cram' / sg_hash / 'multiqc.html',
+            'json': dataset.prefix() / qc_subdir / 'cram' / sg_hash / 'multiqc_data.json',
+            'checks': dataset.prefix() / qc_subdir / 'cram' / sg_hash / '.checks',
         }
 
     def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput | None:
@@ -199,10 +202,13 @@ class GvcfMultiQC(stage.DatasetStage):
     def expected_outputs(self, dataset: stage.Dataset) -> dict[str, Path]:
         """Expected to produce an HTML and a corresponding JSON file."""
         sg_hash = dataset.get_alignment_inputs_hash()
+
+        qc_subdir = f'{subdir}/qc' if (subdir := targets.sequencing_subdir()) else 'qc'
+
         return {
-            'html': dataset.web_prefix() / 'qc' / 'gvcf' / sg_hash / 'multiqc.html',
-            'json': dataset.prefix() / 'qc' / 'gvcf' / sg_hash / 'multiqc_data.json',
-            'checks': dataset.prefix() / 'qc' / 'gvcf' / sg_hash / '.checks',
+            'html': dataset.web_prefix() / qc_subdir / 'gvcf' / sg_hash / 'multiqc.html',
+            'json': dataset.prefix() / qc_subdir / 'gvcf' / sg_hash / 'multiqc_data.json',
+            'checks': dataset.prefix() / qc_subdir / 'gvcf' / sg_hash / '.checks',
         }
 
     def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput:
