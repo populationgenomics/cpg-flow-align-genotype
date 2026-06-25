@@ -150,9 +150,9 @@ def check_report_job(
     --html-url {multiqc_html_url} \\
     --dataset {dataset_name} \\
     --title "{title}" \\
+    --output-json {check_j.output} \\
     --{'no-' if not send_to_slack else ''}send-to-slack
 
-    touch {check_j.output}
     echo "HTML URL: {multiqc_html_url}"
     """
 
