@@ -1,3 +1,4 @@
+import argparse
 import json
 from dataclasses import asdict
 from datetime import datetime
@@ -36,17 +37,18 @@ SG_META_MUTATION = gql(
     """
 )
 
+
 def compare_qc_flag(current_flag: dict, new_flag: dict) -> bool:
     """
     Compares two QC flags and returns True if they are the same, False otherwise.
     """
     return (
-        current_flag.get('flag') == new_flag.get('flag') and
-        current_flag.get('value') == new_flag.get('value') and
-        current_flag.get('comparison') == new_flag.get('comparison') and
-        current_flag.get('threshold') == new_flag.get('threshold') and
-        current_flag.get('section') == new_flag.get('section') and
-        not current_flag.get('resolved', False)  # We only want to compare unresolved flags
+        current_flag.get('flag') == new_flag.get('flag')
+        and current_flag.get('value') == new_flag.get('value')
+        and current_flag.get('comparison') == new_flag.get('comparison')
+        and current_flag.get('threshold') == new_flag.get('threshold')
+        and current_flag.get('section') == new_flag.get('section')
+        and not current_flag.get('resolved', False)  # We only want to compare unresolved flags
     )
 
 
@@ -67,7 +69,7 @@ def main(
         qc_flags_data = json.load(f)
 
     if not qc_flags_data:
-        logger.info(f"No QC flags found in {qc_flags_json_path}. No updates will be made.")
+        logger.info(f'No QC flags found in {qc_flags_json_path}. No updates will be made.')
         return
 
     # Query the sequencing groups for the given dataset
@@ -84,10 +86,10 @@ def main(
         if not current_qc_flags and not new_qc_flags:
             continue  # No existing or new QC flags for this SG, skip
 
-        stats = {"resolved": 0, "retained": 0}
+        stats = {'resolved': 0, 'retained': 0}
         final_flags: list[QcFlag] = []
         if current_qc_flags:
-            logger.info(f"{sg_id} :: Found {len(current_qc_flags)} existing QC flags. Updating existing flags.")
+            logger.info(f'{sg_id} :: Found {len(current_qc_flags)} existing QC flags. Updating existing flags.')
             # Compare the current and new QC flags to determine if an update is needed
 
             for flag in current_qc_flags:
@@ -108,7 +110,7 @@ def main(
                     logger.info(f"{sg_id} :: QC flag '{flag['flag']}' for SG updated with new information.")
                 final_flags.append(QcFlag(**flag))
         else:
-            logger.info(f"{sg_id} :: No existing QC flags found, adding {len(new_qc_flags)} new flags.")
+            logger.info(f'{sg_id} :: No existing QC flags found, adding {len(new_qc_flags)} new flags.')
 
         for flag in new_qc_flags:
             flag['resolved'] = False
@@ -117,8 +119,16 @@ def main(
 
         # Perform the mutation to update the SG meta
         mutation_response = query(
-            SG_META_MUTATION,
-            variables={ 'sgId': sg_id, 'sgMeta': {'qc_flags': [asdict(flag) for flag in final_flags]}}
+            SG_META_MUTATION, variables={'sgId': sg_id, 'sgMeta': {'qc_flags': [asdict(flag) for flag in final_flags]}}
         )
-        logger.info(f"{sg_id} :: {len(final_flags)} total flags. Mutation response: {mutation_response}")
-        logger.info(f"{sg_id} :: Resolved: {stats['resolved']}, Retained: {stats['retained']}")
+        logger.info(f'{sg_id} :: {len(final_flags)} total flags. Mutation response: {mutation_response}')
+        logger.info(f'{sg_id} :: Resolved: {stats["resolved"]}, Retained: {stats["retained"]}')
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Record QC flags in Metamist.')
+    parser.add_argument('--dataset', required=True, help='Dataset name')
+    parser.add_argument('--qc-flags-json', required=True, help='Path to the QC flags JSON file')
+    args = parser.parse_args()
+
+    main(dataset=args.dataset, qc_flags_json_path=args.qc_flags_json)

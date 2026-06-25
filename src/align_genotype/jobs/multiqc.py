@@ -117,6 +117,16 @@ def multiqc(
         )
         check_j.depends_on(mqc_j)
         jobs.append(check_j)
+
+        record_j = record_qc_flags_job(
+            b=batch_instance,
+            check_multiqc_json_file=check_j.output,
+            dataset_name=dataset.name,
+            job_attrs=job_attrs,
+        )
+        record_j.depends_on(check_j)
+        jobs.append(record_j)
+
     return jobs
 
 
@@ -161,6 +171,29 @@ def check_report_job(
     if out_checks_path:
         b.write_output(check_j.output, str(out_checks_path))
     return check_j
+
+
+def record_qc_flags_job(
+    b: Batch,
+    check_multiqc_json_file: ResourceFile,
+    dataset_name: str,
+    job_attrs: dict | None = None,
+) -> Job:
+    """
+    Run job that records QC flags in Metamist.
+    """
+    record_j = b.new_job('Record QC flags', (job_attrs or {}) | {'tool': 'python'})
+    resources.STANDARD.set_resources(j=record_j, ncpu=2)
+    record_j.image(config.config_retrieve(['workflow', 'driver_image']))
+
+    cmd = f"""\
+    python3 -m align_genotype.scripts.record_qc_flags \\
+    --dataset {dataset_name} \\
+    --qc-flags-json {check_multiqc_json_file}
+    """
+
+    record_j.command(cmd)
+    return record_j
 
 
 def rich_sequencing_group_id_seds(
