@@ -99,7 +99,7 @@ class CramMultiQC(stage.DatasetStage):
         return {
             'html': dataset.web_prefix() / qc_subdir / 'cram' / sg_hash / 'multiqc.html',
             'json': dataset.prefix() / qc_subdir / 'cram' / sg_hash / 'multiqc_data.json',
-            'checks': dataset.prefix() / qc_subdir / 'cram' / sg_hash / '.checks',
+            'checks': dataset.prefix() / qc_subdir / 'cram' / sg_hash / 'qc-checks.json',
         }
 
     def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput | None:
@@ -208,7 +208,7 @@ class GvcfMultiQC(stage.DatasetStage):
         return {
             'html': dataset.web_prefix() / qc_subdir / 'gvcf' / sg_hash / 'multiqc.html',
             'json': dataset.prefix() / qc_subdir / 'gvcf' / sg_hash / 'multiqc_data.json',
-            'checks': dataset.prefix() / qc_subdir / 'gvcf' / sg_hash / '.checks',
+            'checks': dataset.prefix() / qc_subdir / 'gvcf' / sg_hash / 'qc-checks.json',
         }
 
     def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput:
