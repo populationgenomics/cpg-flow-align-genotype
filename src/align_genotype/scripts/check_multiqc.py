@@ -31,7 +31,7 @@ def comparison_to_symbol(comparison: str) -> str:
         return '<'
     if comparison == 'max':
         return '>'
-    raise ValueError(f"Unknown comparison type: {comparison}")
+    raise ValueError(f'Unknown comparison type: {comparison}')
 
 
 @click.command()
@@ -161,10 +161,7 @@ def run(  # noqa: C901
         'html_url': html_url,
         'sequencing_type': seq_type,
         'n_samples_flagged': len(qc_flags_by_sample),
-        'qc_flags': {
-            sample: [asdict(flag) for flag in flags]
-            for sample, flags in qc_flags_by_sample.items()
-        },
+        'qc_flags': {sample: [asdict(flag) for flag in flags] for sample, flags in qc_flags_by_sample.items()},
     }
 
     if output_json_path:
