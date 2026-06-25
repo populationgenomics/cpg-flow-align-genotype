@@ -40,15 +40,101 @@ SG_META_MUTATION = gql(
 
 def compare_qc_flag(current_flag: dict, new_flag: dict) -> bool:
     """
-    Compares two QC flags and returns True if they are the same, False otherwise.
+    Returns True if the two flags refer to the same QC issue and the current flag is still
+    unresolved. Flag identity is (flag + comparison + threshold + section); the measured
+    `value` is intentionally excluded because it can drift slightly between MultiQC runs.
     """
     return (
         current_flag.get('flag') == new_flag.get('flag')
-        and current_flag.get('value') == new_flag.get('value')
         and current_flag.get('comparison') == new_flag.get('comparison')
         and current_flag.get('threshold') == new_flag.get('threshold')
         and current_flag.get('section') == new_flag.get('section')
-        and not current_flag.get('resolved', False)  # We only want to compare unresolved flags
+        and not current_flag.get('resolved', False)
+    )
+
+
+def reconcile_sg_qc_flags(
+    sg: dict,
+    new_flags_by_sg: dict[str, list[dict]],
+    dataset: str,
+    today: datetime,
+) -> None:
+    """
+    Reconcile current and new QC flags for a single SG and update its meta in Metamist.
+
+    Marks absent flags as resolved, retains unchanged flags, updates differing flags,
+    and adds new flags that didn't previously exist.
+    """
+    sg_id = sg['id']
+    current_qc_flags: list[dict] = (sg['meta'] or {}).get('qc_flags', [])
+    new_qc_flags: list[dict] = new_flags_by_sg.get(sg_id, [])
+
+    if not current_qc_flags and not new_qc_flags:
+        return  # No existing or new QC flags for this SG, skip
+
+    # Key flags by (section, flag) so the same metric in different MultiQC sections
+    # is treated as a distinct QC issue.
+    new_qc_flags_by_key = {(flag['section'], flag['flag']): flag for flag in new_qc_flags}
+    existing_flag_keys = {(flag['section'], flag['flag']) for flag in current_qc_flags}
+    stats = {'resolved': 0, 'retained': 0, 'updated': 0, 'added': 0}
+    final_flags: list[QcFlag] = []
+
+    if current_qc_flags:
+        logger.info(f'{sg_id} :: Found {len(current_qc_flags)} existing QC flags. Reconciling.')
+        for flag in current_qc_flags:
+            key = (flag['section'], flag['flag'])
+            present_in_new = key in new_qc_flags_by_key
+            if not present_in_new:
+                if not flag['resolved']:
+                    # Previously-flagged issue no longer present: mark resolved
+                    flag['resolved'] = True
+                    flag['resolution_date'] = today.isoformat()
+                    stats['resolved'] += 1
+                    logger.info(f"{sg_id} :: Marking QC flag '{flag['flag']}' as resolved.")
+                else:
+                    # Already resolved and still absent: keep as-is
+                    logger.info(f"{sg_id} :: QC flag '{flag['flag']}' remains resolved.")
+            elif compare_qc_flag(flag, new_qc_flags_by_key[key]):
+                # Same unresolved issue is still present: refresh the measured value and
+                # message but keep resolution status. Identity (metric/threshold/section/
+                # comparison) is unchanged so this counts as 'retained', not 'updated'.
+                new_flag = new_qc_flags_by_key[key]
+                flag['value'] = new_flag['value']
+                flag['message'] = new_flag['message']
+                stats['retained'] += 1
+                logger.info(f"{sg_id} :: QC flag '{flag['flag']}' remains unresolved (value refreshed).")
+            else:
+                # Current flag exists in new run but differs (or was resolved and has reappeared):
+                # overwrite with new flag data (which sets resolved=False)
+                flag.update(new_qc_flags_by_key[key])
+                stats['updated'] += 1
+                logger.info(f"{sg_id} :: QC flag '{flag['flag']}' updated with new information.")
+            final_flags.append(QcFlag(**flag))
+    else:
+        logger.info(f'{sg_id} :: No existing QC flags found, adding {len(new_qc_flags)} new flags.')
+
+    # Add new flags that aren't already represented in current_qc_flags
+    for flag in new_qc_flags:
+        if (flag['section'], flag['flag']) in existing_flag_keys:
+            continue
+        flag['resolved'] = False
+        flag['resolution_date'] = None
+        final_flags.append(QcFlag(**flag))
+        stats['added'] += 1
+
+    # Perform the mutation to update the SG meta
+    mutation_response = query(
+        SG_META_MUTATION,
+        variables={
+            'dataset': dataset,
+            'sgId': sg_id,
+            'sgMeta': {'qc_flags': [asdict(flag) for flag in final_flags]},
+        },
+    )
+    logger.info(f'{sg_id} :: {len(final_flags)} total flags. Mutation response: {mutation_response}')
+    logger.info(
+        f'{sg_id} :: Resolved: {stats["resolved"]}, Retained: {stats["retained"]}, '
+        f'Updated: {stats["updated"]}, Added: {stats["added"]}'
     )
 
 
@@ -68,61 +154,14 @@ def main(
     with open(qc_flags_json_path) as f:
         qc_flags_data = json.load(f)
 
-    if not qc_flags_data:
-        logger.info(f'No QC flags found in {qc_flags_json_path}. No updates will be made.')
-        return
-
     # Query the sequencing groups for the given dataset
     response = query(DATASET_SG_META_QUERY, variables={'dataset': dataset})
     sequencing_groups = response['project']['sequencingGroups']
 
-    # Update each sequencing group's meta with the new QC flags
+    # Reconcile each sequencing group's QC flags
+    new_flags_by_sg = qc_flags_data['qc_flags']
     for sg in sequencing_groups:
-        sg_id = sg['id']
-        current_qc_flags: list[dict] = sg['meta'].get('qc_flags', [])
-        new_qc_flags: list[dict] = qc_flags_data['qc_flags'].get(sg_id, [])
-        new_qc_flags_by_flag = {flag['flag']: flag for flag in new_qc_flags}
-
-        if not current_qc_flags and not new_qc_flags:
-            continue  # No existing or new QC flags for this SG, skip
-
-        stats = {'resolved': 0, 'retained': 0}
-        final_flags: list[QcFlag] = []
-        if current_qc_flags:
-            logger.info(f'{sg_id} :: Found {len(current_qc_flags)} existing QC flags. Updating existing flags.')
-            # Compare the current and new QC flags to determine if an update is needed
-
-            for flag in current_qc_flags:
-                if flag['flag'] not in new_qc_flags_by_flag and not flag['resolved']:
-                    # If an unresolved current flag is not in the new flags, mark it resolved on the current date
-                    flag['resolved'] = True
-                    flag['resolution_date'] = today.isoformat()
-                    stats['resolved'] += 1
-                    logger.info(f"{sg_id} :: Marking QC flag '{flag['flag']}' for SG as resolved.")
-                elif compare_qc_flag(flag, new_qc_flags_by_flag[flag['flag']]):
-                    # If the current flag matches the new flag, we retain it
-                    stats['retained'] += 1
-                    logger.info(f"{sg_id} :: QC flag '{flag['flag']}' for SG remains unresolved.")
-                else:
-                    # If the current flag does not match the new flag, we update it
-                    flag.update(new_qc_flags_by_flag[flag['flag']])
-                    stats['retained'] += 1
-                    logger.info(f"{sg_id} :: QC flag '{flag['flag']}' for SG updated with new information.")
-                final_flags.append(QcFlag(**flag))
-        else:
-            logger.info(f'{sg_id} :: No existing QC flags found, adding {len(new_qc_flags)} new flags.')
-
-        for flag in new_qc_flags:
-            flag['resolved'] = False
-            flag['resolution_date'] = None
-            final_flags.append(QcFlag(**flag))
-
-        # Perform the mutation to update the SG meta
-        mutation_response = query(
-            SG_META_MUTATION, variables={'sgId': sg_id, 'sgMeta': {'qc_flags': [asdict(flag) for flag in final_flags]}}
-        )
-        logger.info(f'{sg_id} :: {len(final_flags)} total flags. Mutation response: {mutation_response}')
-        logger.info(f'{sg_id} :: Resolved: {stats["resolved"]}, Retained: {stats["retained"]}')
+        reconcile_sg_qc_flags(sg, new_flags_by_sg, dataset, today)
 
 
 if __name__ == '__main__':
