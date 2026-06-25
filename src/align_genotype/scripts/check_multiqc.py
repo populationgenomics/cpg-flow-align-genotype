@@ -28,9 +28,18 @@ logging.getLogger().setLevel(logging.DEBUG)
 class QcFlag:
     flag: str
     value: float
-    threshold: float
     comparison: str
+    threshold: float
     section: str
+    message: str
+
+
+def comparison_to_symbol(comparison: str) -> str:
+    if comparison == 'min':
+        return '<'
+    if comparison == 'max':
+        return '>'
+    raise ValueError(f"Unknown comparison type: {comparison}")
 
 
 @click.command()
@@ -66,8 +75,8 @@ def main(
     output_json_path: str | None = None,
 ):
     """
-    Check metrics in MultiQC json and send info about failed samples
-    as a Slack message.
+    Check metrics in MultiQC json and compare them against thresholds, then send info about failed samples
+    as a Slack message and save structured QC flags JSON output to a file if specified.
     """
     run(
         multiqc_json_path=multiqc_json_path,
@@ -119,14 +128,15 @@ def run(  # noqa: C901
                         if is_fail(val, threshold):
                             line = f'{metric}={val:0.2f}{fail_sign}{threshold:0.2f}'
                             bad_lines_by_sample[sample].append(line)
-                            cpg_id = sample.split('|', 1)[0]
-                            qc_flags_by_sample[cpg_id].append(
+                            sg_id = sample.split('|', 1)[0]
+                            qc_flags_by_sample[sg_id].append(
                                 QcFlag(
                                     flag=metric,
                                     value=val,
-                                    threshold=threshold,
                                     comparison=config_key,
+                                    threshold=threshold,
                                     section=section_name,
+                                    message=line,
                                 ),
                             )
                             logging.info(f'❗ {sample}: {line}')
