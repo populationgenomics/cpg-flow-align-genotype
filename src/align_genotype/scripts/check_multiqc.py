@@ -26,14 +26,6 @@ logging.basicConfig()
 logging.getLogger().setLevel(logging.DEBUG)
 
 
-def comparison_to_symbol(comparison: str) -> str:
-    if comparison == 'min':
-        return '<'
-    if comparison == 'max':
-        return '>'
-    raise ValueError(f'Unknown comparison type: {comparison}')
-
-
 @click.command()
 @click.option(
     '--multiqc-json',
@@ -128,7 +120,6 @@ def run(  # noqa: C901
                                     comparison=config_key,
                                     threshold=threshold,
                                     section=section_name,
-                                    message=line,
                                     resolved=False,
                                     resolution_date=None,
                                 ),

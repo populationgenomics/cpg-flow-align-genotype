@@ -14,7 +14,6 @@ class QcFlag:
     comparison: str
     threshold: float
     section: str
-    message: str
     resolved: bool = False
     resolution_date: str | None = None
 

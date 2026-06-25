@@ -96,11 +96,10 @@ def reconcile_sg_qc_flags(
                     logger.info(f"{sg_id} :: QC flag '{flag['flag']}' remains resolved.")
             elif compare_qc_flag(flag, new_qc_flags_by_key[key]):
                 # Same unresolved issue is still present: refresh the measured value and
-                # message but keep resolution status. Identity (metric/threshold/section/
+                # but keep resolution status. Identity (metric/threshold/section/
                 # comparison) is unchanged so this counts as 'retained', not 'updated'.
                 new_flag = new_qc_flags_by_key[key]
                 flag['value'] = new_flag['value']
-                flag['message'] = new_flag['message']
                 stats['retained'] += 1
                 logger.info(f"{sg_id} :: QC flag '{flag['flag']}' remains unresolved (value refreshed).")
             else:
