@@ -194,7 +194,6 @@ def _update_meta(output_path: str) -> dict:
     required_stages=[RunGvcfQc],
     analysis_type='qc',
     analysis_keys=['json'],
-    update_analysis_meta=_update_meta,
 )
 class GvcfMultiQC(stage.DatasetStage):
     """Run MultiQC to summarise all GVCF QC."""
