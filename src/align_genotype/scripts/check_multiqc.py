@@ -117,7 +117,7 @@ def run(  # noqa: C901
                                 QcFlag(
                                     flag=metric,
                                     value=val,
-                                    comparison=config_key,
+                                    comparison=fail_sign,
                                     threshold=threshold,
                                     section=section_name,
                                     resolved=False,
