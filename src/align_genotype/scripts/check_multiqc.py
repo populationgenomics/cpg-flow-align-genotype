@@ -13,25 +13,17 @@ import json
 import logging
 import pprint
 from collections import defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from typing import Any
 
 import click
 from cpg_utils import config, to_path
 from cpg_utils.slack import send_message
 
+from align_genotype.utils import QcFlag
+
 logging.basicConfig()
 logging.getLogger().setLevel(logging.DEBUG)
-
-
-@dataclass(frozen=True)
-class QcFlag:
-    flag: str
-    value: float
-    comparison: str
-    threshold: float
-    section: str
-    message: str
 
 
 def comparison_to_symbol(comparison: str) -> str:
@@ -137,6 +129,8 @@ def run(  # noqa: C901
                                     threshold=threshold,
                                     section=section_name,
                                     message=line,
+                                    resolved=False,
+                                    resolution_date=None,
                                 ),
                             )
                             logging.info(f'❗ {sample}: {line}')
