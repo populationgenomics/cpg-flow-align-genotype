@@ -22,7 +22,7 @@ def multiqc(
     sequencing_group_id_map: dict[str, str],
     extra_config: dict,
     send_to_slack: bool = True,
-) -> Job:
+) -> list[Job]:
     """
     Run MultiQC for the files in `qc_paths`
     @param tmp_prefix: bucket for tmp files
