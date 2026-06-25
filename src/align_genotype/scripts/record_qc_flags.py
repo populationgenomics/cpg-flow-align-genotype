@@ -1,8 +1,8 @@
-import argparse
 import json
 from dataclasses import asdict
 from datetime import datetime
 
+import click
 from loguru import logger
 from metamist.graphql import gql, query
 
@@ -123,7 +123,7 @@ def reconcile_sg_qc_flags(
         stats['added'] += 1
 
     # Perform the mutation to update the SG meta
-    mutation_response = query(
+    query(
         SG_META_MUTATION,
         variables={
             'dataset': dataset,
@@ -131,13 +131,21 @@ def reconcile_sg_qc_flags(
             'sgMeta': {'qc_flags': [asdict(flag) for flag in final_flags]},
         },
     )
-    logger.info(f'{sg_id} :: {len(final_flags)} total flags. Mutation response: {mutation_response}')
     logger.info(
-        f'{sg_id} :: Resolved: {stats["resolved"]}, Retained: {stats["retained"]}, '
+        f'{sg_id} :: Updated {len(final_flags)} flags in Metamist. '
+        f'Resolved: {stats["resolved"]}, Retained: {stats["retained"]}, '
         f'Updated: {stats["updated"]}, Added: {stats["added"]}'
     )
 
 
+@click.command()
+@click.option('--dataset', required=True, help='Dataset name')
+@click.option(
+    '--qc-flags-json',
+    'qc_flags_json_path',
+    required=True,
+    help='Path to the QC flags JSON file',
+)
 def main(
     dataset: str,
     qc_flags_json_path: str,
@@ -165,9 +173,4 @@ def main(
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Record QC flags in Metamist.')
-    parser.add_argument('--dataset', required=True, help='Dataset name')
-    parser.add_argument('--qc-flags-json', required=True, help='Path to the QC flags JSON file')
-    args = parser.parse_args()
-
-    main(dataset=args.dataset, qc_flags_json_path=args.qc_flags_json)
+    main()  # pylint: disable=E1120
