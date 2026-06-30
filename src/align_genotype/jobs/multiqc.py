@@ -59,13 +59,13 @@ def multiqc(
 
     file_list = batch_instance.read_input(file_list_path)
 
-    sample_map_path = tmp_prefix / f'{dataset.get_alignment_inputs_hash()}_rename-sample-map.tsv'
+    sg_id_mapping_file_path = tmp_prefix / f'{dataset.get_alignment_inputs_hash()}_rename-sg-map.tsv'
     if not dry_run:
-        with sample_map_path.open('w') as fh:
+        with sg_id_mapping_file_path.open('w') as fh:
             for sgid, new_sgid in sequencing_group_id_map.items():
                 fh.write('\t'.join([sgid, new_sgid]) + '\n')
 
-    sample_map_file = batch_instance.read_input(sample_map_path)
+    sg_id_mapping_file = batch_instance.read_input(sg_id_mapping_file_path)
 
     joined_endings = ', '.join(ending_to_trim)
     joined_modules = ', '.join(modules_to_trim_endings)
@@ -85,7 +85,7 @@ def multiqc(
         cat {file_list} | gcloud storage cp -I inputs/
 
         multiqc -f inputs -o output \\
-        --replace-names {sample_map_file} \\
+        --replace-names {sg_id_mapping_file} \\
         --title "{title} for dataset <b>{dataset.name}</b>" \\
         --filename report.html \\
         --cl-config "extra_fn_clean_exts: [{joined_endings}]" \\
@@ -120,8 +120,9 @@ def multiqc(
 
         record_j = record_qc_flags_job(
             b=batch_instance,
-            check_multiqc_json_file=check_j.output,
             dataset_name=dataset.name,
+            sg_id_mapping_file=sg_id_mapping_file,
+            check_multiqc_json_file=check_j.output,
             job_attrs=job_attrs,
         )
         record_j.depends_on(check_j)
@@ -175,8 +176,9 @@ def check_report_job(
 
 def record_qc_flags_job(
     b: Batch,
-    check_multiqc_json_file: ResourceFile,
     dataset_name: str,
+    sg_id_mapping_file: ResourceFile,
+    check_multiqc_json_file: ResourceFile,
     job_attrs: dict | None = None,
 ) -> Job:
     """
@@ -189,7 +191,8 @@ def record_qc_flags_job(
     cmd = f"""\
     python3 -m align_genotype.scripts.record_qc_flags \\
     --dataset {dataset_name} \\
-    --qc-flags-json {check_multiqc_json_file}
+    --qc-flags-json {check_multiqc_json_file} \\
+    --sequencing-group-ids-map {sg_id_mapping_file}
     """
 
     record_j.command(cmd)

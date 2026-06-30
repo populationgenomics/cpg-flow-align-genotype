@@ -70,6 +70,7 @@ def reconcile_sg_qc_flags(
     new_qc_flags: list[dict] = new_flags_by_sg.get(sg_id, [])
 
     if not current_qc_flags and not new_qc_flags:
+        logger.info(f'{sg_id} :: No existing or new QC flags for this SG, skipping.')
         return  # No existing or new QC flags for this SG, skip
 
     # Key flags by (section, flag) so the same metric in different MultiQC sections
@@ -145,17 +146,30 @@ def reconcile_sg_qc_flags(
     required=True,
     help='Path to the QC flags JSON file',
 )
+@click.option(
+    '--sequencing-group-ids-map',
+    'sg_id_mapping_file',
+    required=True,
+    help='Path to the sequencing group IDs mapping file',
+)
 def main(
     dataset: str,
     qc_flags_json_path: str,
+    sg_id_mapping_file: str,
 ):
     """
-    Reads the qc flags JSON file and updates the sequencing group meta in Metamist.
+    Reads the qc flags JSON file and the SG mapping file, and updates any flagged QC issues in the
+    sequencing group meta in Metamist. The mapping file is required to ensure that the SG was in
+    scope for the dataset being processed and to avoid updating unrelated SGs.
 
     If the SG meta already has a 'qc_flags' key, it will be updated with the new flags, including
     recording resolution information. If the 'qc_flags' key does not exist, it will be created.
     """
     today = datetime.now()  # noqa: DTZ005
+
+    # Load the sequencing group IDs mapping file
+    with open(sg_id_mapping_file) as f:
+        sg_id_map = json.load(f)
 
     # Load the QC flags from the JSON file
     with open(qc_flags_json_path) as f:
@@ -168,7 +182,8 @@ def main(
     # Reconcile each sequencing group's QC flags
     new_flags_by_sg = qc_flags_data['qc_flags']
     for sg in sequencing_groups:
-        reconcile_sg_qc_flags(sg, new_flags_by_sg, dataset, today)
+        if sg['id'] in sg_id_map:
+            reconcile_sg_qc_flags(sg, new_flags_by_sg, dataset, today)
 
 
 if __name__ == '__main__':
