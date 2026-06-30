@@ -118,9 +118,12 @@ def multiqc(
         check_j.depends_on(mqc_j)
         jobs.append(check_j)
 
+        # Important to add the -test suffix as dataset_name is used in GraphQL queries
+        test = config.config_retrieve(['workflow', 'access_level'], None) == 'test'
+        dataset_name = dataset.name + '-test' if test else dataset.name
         record_j = record_qc_flags_job(
             b=batch_instance,
-            dataset_name=dataset.name,
+            dataset_name=dataset_name,
             sg_id_mapping_file=sg_id_mapping_file,
             check_multiqc_json_file=check_j.output,
             job_attrs=job_attrs,
