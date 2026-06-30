@@ -167,9 +167,9 @@ def main(
     """
     today = datetime.now()  # noqa: DTZ005
 
-    # Load the sequencing group IDs mapping file
+    # Load the sequencing group IDs mapping file tsv
     with open(sg_id_mapping_file) as f:
-        sg_id_map = json.load(f)
+        sg_id_map = dict(line.strip().split('\t') for line in f if line.strip())
 
     # Load the QC flags from the JSON file
     with open(qc_flags_json_path) as f:
