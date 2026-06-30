@@ -13,10 +13,14 @@ import json
 import logging
 import pprint
 from collections import defaultdict
+from dataclasses import asdict
+from typing import Any
 
 import click
 from cpg_utils import config, to_path
 from cpg_utils.slack import send_message
+
+from align_genotype.utils import QcFlag
 
 logging.basicConfig()
 logging.getLogger().setLevel(logging.DEBUG)
@@ -41,16 +45,22 @@ logging.getLogger().setLevel(logging.DEBUG)
     'send_to_slack',
     help='Send log to Slack message, according to environment variables SLACK_CHANNEL and SLACK_TOKEN',
 )
+@click.option(
+    '--output-json',
+    'output_json_path',
+    help='Path to write structured QC flags JSON output',
+)
 def main(
     multiqc_json_path: str,
     html_url: str | None = None,
     dataset: str | None = None,
     title: str | None = None,
     send_to_slack: bool = True,
+    output_json_path: str | None = None,
 ):
     """
-    Check metrics in MultiQC json and send info about failed samples
-    as a Slack message.
+    Check metrics in MultiQC json and compare them against thresholds, then send info about failed samples
+    as a Slack message and save structured QC flags JSON output to a file if specified.
     """
     run(
         multiqc_json_path=multiqc_json_path,
@@ -58,16 +68,18 @@ def main(
         dataset=dataset,
         title=title,
         send_to_slack=send_to_slack,
+        output_json_path=output_json_path,
     )
 
 
-def run(  # noqa: C901, PLR0912
+def run(  # noqa: C901
     multiqc_json_path: str,
     html_url: str | None = None,
     dataset: str | None = None,
     title: str | None = None,
     send_to_slack: bool = True,
-):
+    output_json_path: str | None = None,
+) -> dict[str, Any]:
     seq_type = config.config_retrieve(['workflow', 'sequencing_type'])
 
     with to_path(multiqc_json_path).open() as f:
@@ -75,7 +87,8 @@ def run(  # noqa: C901, PLR0912
         sections = d['report_general_stats_data']
         logging.info(f'report_general_stats_data: {pprint.pformat(sections)}')
 
-    bad_lines_by_sample = defaultdict(list)
+    bad_lines_by_sample: dict[str, list[str]] = defaultdict(list)
+    qc_flags_by_sample: dict[str, list[QcFlag]] = defaultdict(list)
     for config_key, fail_sign, good_sign, is_fail in [
         (
             'min',
@@ -91,7 +104,7 @@ def run(  # noqa: C901, PLR0912
         ),
     ]:
         threshold_d = config.config_retrieve(['qc_thresholds', seq_type, config_key], {})
-        for section in sections.values():
+        for section_name, section in sections.items():
             for sample, val_by_metric in section.items():
                 for metric, threshold in threshold_d.items():
                     if metric in val_by_metric:
@@ -99,6 +112,18 @@ def run(  # noqa: C901, PLR0912
                         if is_fail(val, threshold):
                             line = f'{metric}={val:0.2f}{fail_sign}{threshold:0.2f}'
                             bad_lines_by_sample[sample].append(line)
+                            sg_id = sample.split('|', 1)[0]
+                            qc_flags_by_sample[sg_id].append(
+                                QcFlag(
+                                    flag=metric,
+                                    value=val,
+                                    comparison=fail_sign,
+                                    threshold=threshold,
+                                    section=section_name,
+                                    resolved=False,
+                                    resolution_date=None,
+                                ),
+                            )
                             logging.info(f'❗ {sample}: {line}')
                         else:
                             line = f'{metric}={val:0.2f}{good_sign}{threshold:0.2f}'
@@ -106,10 +131,8 @@ def run(  # noqa: C901, PLR0912
     logging.info('')
 
     # Constructing Slack message
-    if dataset and html_url:
-        title = f'*[{dataset}]* <{html_url}|{title or "MultiQC report"}>'
-    elif not title:
-        title = 'MultiQC report'
+    report_title = title or 'MultiQC report'
+    title = f'*[{dataset}]* <{html_url}|{report_title}>' if dataset and html_url else report_title
     messages = []
     if bad_lines_by_sample:
         messages.append(f'{title}. {len(bad_lines_by_sample)} samples are flagged:')
@@ -122,6 +145,21 @@ def run(  # noqa: C901, PLR0912
 
     if send_to_slack:
         send_message(text)
+
+    result: dict[str, Any] = {
+        'title': report_title,
+        'dataset': dataset,
+        'html_url': html_url,
+        'sequencing_type': seq_type,
+        'n_samples_flagged': len(qc_flags_by_sample),
+        'qc_flags': {sample: [asdict(flag) for flag in flags] for sample, flags in qc_flags_by_sample.items()},
+    }
+
+    if output_json_path:
+        with to_path(output_json_path).open('w') as f:
+            json.dump(result, f, indent=2)
+
+    return result
 
 
 if __name__ == '__main__':
