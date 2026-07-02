@@ -1,13 +1,15 @@
 name: Autobuild development image
-on:
-  push:
-    branches-ignore:
-      - main
-  workflow_dispatch:
+
+on: [pull_request]
 
 permissions:
   id-token: write
   contents: read
+
+# only build one set of images in the event of multiple pushes in quick succession
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref }}
+  cancel-in-progress: true
 
 env:
   PROJECT: 'cpg-common'
@@ -82,11 +84,13 @@ jobs:
       - name: 'gcloud docker auth'
         run: |
           gcloud auth configure-docker ${{ env.DOCKER_PREFIX }}
+
       - name: 'build image with get_next_version'
         run: |
           docker build . -f Dockerfile \
           --build-arg VERSION=${{ matrix.tag }} \
           --tag ${{ env.IMAGES_PREFIX }}/${{ matrix.name }}:${{ matrix.tag }}
+
       - name: 'Push to dev artifactory'
         run: |
           docker push "${{ env.IMAGES_PREFIX }}/${{ matrix.name }}:${{ matrix.tag }}" | tee push.log

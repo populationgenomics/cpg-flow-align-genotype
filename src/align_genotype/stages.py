@@ -1,7 +1,3 @@
-"""
-Alignment and genotyping... oof. Where to start.
-"""
-
 from cpg_flow import stage, targets, workflow
 from cpg_utils import Path, config, to_path
 
@@ -24,14 +20,10 @@ class GenerateIntervalsOnce(stage.MultiCohortStage):
         prefix = multicohort.analysis_dataset.prefix() / 'genotype' / sequencing_type / f'{scatter_count}_intervals'
         return {'intervals': [prefix / to_path(f'{idx}.interval_list') for idx in range(1, scatter_count + 1)]}
 
-    def queue_jobs(
-        self,
-        multicohort: targets.MultiCohort,
-        inputs: stage.StageInput,  # noqa: ARG002
-    ) -> stage.StageOutput:
-        outputs = self.expected_outputs(multicohort)
-        job = generate_intervals(outputs['intervals'], self.get_job_attrs(multicohort))
-        return self.make_outputs(multicohort, jobs=job, data=outputs)
+    def queue_jobs(self, mc: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:  # noqa: ARG002
+        outputs = self.expected_outputs(mc)
+        job = generate_intervals(outputs['intervals'], self.get_job_attrs(mc))
+        return self.make_outputs(mc, jobs=job, data=outputs)
 
 
 @stage.stage(
@@ -39,25 +31,12 @@ class GenerateIntervalsOnce(stage.MultiCohortStage):
     analysis_keys=['cram'],
 )
 class AlignWithDragmap(stage.SequencingGroupStage):
-    """
-    This is a generic stage that runs a bash command.
-    """
-
     def expected_outputs(self, sequencing_group: targets.SequencingGroup) -> dict[str, Path | str]:
-        """
-        n.b. markduplicates-metrics are a String here so their existence isn't detected during DAG assembly.
-        This means we will not accidentally restart alignment where this optional accessory file doesn't exist.
-        """
+        """At time of writing markdup-metrics has been removed."""
         cram_path = sequencing_group.cram if sequencing_group.cram else sequencing_group.make_cram_path()
-        return {
-            'cram': cram_path.path,
-        }
+        return {'cram': cram_path.path}
 
     def queue_jobs(self, sequencing_group: targets.SequencingGroup, inputs: stage.StageInput) -> stage.StageOutput:  # noqa: ARG002
-        """
-        This is where we generate jobs for this stage.
-        """
-
         outputs = self.expected_outputs(sequencing_group)
 
         jobs = align(
@@ -66,7 +45,6 @@ class AlignWithDragmap(stage.SequencingGroupStage):
             output_path=outputs['cram'],
         )
 
-        # return the jobs and outputs
         return self.make_outputs(target=sequencing_group, data=outputs, jobs=jobs)
 
 
@@ -80,16 +58,11 @@ class GenotypeWithGatk(stage.SequencingGroupStage):
     """
 
     def expected_outputs(self, sequencing_group: targets.SequencingGroup) -> Path:
-        """
-        Generate a GVCF and corresponding TBI index.
-        """
+        """Generate a GVCF and corresponding TBI index."""
         gvcf = sequencing_group.gvcf or sequencing_group.make_gvcf_path()
         return gvcf.path
 
     def queue_jobs(self, sequencing_group: targets.SequencingGroup, inputs: stage.StageInput) -> stage.StageOutput:
-        """
-        Use function from the jobs module
-        """
 
         output = self.expected_outputs(sequencing_group)
 
@@ -334,7 +307,12 @@ class RunVntyper(stage.SequencingGroupStage):
         return self.make_outputs(sequencing_group, data=outputs, jobs=jobs)
 
 
-@stage.stage(required_stages=[RunVntyper], analysis_keys=['html'], analysis_type='web', forced=True)
+@stage.stage(
+    required_stages=[RunVntyper],
+    analysis_keys=['html'],
+    analysis_type='web',
+    forced=True,
+)
 class VntyperIndexPage(stage.DatasetStage):
     def expected_outputs(self, dataset: targets.Dataset) -> dict[str, Path]:
         web_bucket = dataset.web_prefix() / 'vntyper'
@@ -346,6 +324,7 @@ class VntyperIndexPage(stage.DatasetStage):
         # only run this for a subset of projects, but for all SG IDs in those projects
         if dataset.name not in config.config_retrieve(['vntyper', 'vntyper_projects']):
             return self.make_outputs(dataset, data=None, jobs=None)
+
         output = self.expected_outputs(dataset)
         job = vntyper_index_job(dataset=dataset.name, output=output['html'])
         return self.make_outputs(dataset, data=output, jobs=job)

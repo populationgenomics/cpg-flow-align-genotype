@@ -326,7 +326,7 @@ def _align_one(  # noqa: PLR0915
     {prepare_fastq_cmd}
     dragen-os -r {dragmap_index} {input_params} \\
         --RGID {sequencing_group_name} --RGSM {sequencing_group_name} \\
-        --num-threads {nthreads - 1} | dupblaster |
+        --num-threads {nthreads - 1} | dupblaster
     """
 
     # prepare command for adding sort on the end
