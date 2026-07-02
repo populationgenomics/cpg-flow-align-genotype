@@ -3,6 +3,7 @@ from dataclasses import asdict
 from datetime import datetime
 
 import click
+from cpg_utils.config import try_get_ar_guid
 from loguru import logger
 from metamist.graphql import gql, query
 
@@ -122,6 +123,8 @@ def reconcile_sg_qc_flags(
     for flag in new_qc_flags:
         if (flag['section'], flag['flag']) in existing_flag_keys:
             continue
+        flag['date'] = today.isoformat()
+        flag['ar_guid'] = try_get_ar_guid()
         flag['resolved'] = False
         flag['resolution_date'] = None
         final_flags.append(QcFlag(**flag))
@@ -137,7 +140,7 @@ def reconcile_sg_qc_flags(
         },
     )
     logger.info(
-        f'{sg_id} :: Updated {len(final_flags)} flags in Metamist. '
+        f'{sg_id} :: recorded {len(final_flags)} flags in Metamist. '
         f'Resolved: {stats["resolved"]}, Retained: {stats["retained"]}, '
         f'Updated: {stats["updated"]}, Added: {stats["added"]}'
     )
