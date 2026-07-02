@@ -23,7 +23,6 @@ jobs:
   get_next_version:
     runs-on: ubuntu-latest
     environment: development
-    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     outputs:
       matrix: ${{ steps.get_next_version.outputs.next_version }}
     steps:
