@@ -51,12 +51,6 @@ class AlignWithDragmap(stage.SequencingGroupStage):
         cram_path = sequencing_group.cram if sequencing_group.cram else sequencing_group.make_cram_path()
         return {
             'cram': cram_path.path,
-            'markdup': str(
-                sequencing_group.dataset.prefix()
-                / 'qc'
-                / 'markduplicates_metrics'
-                / f'{sequencing_group.id}.markduplicates-metrics'
-            ),
         }
 
     def queue_jobs(self, sequencing_group: targets.SequencingGroup, inputs: stage.StageInput) -> stage.StageOutput:  # noqa: ARG002
@@ -70,7 +64,6 @@ class AlignWithDragmap(stage.SequencingGroupStage):
             sequencing_group=sequencing_group,
             job_attrs=self.get_job_attrs(sequencing_group),
             output_path=outputs['cram'],
-            markdup_metrics_path=outputs['markdup'],
         )
 
         # return the jobs and outputs

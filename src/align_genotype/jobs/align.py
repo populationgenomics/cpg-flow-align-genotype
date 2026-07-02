@@ -17,7 +17,6 @@ def align(
     sequencing_group: targets.SequencingGroup,
     job_attrs: dict,
     output_path: Path,
-    markdup_metrics_path: str,
 ) -> list[BashJob]:
     """
     - if the input is 1 fastq pair, submits one alignment job.
@@ -162,7 +161,6 @@ def align(
 
     merge_or_align_j.command(hail_batch.command(align_cmd, monitor_space=True))
 
-    batch_instance.write_output(merge_or_align_j.stats, markdup_metrics_path)
     batch_instance.write_output(merge_or_align_j.output_cram, str(output_path.with_suffix('')))
 
     return jobs
