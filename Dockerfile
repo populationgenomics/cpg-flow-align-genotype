@@ -9,13 +9,11 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential \
         bzip2 \
-        gcc \
         libbz2-dev \
         libcurl4-openssl-dev \
         liblzma-dev \
         libncurses5-dev \
         libssl-dev \
-        make \
         wget \
         zlib1g-dev && \
     curl https://sh.rustup.rs -sSf | bash -s -- -y && \
