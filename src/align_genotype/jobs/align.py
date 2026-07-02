@@ -130,8 +130,6 @@ def align(
     # add in dupblaster streaming
     align_cmd += f' | dupblaster --stats {merge_or_align_j.stats} | '
 
-    batch_instance.write_output(merge_or_align_j.stats, markdup_metrics_path)
-
     # get number of threads for VM tempalte
     vm_resources = resources.HIGHMEM.request_resources(
         nthreads=config.config_retrieve(
@@ -167,6 +165,7 @@ def align(
 
     merge_or_align_j.command(hail_batch.command(align_cmd, monitor_space=True))
 
+    batch_instance.write_output(merge_or_align_j.stats, markdup_metrics_path)
     batch_instance.write_output(merge_or_align_j.output_cram, str(output_path.with_suffix('')))
 
     return jobs
