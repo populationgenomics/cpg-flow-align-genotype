@@ -73,6 +73,11 @@ def reconcile_sg_qc_flags(
         logger.info(f'{sg_id} :: No existing or new QC flags for this SG, skipping.')
         return  # No existing or new QC flags for this SG, skip
 
+    unresolved_current_flags = [flag for flag in current_qc_flags if not flag.get('resolved', False)]
+    if not unresolved_current_flags and not new_qc_flags:
+        logger.info(f'{sg_id} :: No unresolved existing or new QC flags for this SG, skipping.')
+        return  # No unresolved existing or new QC flags for this SG, skip
+
     # Key flags by (section, flag) so the same metric in different MultiQC sections
     # is treated as a distinct QC issue.
     new_qc_flags_by_key = {(flag['section'], flag['flag']): flag for flag in new_qc_flags}
