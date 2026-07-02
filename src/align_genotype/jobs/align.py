@@ -2,16 +2,13 @@
 FASTQ/BAM/CRAM -> CRAM: create Hail Batch jobs for (re-)alignment.
 """
 
-import logging
 import os.path
 from textwrap import dedent
 from typing import cast
 
-from cpg_flow import filetypes, resources, targets, utils
-from cpg_utils import Path, config, hail_batch, to_path
+from cpg_flow import filetypes, resources, targets
+from cpg_utils import Path, config, hail_batch
 from hailtop.batch.job import BashJob
-
-from align_genotype.jobs import picard
 
 DRAGMAP_INDEX_FILES = ['hash_table.cfg.bin', 'hash_table.cmp', 'reference.bin']
 
@@ -20,7 +17,6 @@ def align(
     sequencing_group: targets.SequencingGroup,
     job_attrs: dict,
     output_path: Path,
-    sorted_bam_path: str,
     markdup_metrics_path: str,
 ) -> list[BashJob]:
     """
@@ -39,7 +35,7 @@ def align(
 
     - if the sorted bam can be reused, skip the alignment job(s) and go straight to markdup.
 
-    - the markdup tool is picard, deduplication is submitted in a separate job.
+    - the markdup tool is dupblaster, run in stream in the same job.
 
     - nthreads can be set for smaller test runs on toy instance, so the job
     doesn't take entire 32-cpu/64-threaded instance.
@@ -65,20 +61,7 @@ def align(
     sharded_align_jobs = []
     sorted_bams = []
 
-    if utils.can_reuse(sorted_bam_path):
-        logging.info(f'{sequencing_group.id} :: Re-using sorted BAM: {sorted_bam_path}')
-        # It's necessary to create this merge_or_align_j object to pass it to finalise_alignment,
-        # and to declare the sorted_bam_path as a resource, so it can be written to the checkpoint.
-        job_attrs = (job_attrs or {}) | {'label': 'Reusing sorted bam', 'tool': 'Reusing sorted bam'}
-        merge_or_align_j = batch_instance.new_bash_job('Reusing sorted bam', job_attrs or {})
-        merge_or_align_j.image(config.config_retrieve(['workflow', 'driver_image']))
-        merge_or_align_j.sorted_bam = batch_instance.read_input(sorted_bam_path)
-        jobs.append(merge_or_align_j)
-        # The align_cmd and other parameters are not used but are necessary to pass to finalise_alignment.
-        align_cmd = ''
-        stdout_is_sorted = True
-
-    elif not sharded:  # Just running one alignment job
+    if not sharded:  # Just running one alignment job
         if isinstance(alignment_input, filetypes.FastqPairs):
             alignment_input = alignment_input[0]
         align_j, align_cmd = _align_one(
@@ -124,7 +107,7 @@ def align(
                 sharded_align_jobs.append(j)
 
         merge_j = batch_instance.new_bash_job('Merge BAMs', (job_attrs or {}) | {'tool': 'samtools_merge'})
-        merge_j.image(config.config_retrieve(['images', 'samtools']))
+        merge_j.image(config.config_retrieve(['workflow', 'driver_image']))
 
         nthreads = resources.STANDARD.set_resources(
             j=merge_j,
@@ -144,17 +127,47 @@ def align(
         merge_or_align_j = merge_j
         stdout_is_sorted = True
 
-    jobs.append(
-        finalise_alignment(
-            align_cmd=align_cmd,
-            stdout_is_sorted=stdout_is_sorted,
-            job=merge_or_align_j,
-            job_attrs=job_attrs,
-            output_path=output_path,
-            sorted_bam_path=sorted_bam_path,
-            out_markdup_metrics_path=markdup_metrics_path,
+    # add in dupblaster streaming
+    align_cmd += f' | dupblaster --stats {merge_or_align_j.stats} | '
+
+    batch_instance.write_output(merge_or_align_j.stats, markdup_metrics_path)
+
+    # get number of threads for VM tempalte
+    vm_resources = resources.HIGHMEM.request_resources(
+        nthreads=config.config_retrieve(
+            ['workflow', 'align_threads'],
+            resources.HIGHMEM.max_threads(),
         )
     )
+
+    nthreads = vm_resources.get_nthreads() - 1
+
+    vm_resources.set_to_job(merge_or_align_j)
+
+    # use a resource group for writes
+    merge_or_align_j.declare_resource_group(
+        output_cram={
+            'cram': '{root}.cram',
+            'cram.crai': '{root}.cram.crai',
+        },
+    )
+
+    # pipe through a sort, or don't
+    if not stdout_is_sorted:
+        align_cmd += f' {sort_cmd(nthreads)}'
+
+    fasta_reference = hail_batch.fasta_res_group(batch_instance)
+
+    # now finish as a CRAM
+    align_cmd += f""" samtools view --write-index -@{nthreads - 1} \\
+        -T {fasta_reference.base} \\
+        -O cram,version=3.0 \\
+        -o {merge_or_align_j.output_cram.cram}
+    """
+
+    merge_or_align_j.command(hail_batch.command(align_cmd, monitor_space=True))
+
+    batch_instance.write_output(merge_or_align_j.output_cram, str(output_path.with_suffix('')))
 
     return jobs
 
@@ -367,51 +380,3 @@ def sort_cmd(requested_nthreads: int) -> str:
     | samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-sort-tmp -Obam
     """,
     ).strip()
-
-
-def finalise_alignment(
-    align_cmd: str,
-    stdout_is_sorted: bool,
-    job: BashJob,
-    job_attrs: dict,
-    output_path: Path,
-    sorted_bam_path: str,
-    out_markdup_metrics_path: str,
-) -> BashJob:
-    """
-    For `MarkDupTool.PICARD`, creates a new job, as Picard can't read from stdin.
-    """
-
-    batch_instance = hail_batch.get_batch()
-
-    nthreads = resources.STANDARD.request_resources(
-        nthreads=config.config_retrieve(
-            ['workflow', 'align_threads'],
-            resources.STANDARD.max_threads(),
-        )
-    ).get_nthreads()
-
-    align_cmd = align_cmd.strip()
-    if not stdout_is_sorted:
-        align_cmd += f' {sort_cmd(nthreads)}'
-    align_cmd += f' > {job.sorted_bam}'
-
-    if not utils.can_reuse(sorted_bam_path):
-        job.command(hail_batch.command(align_cmd, monitor_space=True))
-
-    if (
-        sorted_bam_path
-        and not to_path(sorted_bam_path).exists()
-        and config.config_retrieve(['workflow', 'checkpoint_sorted_bam'], False)
-    ):
-        # Write the sorted BAM to the checkpoint if it doesn't already exist and the config is set
-        logging.info(f'Will write sorted bam to checkpoint: {sorted_bam_path}')
-        batch_instance.write_output(job.sorted_bam, sorted_bam_path)
-
-    return picard.markdup(
-        batch_instance=batch_instance,
-        sorted_bam=job.sorted_bam,
-        output_path=output_path,
-        out_markdup_metrics_path=out_markdup_metrics_path,
-        job_attrs=job_attrs,
-    )
