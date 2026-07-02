@@ -157,7 +157,7 @@ def align(
     fasta_reference = hail_batch.fasta_res_group(batch_instance)
 
     # now finish as a CRAM
-    align_cmd += f""" samtools view --write-index -@{nthreads - 1} \\
+    align_cmd += f""" samtools view --write-index -@{nthreads} \\
         -T {fasta_reference.base} \\
         -O cram,version=3.0 \\
         -o {merge_or_align_j.output_cram.cram}
