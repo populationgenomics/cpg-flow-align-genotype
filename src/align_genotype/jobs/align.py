@@ -127,10 +127,7 @@ def align(
         merge_or_align_j = merge_j
         stdout_is_sorted = True
 
-    # add in dupblaster streaming
-    align_cmd += f' | dupblaster --stats stats.tsv | '
-
-    # get number of threads for VM tempalte
+    # get number of threads for VM template
     vm_resources = resources.HIGHMEM.request_resources(
         nthreads=config.config_retrieve(
             ['workflow', 'align_threads'],
@@ -164,7 +161,6 @@ def align(
     """
 
     merge_or_align_j.command(hail_batch.command(align_cmd, monitor_space=True))
-    merge_or_align_j.command(f'mv stats.tsv {merge_or_align_j.stats}')
 
     batch_instance.write_output(merge_or_align_j.stats, markdup_metrics_path)
     batch_instance.write_output(merge_or_align_j.output_cram, str(output_path.with_suffix('')))
@@ -332,7 +328,7 @@ def _align_one(  # noqa: PLR0915
     {prepare_fastq_cmd}
     dragen-os -r {dragmap_index} {input_params} \\
         --RGID {sequencing_group_name} --RGSM {sequencing_group_name} \\
-        --num-threads {nthreads - 1}
+        --num-threads {nthreads - 1} | dupblaster |
     """
 
     # prepare command for adding sort on the end
