@@ -80,7 +80,7 @@ plots_force_interactive = true
 ref_fasta = "gs://cpg-common-main/references/hg38/v0/dragen_reference/Homo_sapiens_assembly38_masked.fasta"
 
 [images]
-dragmap = "australia-southeast1-docker.pkg.dev/cpg-common/images/dragmap_plus_ora:2.7.0-1"
+dragmap = "australia-southeast1-docker.pkg.dev/cpg-common/images-dev/dragmap_ora_dupblaster:2.7.0-1"
 gatk = "australia-southeast1-docker.pkg.dev/cpg-common/images/gatk:4.6.2.0-2"
 picard = "australia-southeast1-docker.pkg.dev/cpg-common/images/picard:3.4.0-3"
 samtools = "australia-southeast1-docker.pkg.dev/cpg-common/images/samtools:1.18"
