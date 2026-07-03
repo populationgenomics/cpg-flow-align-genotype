@@ -189,7 +189,6 @@ def record_qc_flags_job(
     """
     Run job that records QC flags in Metamist.
     """
-    report_name = 'CramMultiQC' if label == 'CRAM' else 'GvcfMultiQC' if label == 'GVCF' else 'MultiQC'
     record_j = b.new_job('Record QC flags', (job_attrs or {}) | {'tool': 'python'})
     resources.STANDARD.set_resources(j=record_j, ncpu=2)
     record_j.image(config.config_retrieve(['workflow', 'driver_image']))
@@ -197,7 +196,7 @@ def record_qc_flags_job(
     cmd = f"""\
     python3 -m align_genotype.scripts.record_qc_flags \\
     --dataset {dataset_name} \\
-    --report {report_name} \\
+    --label {label} \\
     --qc-flags-json {check_multiqc_json_file} \\
     --sequencing-group-ids-map {sg_id_mapping_file}
     """

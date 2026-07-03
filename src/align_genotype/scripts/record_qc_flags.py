@@ -57,22 +57,23 @@ def reconcile_sg_qc_flags(
     sg: dict,
     new_flags_by_sg: dict[str, list[dict]],
     dataset: str,
-    report: str,
+    label: str,
     today: datetime,
 ) -> None:
     """
     Reconcile current and new QC flags for a single SG and update its meta in Metamist.
 
-    Only considers flags for the specified report (CramMultiQC or GvcfMultiQC).
+    Only considers flags of the type specified by the label (CRAM or GVCF).
 
     Marks absent flags as resolved, retains unchanged flags, updates differing flags,
     and adds new flags that didn't previously exist.
     """
     sg_id = sg['id']
+    report = 'CramMultiQC' if label == 'CRAM' else 'GvcfMultiQC' if label == 'GVCF' else 'MultiQC'
 
-    # Get all the existing QC flags for this SG and filter to only those for the specified report
-    all_current_qc_flags: list[dict] = (sg['meta'] or {}).get('qc_flags', [])
-    current_qc_flags = [flag for flag in all_current_qc_flags if flag.get('report') == report]
+    # Get all the existing QC flags of the specified type for this SG
+    qc_flags_key = f'{label.lower()}_qc_flags'
+    current_qc_flags: list[dict] = (sg['meta'] or {}).get(qc_flags_key, [])
     unresolved_current_flags = [flag for flag in current_qc_flags if not flag.get('resolved', False)]
 
     new_qc_flags: list[dict] = new_flags_by_sg.get(sg_id, [])
@@ -135,16 +136,13 @@ def reconcile_sg_qc_flags(
         final_flags.append(QcFlag(**flag))
         stats['added'] += 1
 
-    # Finally, add back any existing flags from the other reports so they are preserved
-    final_flags.extend(QcFlag(**flag) for flag in all_current_qc_flags if flag.get('report') != report)
-
     # Perform the mutation to update the SG meta
     query(
         SG_META_MUTATION,
         variables={
             'dataset': dataset,
             'sgId': sg_id,
-            'sgMeta': {'qc_flags': [asdict(flag) for flag in final_flags]},
+            'sgMeta': {qc_flags_key: [asdict(flag) for flag in final_flags]},
         },
     )
     logger.info(
@@ -156,7 +154,7 @@ def reconcile_sg_qc_flags(
 
 @click.command()
 @click.option('--dataset', required=True, help='Dataset name')
-@click.option('--report', required=True, help='Report name (CramMultiQC or GvcfMultiQC)')
+@click.option('--label', required=True, help='Report type (CRAM or GVCF)')
 @click.option(
     '--qc-flags-json',
     'qc_flags_json_path',
@@ -171,7 +169,7 @@ def reconcile_sg_qc_flags(
 )
 def main(
     dataset: str,
-    report: str,
+    label: str,
     qc_flags_json_path: str,
     sg_id_mapping_file: str,
 ):
@@ -201,7 +199,7 @@ def main(
     new_flags_by_sg = qc_flags_data['qc_flags']
     for sg in sequencing_groups:
         if sg['id'] in sg_id_map:
-            reconcile_sg_qc_flags(sg, new_flags_by_sg, dataset, report, today)
+            reconcile_sg_qc_flags(sg, new_flags_by_sg, dataset, label, today)
 
 
 if __name__ == '__main__':

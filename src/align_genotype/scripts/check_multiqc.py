@@ -82,7 +82,6 @@ def run(  # noqa: C901
     output_json_path: str | None = None,
 ) -> dict[str, Any]:
     seq_type = config.config_retrieve(['workflow', 'sequencing_type'])
-    report = 'CramMultiQC' if 'CRAM' in str(title) else 'GvcfMultiQC' if 'GVCF' in str(title) else 'MultiQC'
 
     today = datetime.now()  # noqa: DTZ005
 
@@ -124,7 +123,6 @@ def run(  # noqa: C901
                                     comparison=fail_sign,
                                     threshold=threshold,
                                     section=section_name,
-                                    report=report,
                                     date=today.isoformat(),
                                     ar_guid=config.try_get_ar_guid(),
                                 ),
