@@ -104,7 +104,7 @@ def reconcile_sg_qc_flags(
                 if not flag['resolved']:
                     # Previously-flagged issue no longer present: mark resolved
                     flag['resolved'] = True
-                    flag['resolution_date'] = today.isoformat()
+                    flag['resolution_date'] = today.isoformat(timespec='seconds')
                     logger.info(f"{sg_id} :: Marking {report} flag '{flag['flag']}' as resolved.")
                     stats['resolved'] += 1
                 else:
@@ -146,7 +146,7 @@ def reconcile_sg_qc_flags(
         },
     )
     logger.info(
-        f'{sg_id} :: recorded {len(final_flags)} {report} flags in Metamist. '
+        f'{sg_id} :: Recorded {len(final_flags)} {report} flags in Metamist. '
         f'Resolved: {stats["resolved"]}, Retained: {stats["retained"]}, '
         f'Updated: {stats["updated"]}, Added: {stats["added"]}'
     )

@@ -123,7 +123,7 @@ def run(  # noqa: C901
                                     comparison=fail_sign,
                                     threshold=threshold,
                                     section=section_name,
-                                    date=today.isoformat(),
+                                    date=today.isoformat(timespec='seconds'),
                                     ar_guid=config.try_get_ar_guid(),
                                 ),
                             )
