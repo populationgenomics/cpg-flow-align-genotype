@@ -3,7 +3,6 @@ from dataclasses import asdict
 from datetime import datetime
 
 import click
-from cpg_utils.config import try_get_ar_guid
 from loguru import logger
 from metamist.graphql import gql, query
 
@@ -58,36 +57,45 @@ def reconcile_sg_qc_flags(
     sg: dict,
     new_flags_by_sg: dict[str, list[dict]],
     dataset: str,
+    report: str,
     today: datetime,
 ) -> None:
     """
     Reconcile current and new QC flags for a single SG and update its meta in Metamist.
 
+    Only considers flags for the specified report (CramMultiQC or GvcfMultiQC).
+
     Marks absent flags as resolved, retains unchanged flags, updates differing flags,
     and adds new flags that didn't previously exist.
     """
     sg_id = sg['id']
-    current_qc_flags: list[dict] = (sg['meta'] or {}).get('qc_flags', [])
+
+    # Get all the existing QC flags for this SG and filter to only those for the specified report
+    all_current_qc_flags: list[dict] = (sg['meta'] or {}).get('qc_flags', [])
+    current_qc_flags = [flag for flag in all_current_qc_flags if flag.get('report') == report]
+    unresolved_current_flags = [flag for flag in current_qc_flags if not flag.get('resolved', False)]
+
     new_qc_flags: list[dict] = new_flags_by_sg.get(sg_id, [])
 
     if not current_qc_flags and not new_qc_flags:
-        logger.info(f'{sg_id} :: No existing or new QC flags for this SG, skipping.')
+        logger.info(f'{sg_id} :: No existing or new {report} flags for this SG, skipping.')
         return  # No existing or new QC flags for this SG, skip
 
-    unresolved_current_flags = [flag for flag in current_qc_flags if not flag.get('resolved', False)]
     if not unresolved_current_flags and not new_qc_flags:
-        logger.info(f'{sg_id} :: No unresolved existing or new QC flags for this SG, skipping.')
+        logger.info(f'{sg_id} :: No unresolved existing or new {report} flags for this SG, skipping.')
         return  # No unresolved existing or new QC flags for this SG, skip
 
     # Key flags by (section, flag) so the same metric in different MultiQC sections
     # is treated as a distinct QC issue.
     new_qc_flags_by_key = {(flag['section'], flag['flag']): flag for flag in new_qc_flags}
     existing_flag_keys = {(flag['section'], flag['flag']) for flag in current_qc_flags}
-    stats = {'resolved': 0, 'retained': 0, 'updated': 0, 'added': 0}
+
+    # Track the final set of flags to be recorded in Metamist, including resolved, retained, updated, and added flags
     final_flags: list[QcFlag] = []
+    stats = {'resolved': 0, 'retained': 0, 'updated': 0, 'added': 0}
 
     if current_qc_flags:
-        logger.info(f'{sg_id} :: Found {len(current_qc_flags)} existing QC flags. Reconciling.')
+        logger.info(f'{sg_id} :: Found {len(current_qc_flags)} existing {report} flags. Reconciling.')
         for flag in current_qc_flags:
             key = (flag['section'], flag['flag'])
             present_in_new = key in new_qc_flags_by_key
@@ -96,39 +104,39 @@ def reconcile_sg_qc_flags(
                     # Previously-flagged issue no longer present: mark resolved
                     flag['resolved'] = True
                     flag['resolution_date'] = today.isoformat()
+                    logger.info(f"{sg_id} :: Marking {report} flag '{flag['flag']}' as resolved.")
                     stats['resolved'] += 1
-                    logger.info(f"{sg_id} :: Marking QC flag '{flag['flag']}' as resolved.")
                 else:
                     # Already resolved and still absent: keep as-is
-                    logger.info(f"{sg_id} :: QC flag '{flag['flag']}' remains resolved.")
+                    logger.info(f"{sg_id} :: {report} flag '{flag['flag']}' remains resolved.")
             elif compare_qc_flag(flag, new_qc_flags_by_key[key]):
                 # Same unresolved issue is still present: refresh the measured value and
                 # but keep resolution status. Identity (metric/threshold/section/
                 # comparison) is unchanged so this counts as 'retained', not 'updated'.
                 new_flag = new_qc_flags_by_key[key]
                 flag['value'] = new_flag['value']
+                logger.info(f"{sg_id} :: {report} flag '{flag['flag']}' remains unresolved (value refreshed).")
                 stats['retained'] += 1
-                logger.info(f"{sg_id} :: QC flag '{flag['flag']}' remains unresolved (value refreshed).")
             else:
                 # Current flag exists in new run but differs (or was resolved and has reappeared):
                 # overwrite with new flag data (which sets resolved=False)
                 flag.update(new_qc_flags_by_key[key])
+                logger.info(f"{sg_id} :: {report} flag '{flag['flag']}' updated with new information.")
                 stats['updated'] += 1
-                logger.info(f"{sg_id} :: QC flag '{flag['flag']}' updated with new information.")
             final_flags.append(QcFlag(**flag))
     else:
-        logger.info(f'{sg_id} :: No existing QC flags found, adding {len(new_qc_flags)} new flags.')
+        logger.info(f'{sg_id} :: No existing {report} flags found, adding {len(new_qc_flags)} new flags.')
 
     # Add new flags that aren't already represented in current_qc_flags
     for flag in new_qc_flags:
         if (flag['section'], flag['flag']) in existing_flag_keys:
             continue
-        flag['date'] = today.isoformat()
-        flag['ar_guid'] = try_get_ar_guid()
-        flag['resolved'] = False
-        flag['resolution_date'] = None
+        logger.info(f"{sg_id} :: Adding new {report} flag '{flag['flag']}'.")
         final_flags.append(QcFlag(**flag))
         stats['added'] += 1
+
+    # Finally, add back any existing flags from the other reports so they are preserved
+    final_flags.extend(QcFlag(**flag) for flag in all_current_qc_flags if flag.get('report') != report)
 
     # Perform the mutation to update the SG meta
     query(
@@ -140,7 +148,7 @@ def reconcile_sg_qc_flags(
         },
     )
     logger.info(
-        f'{sg_id} :: recorded {len(final_flags)} flags in Metamist. '
+        f'{sg_id} :: recorded {len(final_flags)} {report} flags in Metamist. '
         f'Resolved: {stats["resolved"]}, Retained: {stats["retained"]}, '
         f'Updated: {stats["updated"]}, Added: {stats["added"]}'
     )
@@ -148,6 +156,7 @@ def reconcile_sg_qc_flags(
 
 @click.command()
 @click.option('--dataset', required=True, help='Dataset name')
+@click.option('--report', required=True, help='Report name (CramMultiQC or GvcfMultiQC)')
 @click.option(
     '--qc-flags-json',
     'qc_flags_json_path',
@@ -162,6 +171,7 @@ def reconcile_sg_qc_flags(
 )
 def main(
     dataset: str,
+    report: str,
     qc_flags_json_path: str,
     sg_id_mapping_file: str,
 ):
@@ -191,7 +201,7 @@ def main(
     new_flags_by_sg = qc_flags_data['qc_flags']
     for sg in sequencing_groups:
         if sg['id'] in sg_id_map:
-            reconcile_sg_qc_flags(sg, new_flags_by_sg, dataset, today)
+            reconcile_sg_qc_flags(sg, new_flags_by_sg, dataset, report, today)
 
 
 if __name__ == '__main__':

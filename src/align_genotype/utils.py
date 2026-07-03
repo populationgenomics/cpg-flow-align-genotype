@@ -14,8 +14,9 @@ class QcFlag:
     comparison: str
     threshold: float
     section: str
-    ar_guid: str | None = None
-    date: str | None = None
+    report: str
+    date: str
+    ar_guid: str
     resolved: bool = False
     resolution_date: str | None = None
 

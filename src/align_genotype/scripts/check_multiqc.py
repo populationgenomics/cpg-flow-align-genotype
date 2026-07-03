@@ -14,6 +14,7 @@ import logging
 import pprint
 from collections import defaultdict
 from dataclasses import asdict
+from datetime import datetime
 from typing import Any
 
 import click
@@ -81,6 +82,9 @@ def run(  # noqa: C901
     output_json_path: str | None = None,
 ) -> dict[str, Any]:
     seq_type = config.config_retrieve(['workflow', 'sequencing_type'])
+    report = 'CramMultiQC' if 'CRAM' in str(title) else 'GvcfMultiQC' if 'GVCF' in str(title) else 'MultiQC'
+
+    today = datetime.now()  # noqa: DTZ005
 
     with to_path(multiqc_json_path).open() as f:
         d = json.load(f)
@@ -120,8 +124,9 @@ def run(  # noqa: C901
                                     comparison=fail_sign,
                                     threshold=threshold,
                                     section=section_name,
-                                    resolved=False,
-                                    resolution_date=None,
+                                    report=report,
+                                    date=today.isoformat(),
+                                    ar_guid=config.try_get_ar_guid(),
                                 ),
                             )
                             logging.info(f'❗ {sample}: {line}')
