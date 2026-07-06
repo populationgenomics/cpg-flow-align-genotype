@@ -363,7 +363,7 @@ def dedup_sort_cmd(requested_nthreads: int, stats_path: str) -> str:
     nthreads = resources.STANDARD.request_resources(nthreads=requested_nthreads).get_nthreads()
     return dedent(
         f"""\
-    | dupblaster --stats {stats_path} | samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-sort-tmp -Obam
+    | dupblaster --stats {stats_path} | samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-dd-tmp -Obam
     """,
     ).strip()
 
