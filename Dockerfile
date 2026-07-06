@@ -53,7 +53,7 @@ RUN apt-get update && \
     rm -r /var/cache/apt/*
 
 ENV PYTHONDONTWRITEBYTECODE=1
-ENV VERSION=0.4.19
+ENV VERSION=0.4.20
 
 WORKDIR /align_genotype
 
