@@ -2,16 +2,13 @@
 FASTQ/BAM/CRAM -> CRAM: create Hail Batch jobs for (re-)alignment.
 """
 
-import logging
 import os.path
 from textwrap import dedent
 from typing import cast
 
-from cpg_flow import filetypes, resources, targets, utils
-from cpg_utils import Path, config, hail_batch, to_path
+from cpg_flow import filetypes, resources, targets
+from cpg_utils import Path, config, hail_batch
 from hailtop.batch.job import BashJob
-
-from align_genotype.jobs import picard
 
 DRAGMAP_INDEX_FILES = ['hash_table.cfg.bin', 'hash_table.cmp', 'reference.bin']
 
@@ -36,7 +33,8 @@ def align(
         - for dragmap, submit an extra job to extract a pair of fastqs from the cram/bam,
         because dragmap can't read streamed files from bazam.
 
-    - the markdup tool is picard, deduplication is submitted in a separate job.
+    - deduplication (dupblaster) and CRAM conversion run in-stream within the
+    alignment/merge job, so no separate markdup job is submitted.
 
     - nthreads can be set for smaller test runs on toy instance, so the job
     doesn't take entire 32-cpu/64-threaded instance.
@@ -81,7 +79,7 @@ def align(
             # running alignment for each fastq pair in parallel
             fastq_pairs = cast('filetypes.FastqPairs', alignment_input)
             for pair in fastq_pairs:
-                # dragmap command, without sorting and deduplication:
+                # dragmap command, name-sorting each lane (dedup happens after the merge):
                 j, cmd = _align_one(
                     alignment_input=pair,
                     sequencing_group_name=sequencing_group.id,
@@ -102,7 +100,8 @@ def align(
                     shard_string=shard_string,
                     should_sort=True,
                 )
-                # Sorting with samtools, but not adding deduplication yet, because we need to merge first.
+                # Name-sorting with samtools; deduplication runs after the merge, since dupblaster
+                # must see the full RG-ordered read stream to catch cross-shard duplicates.
                 j.command(hail_batch.command(cmd, monitor_space=True))
                 sorted_bams.append(j.sorted_bam)
                 sharded_align_jobs.append(j)
@@ -120,8 +119,11 @@ def align(
             ),
         ).get_nthreads()
 
+        # Merge the name-sorted shards in name order, deduplicate the combined RG-ordered
+        # stream with dupblaster, then coordinate-sort the result for downstream tools.
         align_cmd = f"""\
-        samtools merge -@{nthreads - 1} - {' '.join(map(str, sorted_bams))}
+        samtools merge -n -@{nthreads - 1} - {' '.join(map(str, sorted_bams))} \
+        {dedup_sort_cmd(nthreads, merge_j.markdup_metrics)}
         """.strip()
         jobs.extend(sharded_align_jobs)
         jobs.append(merge_j)
@@ -308,7 +310,8 @@ def _align_one(  # noqa: PLR0915
     # prepare command for adding sort on the end
     cmd = dedent(cmd).strip()
     if should_sort:
-        cmd += ' ' + sort_cmd(requested_nthreads) + f' -o {job.sorted_bam}'
+        # name-sort each shard so the merged stream is RG-ordered, ready for dupblaster
+        cmd += ' ' + name_sort_cmd(requested_nthreads) + f' -o {job.sorted_bam}'
 
     if fifo_commands:
         fifo_pre = [
@@ -340,14 +343,28 @@ def _align_one(  # noqa: PLR0915
     return job, cmd
 
 
-def sort_cmd(requested_nthreads: int) -> str:
+def name_sort_cmd(requested_nthreads: int) -> str:
     """
-    Create command that coordinate-sorts SAM file
+    Create command that name-sorts a SAM/BAM stream, grouping reads by name (RG order)
+    so that dupblaster can deduplicate in-stream after the shards are merged.
     """
     nthreads = resources.STANDARD.request_resources(nthreads=requested_nthreads).get_nthreads()
     return dedent(
         f"""\
-    | samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-sort-tmp -Obam
+    | samtools sort -n -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-sort-tmp -Obam
+    """,
+    ).strip()
+
+
+def dedup_sort_cmd(requested_nthreads: int, stats_path: str) -> str:
+    """
+    Create command that deduplicates a name-sorted (RG-ordered) stream with dupblaster,
+    writing duplication stats to `stats_path`, then coordinate-sorts the result.
+    """
+    nthreads = resources.STANDARD.request_resources(nthreads=requested_nthreads).get_nthreads()
+    return dedent(
+        f"""\
+    | dupblaster --stats {stats_path} | samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-sort-tmp -Obam
     """,
     ).strip()
 
@@ -356,12 +373,15 @@ def finalise_alignment(
     align_cmd: str,
     stdout_is_sorted: bool,
     job: BashJob,
-    job_attrs: dict,
+    job_attrs: dict,  # noqa: ARG001
     output_path: Path,
     out_markdup_metrics_path: str,
 ) -> BashJob:
     """
-    For `MarkDupTool.PICARD`, creates a new job, as Picard can't read from stdin.
+    Deduplication (dupblaster) and CRAM conversion (samtools) both run in-stream within the
+    alignment/merge job - the DRAGMAP and samtools images both provide samtools, so no extra
+    job or image is needed. This appends the CRAM conversion to the pipeline and persists the
+    duplication stats and indexed CRAM.
     """
 
     batch_instance = hail_batch.get_batch()
@@ -373,17 +393,28 @@ def finalise_alignment(
         )
     ).get_nthreads()
 
+    job.declare_resource_group(
+        output_cram={
+            'cram': '{root}.cram',
+            'cram.crai': '{root}.cram.crai',
+        },
+    )
+    fasta_reference = hail_batch.fasta_res_group(batch_instance)
+
     align_cmd = align_cmd.strip()
     if not stdout_is_sorted:
-        align_cmd += f' {sort_cmd(nthreads)}'
-    align_cmd += f' > {job.sorted_bam}'
+        # non-sharded path: dedup the raw RG-ordered dragen-os stream, then coordinate-sort
+        align_cmd += f' {dedup_sort_cmd(nthreads, job.markdup_metrics)}'
+    # convert the coordinate-sorted, duplicate-marked stream to an indexed CRAM in-stream
+    align_cmd += (
+        f' | samtools view --write-index -@{nthreads - 1} '
+        f'-T {fasta_reference.base} -O cram,version=3.0 -o {job.output_cram.cram} -'
+    )
 
     job.command(hail_batch.command(align_cmd, monitor_space=True))
 
-    return picard.markdup(
-        batch_instance=batch_instance,
-        sorted_bam=job.sorted_bam,
-        output_path=output_path,
-        out_markdup_metrics_path=out_markdup_metrics_path,
-        job_attrs=job_attrs,
-    )
+    # persist the duplication stats produced by dupblaster and the indexed CRAM
+    batch_instance.write_output(job.markdup_metrics, out_markdup_metrics_path)
+    batch_instance.write_output(job.output_cram, str(output_path.with_suffix('')))
+
+    return job
