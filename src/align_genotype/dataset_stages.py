@@ -99,7 +99,7 @@ class CramMultiQC(stage.DatasetStage):
         return {
             'html': dataset.web_prefix() / qc_subdir / 'cram' / sg_hash / 'multiqc.html',
             'json': dataset.prefix() / qc_subdir / 'cram' / sg_hash / 'multiqc_data.json',
-            'checks': dataset.prefix() / qc_subdir / 'cram' / sg_hash / '.checks',
+            'checks': dataset.prefix() / qc_subdir / 'cram' / sg_hash / 'qc-checks.json',
         }
 
     def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput | None:
@@ -194,7 +194,6 @@ def _update_meta(output_path: str) -> dict:
     required_stages=[RunGvcfQc],
     analysis_type='qc',
     analysis_keys=['json'],
-    update_analysis_meta=_update_meta,
 )
 class GvcfMultiQC(stage.DatasetStage):
     """Run MultiQC to summarise all GVCF QC."""
@@ -208,7 +207,7 @@ class GvcfMultiQC(stage.DatasetStage):
         return {
             'html': dataset.web_prefix() / qc_subdir / 'gvcf' / sg_hash / 'multiqc.html',
             'json': dataset.prefix() / qc_subdir / 'gvcf' / sg_hash / 'multiqc_data.json',
-            'checks': dataset.prefix() / qc_subdir / 'gvcf' / sg_hash / '.checks',
+            'checks': dataset.prefix() / qc_subdir / 'gvcf' / sg_hash / 'qc-checks.json',
         }
 
     def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput:

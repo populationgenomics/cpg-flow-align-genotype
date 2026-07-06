@@ -1,8 +1,23 @@
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 from cpg_utils import to_path
 
 NEGATIVES = ['Not flagged', 'Not applicable', 'None', None, pd.NA, np.nan]
+
+
+@dataclass(frozen=True)
+class QcFlag:
+    flag: str
+    value: float
+    comparison: str
+    threshold: float
+    section: str
+    date: str
+    ar_guid: str
+    resolved: bool = False
+    resolution_date: str | None = None
 
 
 def scan_vntyper_html(html_file: str) -> dict[str, bool]:
