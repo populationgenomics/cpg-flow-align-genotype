@@ -51,9 +51,6 @@ class AlignWithDragmap(stage.SequencingGroupStage):
         cram_path = sequencing_group.cram if sequencing_group.cram else sequencing_group.make_cram_path()
         return {
             'cram': cram_path.path,
-            'sorted_bam': str(
-                sequencing_group.dataset.prefix(category='tmp') / 'align' / f'{sequencing_group.id}.sorted.bam'
-            ),
             'markdup': str(
                 sequencing_group.dataset.prefix()
                 / 'qc'
@@ -73,7 +70,6 @@ class AlignWithDragmap(stage.SequencingGroupStage):
             sequencing_group=sequencing_group,
             job_attrs=self.get_job_attrs(sequencing_group),
             output_path=outputs['cram'],
-            sorted_bam_path=outputs['sorted_bam'],
             markdup_metrics_path=outputs['markdup'],
         )
 

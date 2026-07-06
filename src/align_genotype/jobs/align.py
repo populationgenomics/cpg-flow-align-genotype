@@ -20,7 +20,6 @@ def align(
     sequencing_group: targets.SequencingGroup,
     job_attrs: dict,
     output_path: Path,
-    sorted_bam_path: str,
     markdup_metrics_path: str,
 ) -> list[BashJob]:
     """
@@ -36,8 +35,6 @@ def align(
 
         - for dragmap, submit an extra job to extract a pair of fastqs from the cram/bam,
         because dragmap can't read streamed files from bazam.
-
-    - if the sorted bam can be reused, skip the alignment job(s) and go straight to markdup.
 
     - the markdup tool is picard, deduplication is submitted in a separate job.
 
@@ -65,20 +62,7 @@ def align(
     sharded_align_jobs = []
     sorted_bams = []
 
-    if utils.can_reuse(sorted_bam_path):
-        logging.info(f'{sequencing_group.id} :: Re-using sorted BAM: {sorted_bam_path}')
-        # It's necessary to create this merge_or_align_j object to pass it to finalise_alignment,
-        # and to declare the sorted_bam_path as a resource, so it can be written to the checkpoint.
-        job_attrs = (job_attrs or {}) | {'label': 'Reusing sorted bam', 'tool': 'Reusing sorted bam'}
-        merge_or_align_j = batch_instance.new_bash_job('Reusing sorted bam', job_attrs or {})
-        merge_or_align_j.image(config.config_retrieve(['workflow', 'driver_image']))
-        merge_or_align_j.sorted_bam = batch_instance.read_input(sorted_bam_path)
-        jobs.append(merge_or_align_j)
-        # The align_cmd and other parameters are not used but are necessary to pass to finalise_alignment.
-        align_cmd = ''
-        stdout_is_sorted = True
-
-    elif not sharded:  # Just running one alignment job
+    if not sharded:  # Just running one alignment job
         if isinstance(alignment_input, filetypes.FastqPairs):
             alignment_input = alignment_input[0]
         align_j, align_cmd = _align_one(
@@ -151,7 +135,6 @@ def align(
             job=merge_or_align_j,
             job_attrs=job_attrs,
             output_path=output_path,
-            sorted_bam_path=sorted_bam_path,
             out_markdup_metrics_path=markdup_metrics_path,
         )
     )
@@ -375,7 +358,6 @@ def finalise_alignment(
     job: BashJob,
     job_attrs: dict,
     output_path: Path,
-    sorted_bam_path: str,
     out_markdup_metrics_path: str,
 ) -> BashJob:
     """
@@ -396,17 +378,7 @@ def finalise_alignment(
         align_cmd += f' {sort_cmd(nthreads)}'
     align_cmd += f' > {job.sorted_bam}'
 
-    if not utils.can_reuse(sorted_bam_path):
-        job.command(hail_batch.command(align_cmd, monitor_space=True))
-
-    if (
-        sorted_bam_path
-        and not to_path(sorted_bam_path).exists()
-        and config.config_retrieve(['workflow', 'checkpoint_sorted_bam'], False)
-    ):
-        # Write the sorted BAM to the checkpoint if it doesn't already exist and the config is set
-        logging.info(f'Will write sorted bam to checkpoint: {sorted_bam_path}')
-        batch_instance.write_output(job.sorted_bam, sorted_bam_path)
+    job.command(hail_batch.command(align_cmd, monitor_space=True))
 
     return picard.markdup(
         batch_instance=batch_instance,
