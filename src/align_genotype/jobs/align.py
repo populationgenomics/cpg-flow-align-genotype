@@ -67,7 +67,7 @@ def align(
             alignment_input=alignment_input,
             sequencing_group_name=sequencing_group.id,
             job_attrs=job_attrs,
-            should_sort=False,
+            name_sort_for_merge=False,
         )
         stdout_is_sorted = False
         jobs.append(align_j)
@@ -84,7 +84,7 @@ def align(
                     alignment_input=pair,
                     sequencing_group_name=sequencing_group.id,
                     job_attrs=job_attrs,
-                    should_sort=True,
+                    name_sort_for_merge=True,
                 )
                 j.command(hail_batch.command(cmd, monitor_space=True))
                 sorted_bams.append(j.sorted_bam)
@@ -98,7 +98,7 @@ def align(
                     sequencing_group_name=sequencing_group.id,
                     job_attrs=job_attrs,
                     shard_string=shard_string,
-                    should_sort=True,
+                    name_sort_for_merge=True,
                 )
                 # Name-sorting with samtools; deduplication runs after the merge, since dupblaster
                 # must see the full RG-ordered read stream to catch cross-shard duplicates.
@@ -107,7 +107,7 @@ def align(
                 sharded_align_jobs.append(j)
 
         merge_j = batch_instance.new_bash_job('Merge BAMs', (job_attrs or {}) | {'tool': 'samtools_merge'})
-        merge_j.image(config.config_retrieve(['images', 'samtools']))
+        merge_j.image(config.config_retrieve(['workflow', 'driver_image']))
 
         nthreads = resources.STANDARD.set_resources(
             j=merge_j,
@@ -171,7 +171,7 @@ def _align_one(  # noqa: PLR0915
     sequencing_group_name: str,
     job_attrs: dict,
     shard_string: str | None = None,
-    should_sort: bool = False,
+    name_sort_for_merge: bool = False,
 ) -> tuple[BashJob, str]:
     """
     Creates a job that (re)aligns reads to hg38. Returns the job object and a command
@@ -307,10 +307,9 @@ def _align_one(  # noqa: PLR0915
         --num-threads {nthreads - 1}
     """
 
-    # prepare command for adding sort on the end
+    # name-sort each shard so `samtools merge -n` produces an RG-ordered stream for dupblaster
     cmd = dedent(cmd).strip()
-    if should_sort:
-        # name-sort each shard so the merged stream is RG-ordered, ready for dupblaster
+    if name_sort_for_merge:
         cmd += ' ' + name_sort_cmd(requested_nthreads) + f' -o {job.sorted_bam}'
 
     if fifo_commands:
