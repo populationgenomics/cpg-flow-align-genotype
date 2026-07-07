@@ -63,7 +63,7 @@ def align(
     if not sharded:  # Just running one alignment job
         if isinstance(alignment_input, filetypes.FastqPairs):
             alignment_input = alignment_input[0]
-        align_j, align_cmd = _align_one(
+        align_j, align_cmd, fifo_epilogue = _align_one(
             alignment_input=alignment_input,
             sequencing_group_name=sequencing_group.id,
             job_attrs=job_attrs,
@@ -75,17 +75,20 @@ def align(
 
     # Aligning in parallel and merging afterwards
     else:
+        fifo_epilogue = ''  # the merged command below never uses a fifo
         if sharded_fq:  # Aligning each lane separately, merging after
             # running alignment for each fastq pair in parallel
             fastq_pairs = cast('filetypes.FastqPairs', alignment_input)
             for pair in fastq_pairs:
                 # dragmap command, name-sorting each lane (dedup happens after the merge):
-                j, cmd = _align_one(
+                j, cmd, shard_fifo_epilogue = _align_one(
                     alignment_input=pair,
                     sequencing_group_name=sequencing_group.id,
                     job_attrs=job_attrs,
                     name_sort_for_merge=True,
                 )
+                if shard_fifo_epilogue:
+                    cmd += f'\n{shard_fifo_epilogue}'
                 j.command(hail_batch.command(cmd, monitor_space=True))
                 sorted_bams.append(j.sorted_bam)
                 sharded_align_jobs.append(j)
@@ -93,7 +96,7 @@ def align(
         elif sharded_bazam:  # Using BAZAM to shard CRAM
             for shard_number in range(realignment_shards):
                 shard_string = f'{shard_number + 1}/{realignment_shards}'
-                j, cmd = _align_one(
+                j, cmd, shard_fifo_epilogue = _align_one(
                     alignment_input=alignment_input,
                     sequencing_group_name=sequencing_group.id,
                     job_attrs=job_attrs,
@@ -102,6 +105,8 @@ def align(
                 )
                 # Name-sorting with samtools; deduplication runs after the merge, since dupblaster
                 # must see the full RG-ordered read stream to catch cross-shard duplicates.
+                if shard_fifo_epilogue:
+                    cmd += f'\n{shard_fifo_epilogue}'
                 j.command(hail_batch.command(cmd, monitor_space=True))
                 sorted_bams.append(j.sorted_bam)
                 sharded_align_jobs.append(j)
@@ -137,6 +142,7 @@ def align(
             job=merge_or_align_j,
             output_path=output_path,
             out_markdup_metrics_path=markdup_metrics_path,
+            fifo_epilogue=fifo_epilogue,
         )
     )
 
@@ -309,20 +315,24 @@ def _align_one(  # noqa: PLR0915
     if name_sort_for_merge:
         cmd += ' ' + name_sort_cmd(requested_nthreads) + f' -o {job.sorted_bam}'
 
+    # Wait-check appended after the core command by the caller, once any downstream pipe
+    # stages (e.g. dedup/sort) have been attached - it must not sit between the aligner's
+    # stdout and those stages, or the pipe ends up reading the echo output instead.
+    fifo_epilogue = ''
     if fifo_commands:
         fifo_pre = [
             dedent(
                 f"""
             mkfifo {fname}
-            {cmd} > {fname} &
+            {sub_cmd} > {fname} &
             pid_{fname}=$!
         """,
             ).strip()
-            for fname, cmd in fifo_commands.items()
+            for fname, sub_cmd in fifo_commands.items()
         ]
 
         _fifo_waits = ' && '.join(f'wait $pid_{fname}' for fname in fifo_commands)
-        fifo_post = dedent(
+        fifo_epilogue = dedent(
             f"""
             if {_fifo_waits}
             then
@@ -335,8 +345,8 @@ def _align_one(  # noqa: PLR0915
         ).strip()
 
         # Now prepare command
-        cmd = '\n'.join([sort_index_input_cmd, *fifo_pre, cmd, fifo_post])
-    return job, cmd
+        cmd = '\n'.join([sort_index_input_cmd, *fifo_pre, cmd])
+    return job, cmd, fifo_epilogue
 
 
 def name_sort_cmd(requested_nthreads: int) -> str:
@@ -365,6 +375,7 @@ def finalise_alignment(
     job: BashJob,
     output_path: Path,
     out_markdup_metrics_path: str,
+    fifo_epilogue: str = '',
 ) -> BashJob:
     """
     Deduplication (dupblaster) and CRAM conversion (samtools) both run in-stream within the
@@ -399,6 +410,10 @@ def finalise_alignment(
         f' | samtools view --write-index -@{nthreads - 1} '
         f'-T {fasta_reference.base} -O cram,version=3.0 -o {job.output_cram.cram} -'
     )
+    if fifo_epilogue:
+        # bazam background-writer wait-check: must come after the full pipeline, not between
+        # the aligner and the dedup/sort/view stages consuming its stdout
+        align_cmd += f'\n{fifo_epilogue}'
 
     job.command(hail_batch.command(align_cmd, monitor_space=True))
 
