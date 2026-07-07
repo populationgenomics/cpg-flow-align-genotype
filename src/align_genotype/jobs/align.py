@@ -191,10 +191,8 @@ def _align_one(  # noqa: PLR0915
     # allow alignment jobs to be non-spot
     job.spot(config.config_retrieve(['workflow', 'align_spot'], True))
 
-    vm_type = resources.HIGHMEM if config.config_retrieve(['workflow', 'align_use_highmem']) else resources.STANDARD
-
     # confused by this error message
-    nthreads = vm_type.set_resources(
+    nthreads = resources.HIGHMEM.set_resources(
         j=job,
         nthreads=config.config_retrieve(['workflow', 'align_threads'], resources.STANDARD.max_threads()),
         storage_gb=storage_for_align_job(alignment_input=alignment_input),
