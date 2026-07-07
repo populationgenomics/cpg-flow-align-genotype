@@ -9,14 +9,11 @@ align_spot = true
 exome_realignment_shards = 1
 genome_realignment_shards = 6
 
-# use the HIGHMEM template machine type for alignment
-align_use_highmem = false
-
 # number of threads to use for alignment, defaulting to 32 on a 16-core machine
 #align_threads
 
 # to manually set the storage attached to align jobs
-#align_storage = 100
+align_storage = 100
 
 # set to use highmem workers for picard qc metrics jobs, defaults to false
 picard_metrics_use_highmem = false
@@ -116,3 +113,7 @@ kestrel_config_json_path = false
 vntyper_projects = []
 skip_sgids = []
 fast = false
+
+#gsutil rm "gs://cpg-chop-gliadx-test/qc/*/CPG685719*"
+#gsutil rm "gs://cpg-perth-neuro-test/qc/*/CPG685362*"
+#gsutil rm "gs://cpg-geneadd-test/qc/*/CPG678151*"

@@ -177,7 +177,7 @@ def _align_one(  # noqa: PLR0915
     job_attrs: dict,
     shard_string: str | None = None,
     name_sort_for_merge: bool = False,
-) -> tuple[BashJob, str]:
+) -> tuple[BashJob, str, str]:
     """
     Creates a job that (re)aligns reads to hg38. Returns the job object and a command
     separately, and doesn't add the command to the Job object, so stream-sorting
