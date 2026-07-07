@@ -114,9 +114,9 @@ def align(
         merge_j = batch_instance.new_bash_job('Merge BAMs', (job_attrs or {}) | {'tool': 'samtools_merge'})
         merge_j.image(config.config_retrieve(['workflow', 'driver_image']))
 
-        nthreads = resources.STANDARD.set_resources(
+        nthreads = resources.HIGHMEM.set_resources(
             j=merge_j,
-            nthreads=config.config_retrieve(['workflow', 'align_threads'], resources.STANDARD.max_threads()),
+            nthreads=config.config_retrieve(['workflow', 'align_threads'], resources.HIGHMEM.max_threads()),
             # for FASTQ or BAM inputs, requesting more disk (400G). Example when
             # default is not enough: https://batch.hail.populationgenomics.org.au/batches/73892/jobs/56
             storage_gb=storage_for_align_job(
@@ -188,8 +188,6 @@ def _align_one(  # noqa: PLR0915
 
     batch_instance = hail_batch.get_batch()
 
-    requested_nthreads = config.config_retrieve(['workflow', 'align_threads'], resources.STANDARD.max_threads())
-
     job_name = f'Align {shard_string} ' if shard_string else f'Align {alignment_input}'
 
     job = batch_instance.new_bash_job(name=job_name, attributes=job_attrs | {'tool': 'dragmap'})
@@ -197,10 +195,10 @@ def _align_one(  # noqa: PLR0915
     # allow alignment jobs to be non-spot
     job.spot(config.config_retrieve(['workflow', 'align_spot'], True))
 
-    # confused by this error message
+    # always take HIGHMEM
     nthreads = resources.HIGHMEM.set_resources(
         j=job,
-        nthreads=config.config_retrieve(['workflow', 'align_threads'], resources.STANDARD.max_threads()),
+        nthreads=config.config_retrieve(['workflow', 'align_threads'], resources.HIGHMEM.max_threads()),
         storage_gb=storage_for_align_job(alignment_input=alignment_input),
     ).get_nthreads()
 
@@ -313,7 +311,7 @@ def _align_one(  # noqa: PLR0915
     # name-sort each shard so `samtools merge -n` produces an RG-ordered stream for dupblaster
     cmd = dedent(cmd).strip()
     if name_sort_for_merge:
-        cmd += ' ' + name_sort_cmd(requested_nthreads) + f' -o {job.sorted_bam}'
+        cmd += ' ' + name_sort_cmd(nthreads) + f' -o {job.sorted_bam}'
 
     # Wait-check appended after the core command by the caller, once any downstream pipe
     # stages (e.g. dedup/sort) have been attached - it must not sit between the aligner's
@@ -349,21 +347,19 @@ def _align_one(  # noqa: PLR0915
     return job, cmd, fifo_epilogue
 
 
-def name_sort_cmd(requested_nthreads: int) -> str:
+def name_sort_cmd(nthreads: int) -> str:
     """
     Create command that name-sorts a SAM/BAM stream, grouping reads by name (RG order)
     so that dupblaster can deduplicate in-stream after the shards are merged.
     """
-    nthreads = resources.STANDARD.request_resources(nthreads=requested_nthreads).get_nthreads()
     return f'| samtools sort -n -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/sam-sort-tmp -Obam '
 
 
-def dedup_sort_cmd(requested_nthreads: int, stats_path: str) -> str:
+def dedup_sort_cmd(nthreads: int, stats_path: str) -> str:
     """
     Create command that deduplicates a name-sorted (RG-ordered) stream with dupblaster,
     writing duplication stats to `stats_path`, then coordinate-sorts the result.
     """
-    nthreads = resources.STANDARD.request_resources(nthreads=requested_nthreads).get_nthreads()
     cmd = f'| dupblaster --stats {stats_path} --single-end-strategy picard-exact --tmp-dir $BATCH_TMPDIR '
     cmd += f'| samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-dd-tmp -Obam '
     return cmd
@@ -386,10 +382,10 @@ def finalise_alignment(
 
     batch_instance = hail_batch.get_batch()
 
-    nthreads = resources.STANDARD.request_resources(
+    nthreads = resources.HIGHMEM.request_resources(
         nthreads=config.config_retrieve(
             ['workflow', 'align_threads'],
-            resources.STANDARD.max_threads(),
+            resources.HIGHMEM.max_threads(),
         )
     ).get_nthreads()
 
