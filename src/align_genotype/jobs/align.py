@@ -347,11 +347,7 @@ def name_sort_cmd(requested_nthreads: int) -> str:
     so that dupblaster can deduplicate in-stream after the shards are merged.
     """
     nthreads = resources.STANDARD.request_resources(nthreads=requested_nthreads).get_nthreads()
-    return dedent(
-        f"""\
-    | samtools sort -n -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-sort-tmp -Obam
-    """,
-    ).strip()
+    return f'| samtools sort -n -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/sam-sort-tmp -Obam '
 
 
 def dedup_sort_cmd(requested_nthreads: int, stats_path: str) -> str:
@@ -360,12 +356,9 @@ def dedup_sort_cmd(requested_nthreads: int, stats_path: str) -> str:
     writing duplication stats to `stats_path`, then coordinate-sorts the result.
     """
     nthreads = resources.STANDARD.request_resources(nthreads=requested_nthreads).get_nthreads()
-    return dedent(
-        f"""\
-    | dupblaster --stats {stats_path} --single-end-strategy picard-exact --tmp-dir $BATCH_TMPDIR \
-    | samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-dd-tmp -Obam
-    """,
-    ).strip()
+    cmd = f'| dupblaster --stats {stats_path} --single-end-strategy picard-exact --tmp-dir $BATCH_TMPDIR'
+    cmd += f'| samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-dd-tmp -Obam'
+    return cmd
 
 
 def finalise_alignment(
