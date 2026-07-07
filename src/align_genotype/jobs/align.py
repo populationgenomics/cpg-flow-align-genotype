@@ -356,8 +356,8 @@ def dedup_sort_cmd(requested_nthreads: int, stats_path: str) -> str:
     writing duplication stats to `stats_path`, then coordinate-sorts the result.
     """
     nthreads = resources.STANDARD.request_resources(nthreads=requested_nthreads).get_nthreads()
-    cmd = f'| dupblaster --stats {stats_path} --single-end-strategy picard-exact --tmp-dir $BATCH_TMPDIR'
-    cmd += f'| samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-dd-tmp -Obam'
+    cmd = f'| dupblaster --stats {stats_path} --single-end-strategy picard-exact --tmp-dir $BATCH_TMPDIR '
+    cmd += f'| samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-dd-tmp -Obam '
     return cmd
 
 
