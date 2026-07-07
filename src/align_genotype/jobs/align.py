@@ -135,7 +135,6 @@ def align(
             align_cmd=align_cmd,
             stdout_is_sorted=stdout_is_sorted,
             job=merge_or_align_j,
-            job_attrs=job_attrs,
             output_path=output_path,
             out_markdup_metrics_path=markdup_metrics_path,
         )
@@ -373,7 +372,6 @@ def finalise_alignment(
     align_cmd: str,
     stdout_is_sorted: bool,
     job: BashJob,
-    job_attrs: dict,  # noqa: ARG001
     output_path: Path,
     out_markdup_metrics_path: str,
 ) -> BashJob:
