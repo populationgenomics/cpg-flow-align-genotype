@@ -7,7 +7,7 @@ align_spot = true
 
 # exome/genome workflows choose one of these default values
 exome_realignment_shards = 1
-genome_realignment_shards = 10
+genome_realignment_shards = 6
 
 # use the HIGHMEM template machine type for alignment
 align_use_highmem = false
@@ -38,7 +38,7 @@ genome_cram_gb = 100
 downsample_reads = 20
 
 # Shard count for HaplotypeCaller
-scatter_count_genotype = 50
+scatter_count_genotype = 30
 
 # HaplotypeCaller resource options
 # Best performance for genomes - highmem, 4 cpus, 4 pairhmm threads
@@ -80,12 +80,12 @@ plots_force_interactive = true
 ref_fasta = "gs://cpg-common-main/references/hg38/v0/dragen_reference/Homo_sapiens_assembly38_masked.fasta"
 
 [images]
-dragmap = "australia-southeast1-docker.pkg.dev/cpg-common/images/dragmap_plus_ora:2.7.0-1"
+dragmap = "australia-southeast1-docker.pkg.dev/cpg-common/images-dev/dragmap_ora_dupblaster:2.7.0-1"
 gatk = "australia-southeast1-docker.pkg.dev/cpg-common/images/gatk:4.6.2.0-2"
 picard = "australia-southeast1-docker.pkg.dev/cpg-common/images/picard:3.4.0-3"
-samtools = "australia-southeast1-docker.pkg.dev/cpg-common/images/samtools:1.18"
+samtools = "australia-southeast1-docker.pkg.dev/cpg-common/images/samtools:1.23.1-1"
 somalier = "australia-southeast1-docker.pkg.dev/cpg-common/images/somalier:0.3.1-1"
-verifybamid = "australia-southeast1-docker.pkg.dev/cpg-common/images/verifybamid:2.0.1"
+verifybamid = "australia-southeast1-docker.pkg.dev/cpg-common/images/verifybamid:v2.0.3-1"
 vntyper = "australia-southeast1-docker.pkg.dev/cpg-common/images/vntyper:2.0.3-2"
 
 [references]
