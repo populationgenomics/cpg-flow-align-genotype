@@ -6,7 +6,7 @@ import os.path
 from textwrap import dedent
 from typing import cast
 
-from cpg_flow import filetypes, resources, targets
+from cpg_flow import filetypes, targets
 from cpg_utils import Path, config, hail_batch
 from hailtop.batch.job import BashJob
 
@@ -114,15 +114,13 @@ def align(
         merge_j = batch_instance.new_bash_job('Merge BAMs', (job_attrs or {}) | {'tool': 'samtools_merge'})
         merge_j.image(config.config_retrieve(['workflow', 'driver_image']))
 
-        nthreads = resources.HIGHMEM.set_resources(
-            j=merge_j,
-            nthreads=config.config_retrieve(['workflow', 'align_threads'], resources.HIGHMEM.max_threads()),
-            # for FASTQ or BAM inputs, requesting more disk (400G). Example when
-            # default is not enough: https://batch.hail.populationgenomics.org.au/batches/73892/jobs/56
-            storage_gb=storage_for_align_job(
-                alignment_input=alignment_input,
-            ),
-        ).get_nthreads()
+        # for FASTQ or BAM inputs, requesting more disk (400G). Example when
+        # default is not enough: https://batch.hail.populationgenomics.org.au/batches/73892/jobs/56
+        nthreads = config.config_retrieve(['workflow', 'merge_threads'], 16)
+        storage_gb=storage_for_align_job(alignment_input=alignment_input)
+        merge_j.storage(f'{storage_gb}GiB')
+        merge_j.cpu(nthreads)
+        merge_j.memory('highmem')
 
         # Merge the name-sorted shards in name order, deduplicate the combined RG-ordered
         # stream with dupblaster, then coordinate-sort the result for downstream tools.
@@ -160,7 +158,8 @@ def storage_for_align_job(alignment_input: filetypes.AlignmentInput) -> int:
         return storage_gb
 
     # Taking a full instance without attached by default:
-    storage_gb = resources.STANDARD.calc_instance_disk_gb()
+    storage_gb = 100
+
     if config.config_retrieve(['workflow', 'sequencing_type']) == 'genome':
         # More disk is needed for FASTQ or BAM inputs than for realignment from CRAM
         if isinstance(alignment_input, filetypes.FastqPair | filetypes.FastqPairs | filetypes.BamPath):
@@ -195,12 +194,12 @@ def _align_one(
     # allow alignment jobs to be non-spot
     job.spot(config.config_retrieve(['workflow', 'align_spot'], True))
 
-    # always take HIGHMEM
-    nthreads = resources.HIGHMEM.set_resources(
-        j=job,
-        nthreads=resources.HIGHMEM.max_threads(),
-        storage_gb=storage_for_align_job(alignment_input=alignment_input),
-    ).get_nthreads()
+    # stop messing about with the indirection of the resource profiles - set explicitly
+    storage_gb = storage_for_align_job(alignment_input)
+    nthreads = config.config_retrieve(['workflow', 'align_threads'], 16)
+    job.storage(f'{storage_gb}GiB')
+    job.cpu(nthreads)
+    job.memory('highmem')
 
     sort_index_input_cmd = ''
 
@@ -352,7 +351,7 @@ def name_sort_cmd(nthreads: int) -> str:
     Create command that name-sorts a SAM/BAM stream, grouping reads by name (RG order)
     so that dupblaster can deduplicate in-stream after the shards are merged.
     """
-    return f'| samtools sort -n -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/sam-sort-tmp -Obam '
+    return f'| samtools sort -n -@{nthreads - 1} -T $BATCH_TMPDIR/sam-sort-tmp -Obam '
 
 
 def dedup_sort_cmd(nthreads: int, stats_path: str) -> str:
@@ -361,7 +360,7 @@ def dedup_sort_cmd(nthreads: int, stats_path: str) -> str:
     writing duplication stats to `stats_path`, then coordinate-sorts the result.
     """
     cmd = f'| dupblaster --stats {stats_path} --single-end-strategy picard-exact --tmp-dir $BATCH_TMPDIR '
-    cmd += f'| samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-dd-tmp -Obam '
+    cmd += f'| samtools sort -@{nthreads - 1} -T $BATCH_TMPDIR/samtools-dd-tmp -Obam '
     return cmd
 
 
@@ -382,12 +381,7 @@ def finalise_alignment(
 
     batch_instance = hail_batch.get_batch()
 
-    nthreads = resources.HIGHMEM.request_resources(
-        nthreads=config.config_retrieve(
-            ['workflow', 'align_threads'],
-            resources.HIGHMEM.max_threads(),
-        )
-    ).get_nthreads()
+    nthreads = config.config_retrieve(['workflow', 'merge_threads'], 8)
 
     job.declare_resource_group(
         output_cram={
