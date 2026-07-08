@@ -198,7 +198,7 @@ def _align_one(
     # always take HIGHMEM
     nthreads = resources.HIGHMEM.set_resources(
         j=job,
-        nthreads=config.config_retrieve(['workflow', 'align_threads'], resources.HIGHMEM.max_threads()),
+        nthreads=resources.HIGHMEM.max_threads(),
         storage_gb=storage_for_align_job(alignment_input=alignment_input),
     ).get_nthreads()
 
