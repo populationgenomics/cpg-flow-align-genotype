@@ -125,7 +125,7 @@ def align(
         # Merge the name-sorted shards in name order, deduplicate the combined RG-ordered
         # stream with dupblaster, then coordinate-sort the result for downstream tools.
         align_cmd = f"""\
-        samtools merge -n -@{nthreads - 1} - {' '.join(map(str, sorted_bams))} \
+        samtools merge -n -@{min(nthreads, 6) - 1} - {' '.join(map(str, sorted_bams))} \
         {dedup_sort_cmd(nthreads, merge_j.markdup_metrics)}
         """.strip()
         jobs.extend(sharded_align_jobs)
@@ -351,7 +351,7 @@ def name_sort_cmd(nthreads: int) -> str:
     Create command that name-sorts a SAM/BAM stream, grouping reads by name (RG order)
     so that dupblaster can deduplicate in-stream after the shards are merged.
     """
-    return f'| samtools sort -n -@{nthreads - 1} -T $BATCH_TMPDIR/sam-sort-tmp -Obam '
+    return f'| samtools sort -n -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/sam-sort-tmp -Obam '
 
 
 def dedup_sort_cmd(nthreads: int, stats_path: str) -> str:
@@ -360,7 +360,7 @@ def dedup_sort_cmd(nthreads: int, stats_path: str) -> str:
     writing duplication stats to `stats_path`, then coordinate-sorts the result.
     """
     cmd = f'| dupblaster --stats {stats_path} --single-end-strategy picard-exact --tmp-dir $BATCH_TMPDIR '
-    cmd += f'| samtools sort -@{nthreads - 1} -T $BATCH_TMPDIR/samtools-dd-tmp -Obam '
+    cmd += f'| samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-dd-tmp -Obam '
     return cmd
 
 
@@ -397,7 +397,7 @@ def finalise_alignment(
         align_cmd += f' {dedup_sort_cmd(nthreads, job.markdup_metrics)}'
     # convert the coordinate-sorted, duplicate-marked stream to an indexed CRAM in-stream
     align_cmd += (
-        f' | samtools view --write-index -@{nthreads - 1} '
+        f' | samtools view --write-index -@{min(nthreads, 6) - 1} '
         f'-T {fasta_reference.base} -O cram,version=3.0 -o {job.output_cram.cram} -'
     )
     if fifo_epilogue:
