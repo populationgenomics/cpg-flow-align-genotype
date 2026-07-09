@@ -191,9 +191,10 @@ def _align_one(
 
     batch_instance = hail_batch.get_batch()
 
-    job_name = f'Align {shard_string} ' if shard_string else f'Align {alignment_input}'
-
-    job = batch_instance.new_bash_job(name=job_name, attributes=job_attrs | {'tool': 'dragmap'})
+    job = batch_instance.new_bash_job(
+        name=f'Align {shard_string} ' if shard_string else f'Align {alignment_input}',
+        attributes=job_attrs | {'tool': 'dragmap'},
+    )
 
     # allow alignment jobs to be non-spot
     job.spot(config.config_retrieve(['workflow', 'align_spot'], True))
@@ -201,9 +202,8 @@ def _align_one(
     # stop messing about with the indirection of the resource profiles - set explicitly
     storage_gb = storage_for_align_job(alignment_input)
     nthreads = config.config_retrieve(['workflow', 'align_threads'], 16)
-    job.storage(f'{storage_gb}GiB')
-    job.cpu(nthreads)
-    job.memory('highmem')
+    job.storage(f'{storage_gb}GiB').cpu(nthreads).memory('highmem').image(config.config_retrieve(['images', 'dragmap']))
+    # this uses the DRAGMAP base image, but with the ORAD decompression software added in (see config)
 
     sort_index_input_cmd = ''
 
@@ -291,9 +291,6 @@ def _align_one(
         mv {fastq_pair.r2} {r2_param}
         """,
         )
-
-    # this uses the DRAGMAP base image, but with the ORAD decompression software added in (see config)
-    job.image(config.config_retrieve(['images', 'dragmap']))
 
     dragmap_index = batch_instance.read_input_group(
         **{
