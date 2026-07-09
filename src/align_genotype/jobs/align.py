@@ -117,7 +117,7 @@ def align(
         # for FASTQ or BAM inputs, requesting more disk (400G). Example when
         # default is not enough: https://batch.hail.populationgenomics.org.au/batches/73892/jobs/56
         nthreads = config.config_retrieve(['workflow', 'merge_threads'], 16)
-        storage_gb=storage_for_align_job(alignment_input=alignment_input)
+        storage_gb = storage_for_align_job(alignment_input=alignment_input)
         merge_j.storage(f'{storage_gb}GiB')
         merge_j.cpu(nthreads)
         merge_j.memory('highmem')
@@ -161,12 +161,16 @@ def storage_for_align_job(alignment_input: filetypes.AlignmentInput) -> int:
     storage_gb = 100
 
     if config.config_retrieve(['workflow', 'sequencing_type']) == 'genome':
+        storage_gb = 200
+
         # More disk is needed for FASTQ or BAM inputs than for realignment from CRAM
         if isinstance(alignment_input, filetypes.FastqPair | filetypes.FastqPairs | filetypes.BamPath):
             storage_gb = 400
+
         # For unindexed/unsorted CRAM or BAM inputs, extra storage is needed for tmp
         if isinstance(alignment_input, filetypes.CramPath | filetypes.BamPath) and not alignment_input.index_path:
             storage_gb += 150
+
     return storage_gb
 
 
