@@ -202,8 +202,8 @@ def _align_one(
     # stop messing about with the indirection of the resource profiles - set explicitly
     storage_gb = storage_for_align_job(alignment_input)
     nthreads = config.config_retrieve(['workflow', 'align_threads'], 16)
-    job.storage(f'{storage_gb}GiB').cpu(nthreads).memory('highmem').image(config.config_retrieve(['images', 'dragmap']))
     # this uses the DRAGMAP base image, but with the ORAD decompression software added in (see config)
+    job.storage(f'{storage_gb}GiB').cpu(nthreads).memory('highmem').image(config.config_retrieve(['images', 'dragmap']))
 
     sort_index_input_cmd = ''
 
