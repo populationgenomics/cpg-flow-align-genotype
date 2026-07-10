@@ -116,7 +116,3 @@ kestrel_config_json_path = false
 vntyper_projects = []
 skip_sgids = []
 fast = false
-
-#gsutil rm "gs://cpg-chop-gliadx-test/qc/*/CPG685719*"
-#gsutil rm "gs://cpg-perth-neuro-test/qc/*/CPG685362*"
-#gsutil rm "gs://cpg-geneadd-test/qc/*/CPG678151*"
