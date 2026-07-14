@@ -69,7 +69,6 @@ def align(
             job_attrs=job_attrs,
             name_sort_for_merge=False,
         )
-        stdout_is_sorted = False
         jobs.append(align_j)
         merge_or_align_j = align_j
 
@@ -131,12 +130,10 @@ def align(
         jobs.extend(sharded_align_jobs)
         jobs.append(merge_j)
         merge_or_align_j = merge_j
-        stdout_is_sorted = True
 
     jobs.append(
         finalise_alignment(
             align_cmd=align_cmd,
-            stdout_is_sorted=stdout_is_sorted,
             job=merge_or_align_j,
             output_path=output_path,
             out_markdup_metrics_path=markdup_metrics_path,
@@ -369,7 +366,6 @@ def dedup_sort_cmd(nthreads: int, stats_path: str) -> str:
 
 def finalise_alignment(
     align_cmd: str,
-    stdout_is_sorted: bool,
     job: BashJob,
     output_path: Path,
     out_markdup_metrics_path: str,
@@ -395,9 +391,10 @@ def finalise_alignment(
     fasta_reference = hail_batch.fasta_res_group(batch_instance)
 
     align_cmd = align_cmd.strip()
-    if not stdout_is_sorted:
-        # non-sharded path: dedup the raw RG-ordered dragen-os stream, then coordinate-sort
-        align_cmd += f' {dedup_sort_cmd(nthreads, job.markdup_metrics)}'
+
+    # dedup the raw RG-ordered dragen-os stream, then coordinate-sort
+    align_cmd += f' {dedup_sort_cmd(nthreads, job.markdup_metrics)}'
+
     # convert the coordinate-sorted, duplicate-marked stream to an indexed CRAM in-stream
     align_cmd += (
         f' | samtools view --write-index -@{min(nthreads, 6) - 1} '
