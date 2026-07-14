@@ -87,12 +87,14 @@ def collect_qc_flags(sequencing_groups: list[dict]) -> list[dict]:
     for sg in sequencing_groups:
         meta = sg.get('meta') or {}
         external_id = (sg.get('sample') or {}).get('externalId', '')
-        results.append({
-            'id': sg['id'],
-            'external_id': external_id,
-            'cram_flags': meta.get('cram_qc_flags', []),
-            'gvcf_flags': meta.get('gvcf_qc_flags', []),
-        })
+        results.append(
+            {
+                'id': sg['id'],
+                'external_id': external_id,
+                'cram_flags': meta.get('cram_qc_flags', []),
+                'gvcf_flags': meta.get('gvcf_qc_flags', []),
+            }
+        )
     return results
 
 
