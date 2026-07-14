@@ -97,7 +97,7 @@ class CramMultiQC(stage.DatasetStage):
         qc_subdir = f'{subdir}/qc' if (subdir := targets.sequencing_subdir()) else 'qc'
 
         return {
-            'latest':dataset.web_prefix() / qc_subdir / 'cram' / 'latest' / 'multiqc.html',
+            'latest': dataset.web_prefix() / qc_subdir / 'cram' / 'latest' / 'multiqc.html',
             'html': dataset.web_prefix() / qc_subdir / 'cram' / sg_hash / 'multiqc.html',
             'json': dataset.prefix() / qc_subdir / 'cram' / sg_hash / 'multiqc_data.json',
             'checks': dataset.prefix() / qc_subdir / 'cram' / sg_hash / 'qc-checks.json',
@@ -206,7 +206,7 @@ class GvcfMultiQC(stage.DatasetStage):
         qc_subdir = f'{subdir}/qc' if (subdir := targets.sequencing_subdir()) else 'qc'
 
         return {
-            'latest':dataset.web_prefix() / qc_subdir / 'gvcf' / 'latest' / 'multiqc.html',
+            'latest': dataset.web_prefix() / qc_subdir / 'gvcf' / 'latest' / 'multiqc.html',
             'html': dataset.web_prefix() / qc_subdir / 'gvcf' / sg_hash / 'multiqc.html',
             'json': dataset.prefix() / qc_subdir / 'gvcf' / sg_hash / 'multiqc_data.json',
             'checks': dataset.prefix() / qc_subdir / 'gvcf' / sg_hash / 'qc-checks.json',
