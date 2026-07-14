@@ -15,7 +15,8 @@ genome_realignment_shards = 6
 # number of threads to use for merging, defaulting to 8
 #merge_threads = 8
 
-# to manually set the storage attached to align jobs
+# to manually set the resources of align jobs
+#align_memory = 'highmem'
 #align_storage = 100
 
 # set to use highmem workers for picard qc metrics jobs, defaults to false
