@@ -101,6 +101,7 @@ def multiqc(
         mqc_j.command(f'echo "HTML URL: {out_html_url}"')
 
     batch_instance.write_output(mqc_j.html, outputs['html'])
+    batch_instance.write_output(mqc_j.json, outputs['latest'])
     batch_instance.write_output(mqc_j.json, outputs['json'])
     jobs: list[Job] = [mqc_j]
     if config.config_retrieve(['qc_thresholds']):
