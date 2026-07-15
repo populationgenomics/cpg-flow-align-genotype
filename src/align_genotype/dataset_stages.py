@@ -79,7 +79,7 @@ class SomalierPedigree(stage.DatasetStage):
         SomalierPedigree,
     ],
     analysis_type='qc',
-    analysis_keys=['json'],
+    analysis_keys=['json', 'html'],
 )
 class CramMultiQC(stage.DatasetStage):
     """
