@@ -14,12 +14,12 @@ Example:
         -s CPG1234 \\
         -o gs://cpg-seqr-main/cram/CPG1234.cram \\
         -p seqr \\
-        -i gs://cpg-seqr-main-tmp/batch-tmp/c2dfbe/Align_1_6_-P167e/sorted_bam \\
-           gs://cpg-seqr-main-tmp/batch-tmp/c2dfbe/Align_2_6_-qPVi8/sorted_bam \\
-           gs://cpg-seqr-main-tmp/batch-tmp/c2dfbe/Align_3_6_-tBItI/sorted_bam \\
-           gs://cpg-seqr-main-tmp/batch-tmp/c2dfbe/Align_4_6_-Slx2L/sorted_bam \\
-           gs://cpg-seqr-main-tmp/batch-tmp/c2dfbe/Align_5_6_-M1pXr/sorted_bam \\
-           gs://cpg-seqr-main-tmp/batch-tmp/c2dfbe/Align_6_6_-51gSX/sorted_bam
+        -i gs://tmp-bucket/c2dfbe/Align_1_6_-P167e/sorted_bam \\
+           gs://tmp-bucket/c2dfbe/Align_2_6_-qPVi8/sorted_bam \\
+           gs://tmp-bucket/c2dfbe/Align_3_6_-tBItI/sorted_bam \\
+           gs://tmp-bucket/c2dfbe/Align_4_6_-Slx2L/sorted_bam \\
+           gs://tmp-bucket/c2dfbe/Align_5_6_-M1pXr/sorted_bam \\
+           gs://tmp-bucket/c2dfbe/Align_6_6_-51gSX/sorted_bam
 """
 
 import argparse
