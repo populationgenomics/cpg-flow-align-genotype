@@ -12,7 +12,7 @@ The BAM shards MUST be provided in the same order the pipeline emitted them (Ali
 Example:
     python alignment_recovery.py \\
         -s CPG1234 \\
-        -o gs://cpg-seqr-main/cram/CPG1234.cram \\
+        -o gs://cpg-dataset-main/cram/CPG1234.cram \\
         -p seqr \\
         -i gs://tmp-bucket/c2dfbe/Align_1_6_-P167e/sorted_bam \\
            gs://tmp-bucket/c2dfbe/Align_2_6_-qPVi8/sorted_bam \\
