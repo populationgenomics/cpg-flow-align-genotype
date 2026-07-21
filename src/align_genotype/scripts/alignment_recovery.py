@@ -58,7 +58,7 @@ def register_cram(output: str, sgid: str, dataset: str, stage: str, seq_type: st
     Create a completed `cram` analysis entry in Metamist. Runs inside the batch as a PythonJob that
     depends on the merge job, so registration only happens if the CRAM was produced successfully.
     """
-    from cpg_flow.metamist import Metamist
+    from cpg_flow.metamist import Metamist  # noqa: PLC0415
 
     Metamist().create_analysis(
         output=output,
