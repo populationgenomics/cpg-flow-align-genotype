@@ -81,7 +81,7 @@ if __name__ == '__main__':
 
     fasta_reference = hail_batch.fasta_res_group(batch_instance)
 
-    nthreads = config.config_retrieve(['workflow', 'merge_threads'], 8)
+    nthreads = config.config_retrieve(['workflow', 'merge_threads'], 16)
 
     merge_job = batch_instance.new_bash_job(name=f'Merge BAMs for {args.sgid}', attributes={'tool': 'samtools_merge'})
     merge_job.image(config.config_retrieve(['workflow', 'driver_image']))
