@@ -359,7 +359,7 @@ def dedup_sort_cmd(nthreads: int, stats_path: str) -> str:
     Create command that deduplicates a name-sorted (RG-ordered) stream with dupblaster,
     writing duplication stats to `stats_path`, then coordinate-sorts the result.
     """
-    cmd = f'| dupblaster --stats {stats_path} --tmp-dir $BATCH_TMPDIR '
+    cmd = f'| dupblaster --stats {stats_path} '
     cmd += f'| samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-dd-tmp -Obam '
     return cmd
 
