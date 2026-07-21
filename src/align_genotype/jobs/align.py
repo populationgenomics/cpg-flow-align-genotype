@@ -88,7 +88,7 @@ def align(
                 )
                 if shard_fifo_epilogue:
                     cmd += f'\n{shard_fifo_epilogue}'
-                j.command(hail_batch.command(cmd, monitor_space=True))
+                j.command(cmd)
                 sorted_bams.append(j.sorted_bam)
                 sharded_align_jobs.append(j)
 
@@ -106,7 +106,7 @@ def align(
                 # must see the full RG-ordered read stream to catch cross-shard duplicates.
                 if shard_fifo_epilogue:
                     cmd += f'\n{shard_fifo_epilogue}'
-                j.command(hail_batch.command(cmd, monitor_space=True))
+                j.command(cmd)
                 sorted_bams.append(j.sorted_bam)
                 sharded_align_jobs.append(j)
 
@@ -158,7 +158,7 @@ def storage_for_align_job(alignment_input: filetypes.AlignmentInput) -> int:
     storage_gb = 100
 
     if config.config_retrieve(['workflow', 'sequencing_type']) == 'genome':
-        storage_gb = 200
+        storage_gb = 400
 
         # More disk is needed for FASTQ or BAM inputs than for realignment from CRAM
         if isinstance(alignment_input, filetypes.FastqPair | filetypes.FastqPairs | filetypes.BamPath):
@@ -359,7 +359,7 @@ def dedup_sort_cmd(nthreads: int, stats_path: str) -> str:
     Create command that deduplicates a name-sorted (RG-ordered) stream with dupblaster,
     writing duplication stats to `stats_path`, then coordinate-sorts the result.
     """
-    cmd = f'| dupblaster --stats {stats_path} --single-end-strategy picard-exact --tmp-dir $BATCH_TMPDIR '
+    cmd = f'| dupblaster --stats {stats_path} '
     cmd += f'| samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-dd-tmp -Obam '
     return cmd
 
@@ -405,7 +405,7 @@ def finalise_alignment(
         # the aligner and the dedup/sort/view stages consuming its stdout
         align_cmd += f'\n{fifo_epilogue}'
 
-    job.command(hail_batch.command(align_cmd, monitor_space=True))
+    job.command(align_cmd)
 
     # persist the duplication stats produced by dupblaster and the indexed CRAM
     batch_instance.write_output(job.markdup_metrics, out_markdup_metrics_path)
