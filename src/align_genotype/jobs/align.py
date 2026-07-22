@@ -124,6 +124,7 @@ def align(
         # Merge the name-sorted shards in name order, deduplicate the combined RG-ordered
         # stream with dupblaster, then coordinate-sort the result for downstream tools.
         align_cmd = f"""\
+        set -euo pipefail
         samtools merge -n -@{min(nthreads, 6) - 1} - {' '.join(map(str, sorted_bams))} \
         {dedup_sort_cmd(nthreads, merge_j.markdup_metrics)}
         """.strip()
@@ -204,6 +205,7 @@ def _align_one(
         config.config_retrieve(['workflow', 'align_memory'], 'highmem')
     ).image(config.config_retrieve(['images', 'dragmap']))
 
+    pipefail_cmd = 'set -euo pipefail'
     sort_index_input_cmd = ''
 
     # 2022-07-22 mfranklin:
@@ -270,6 +272,7 @@ def _align_one(
         # Need file names to end with ".gz" for BWA or DRAGMAP to parse correctly:
         prepare_fastq_cmd = dedent(
             f"""
+            set -euo pipefail
             tar -xf {fqo_resource_group.reference} -C $BATCH_TMPDIR
             orad -c --ora-reference $BATCH_TMPDIR/oradata_homo_sapiens {fqo_resource_group.r1} > {r1_param}
             rm {fqo_resource_group.r1}
@@ -286,6 +289,7 @@ def _align_one(
         # Need file names to end with ".gz" for BWA or DRAGMAP to parse correctly:
         prepare_fastq_cmd = dedent(
             f"""\
+        set -euo pipefail
         mv {fastq_pair.r1} {r1_param}
         mv {fastq_pair.r2} {r2_param}
         """,
@@ -342,7 +346,7 @@ def _align_one(
         ).strip()
 
         # Now prepare command
-        cmd = '\n'.join([sort_index_input_cmd, *fifo_pre, cmd])
+        cmd = '\n'.join([pipefail_cmd, sort_index_input_cmd, *fifo_pre, cmd])
     return job, cmd, fifo_epilogue
 
 
