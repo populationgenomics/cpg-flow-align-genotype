@@ -2,8 +2,9 @@
 wrapper method to generate a VNtyper index generation job
 """
 
-from cpg_utils import Path, config, hail_batch
 from hailtop.batch.job import BashJob
+
+from cpg_utils import Path, config, hail_batch
 
 
 def vntyper_index_job(dataset: str, output: Path) -> BashJob:
