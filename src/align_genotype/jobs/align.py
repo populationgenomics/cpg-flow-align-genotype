@@ -127,7 +127,6 @@ def align(
         align_cmd = f"""\
         {PIPEFAIL}
         samtools merge -n -@{min(nthreads, 6) - 1} - {' '.join(map(str, sorted_bams))} \
-        {dedup_sort_cmd(nthreads, merge_j.markdup_metrics)}
         """.strip()
         jobs.extend(sharded_align_jobs)
         jobs.append(merge_j)
