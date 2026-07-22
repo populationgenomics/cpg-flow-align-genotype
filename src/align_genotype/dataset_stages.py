@@ -268,7 +268,6 @@ class MasterQc(stage.DatasetStage):
     def queue_jobs(self, dataset: targets.Dataset, _inputs: stage.StageInput) -> stage.StageOutput:
         outputs = self.expected_outputs(dataset)
 
-
         jobs = master_qc.master_qc(
             dataset=dataset.name,
             outputs=outputs,

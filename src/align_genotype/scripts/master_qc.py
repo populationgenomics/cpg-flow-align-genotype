@@ -9,10 +9,9 @@ from pathlib import Path
 
 import jinja2
 from loguru import logger
-from metamist.graphql import gql, query
 
 from cpg_utils.config import config_retrieve
-
+from metamist.graphql import gql, query
 
 JINJA_TEMPLATE_DIR = Path(__file__).absolute().parent.parent / 'templates'
 

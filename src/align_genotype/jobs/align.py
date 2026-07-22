@@ -7,9 +7,10 @@ import os.path
 from textwrap import dedent
 from typing import cast
 
+from hailtop.batch.job import BashJob
+
 from cpg_flow import filetypes, resources, targets, utils
 from cpg_utils import Path, config, hail_batch, to_path
-from hailtop.batch.job import BashJob
 
 from align_genotype.jobs import picard
 

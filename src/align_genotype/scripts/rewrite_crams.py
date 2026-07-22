@@ -8,8 +8,9 @@ Queries datasets from CRAMs written after 25th February 2026.
 import argparse
 from datetime import datetime, timezone
 
-from cpg_utils import config, hail_batch
 from hailtop.batch.job import Job
+
+from cpg_utils import config, hail_batch
 from metamist.graphql import gql, query
 
 # The date the new Picard image with updated samtools was deployed, which produced CRAM v3.1 by default.
