@@ -64,9 +64,7 @@ def _prepare_sg_row(sg: dict) -> dict:
 
     n_active_cram = sum(1 for f in cram_flags if not f.get('resolved', False))
     n_active_gvcf = sum(1 for f in gvcf_flags if not f.get('resolved', False))
-    n_resolved = sum(1 for f in cram_flags if f.get('resolved', False)) + sum(
-        1 for f in gvcf_flags if f.get('resolved', False)
-    )
+    n_resolved = (len(cram_flags) + len(gvcf_flags)) - (n_active_cram + n_active_gvcf)
 
     summary_parts = []
     if n_active_cram:
@@ -148,6 +146,6 @@ def main(dataset: str, output_html: str):
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--dataset', required=True, help='Metamist dataset/project name')
-    parser.add_argument('--output-html', required=True, help='Path to write the HTML report')
+    parser.add_argument('--output', required=True, help='Path to write the HTML report')
     args = parser.parse_args()
     main(args.dataset, args.output_html)

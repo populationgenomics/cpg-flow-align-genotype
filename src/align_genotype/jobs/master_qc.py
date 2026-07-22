@@ -25,7 +25,7 @@ def master_qc(
         f"""\
     python3 -m align_genotype.scripts.master_qc \\
     --dataset {dataset} \\
-    --output-html {j.html}
+    --output {j.html}
     """
     )
 
