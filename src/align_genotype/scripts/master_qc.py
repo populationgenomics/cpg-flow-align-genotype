@@ -11,6 +11,9 @@ import jinja2
 from loguru import logger
 from metamist.graphql import gql, query
 
+from cpg_utils.config import config_retrieve
+
+
 JINJA_TEMPLATE_DIR = Path(__file__).absolute().parent.parent / 'templates'
 
 DATASET_QC_FLAGS_QUERY = gql(
@@ -122,6 +125,10 @@ def render_report(dataset: str, sg_data: list[dict]) -> str:
 
 def main(dataset: str, output_html: str):
     """Query Metamist for QC flags and generate a master QC HTML report."""
+
+    if config_retrieve(['workflow', 'access_level'], 'standard') == 'test' and '-test' not in dataset:
+        dataset = f'{dataset}-test'
+
     logger.info(f'Querying Metamist for QC flags in dataset: {dataset}')
     response = query(DATASET_QC_FLAGS_QUERY, variables={'dataset': dataset})
     sequencing_groups = response['project']['sequencingGroups']

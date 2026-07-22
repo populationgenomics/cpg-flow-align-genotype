@@ -268,18 +268,10 @@ class MasterQc(stage.DatasetStage):
     def queue_jobs(self, dataset: targets.Dataset, _inputs: stage.StageInput) -> stage.StageOutput:
         outputs = self.expected_outputs(dataset)
 
-        if base_url := dataset.web_url():
-            html_url = str(outputs['html']).replace(str(dataset.web_prefix()), base_url)
-        else:
-            html_url = None
-
-        test = config.config_retrieve(['workflow', 'access_level'], None) == 'test'
-        dataset_name = dataset.name + '-test' if test else dataset.name
 
         jobs = master_qc.master_qc(
-            dataset_name=dataset_name,
+            dataset=dataset.name,
             outputs=outputs,
-            out_html_url=html_url,
             job_attrs=self.get_job_attrs(dataset),
         )
         return self.make_outputs(dataset, data=outputs, jobs=jobs)
