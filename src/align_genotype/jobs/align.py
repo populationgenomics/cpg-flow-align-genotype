@@ -11,7 +11,6 @@ from hailtop.batch.job import BashJob
 from cpg_flow import filetypes, targets
 from cpg_utils import Path, config, hail_batch
 
-
 DRAGMAP_INDEX_FILES = ['hash_table.cfg.bin', 'hash_table.cmp', 'reference.bin']
 PIPEFAIL = 'set -euo pipefail'
 

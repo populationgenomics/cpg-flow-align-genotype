@@ -2,7 +2,6 @@
 Create Hail Batch jobs to run Picard tools (interval scattering, QC).
 """
 
-import hailtop.batch as hb
 from hailtop.batch.job import BashJob
 
 from cpg_flow import resources
