@@ -272,7 +272,7 @@ def _align_one(
         # Need file names to end with ".gz" for BWA or DRAGMAP to parse correctly:
         prepare_fastq_cmd = dedent(
             f"""
-            set -euo pipefail
+            {pipefail_cmd}
             tar -xf {fqo_resource_group.reference} -C $BATCH_TMPDIR
             orad -c --ora-reference $BATCH_TMPDIR/oradata_homo_sapiens {fqo_resource_group.r1} > {r1_param}
             rm {fqo_resource_group.r1}
@@ -289,7 +289,7 @@ def _align_one(
         # Need file names to end with ".gz" for BWA or DRAGMAP to parse correctly:
         prepare_fastq_cmd = dedent(
             f"""\
-        set -euo pipefail
+        {pipefail_cmd}
         mv {fastq_pair.r1} {r1_param}
         mv {fastq_pair.r2} {r2_param}
         """,
