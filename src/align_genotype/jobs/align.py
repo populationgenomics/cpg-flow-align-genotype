@@ -2,26 +2,24 @@
 FASTQ/BAM/CRAM -> CRAM: create Hail Batch jobs for (re-)alignment.
 """
 
-import logging
 import os.path
 from textwrap import dedent
 from typing import cast
 
 from hailtop.batch.job import BashJob
 
-from cpg_flow import filetypes, resources, targets, utils
-from cpg_utils import Path, config, hail_batch, to_path
+from cpg_flow import filetypes, targets
+from cpg_utils import Path, config, hail_batch
 
-from align_genotype.jobs import picard
 
 DRAGMAP_INDEX_FILES = ['hash_table.cfg.bin', 'hash_table.cmp', 'reference.bin']
+PIPEFAIL = 'set -euo pipefail'
 
 
 def align(
     sequencing_group: targets.SequencingGroup,
     job_attrs: dict,
     output_path: Path,
-    sorted_bam_path: str,
     markdup_metrics_path: str,
 ) -> list[BashJob]:
     """
@@ -38,9 +36,8 @@ def align(
         - for dragmap, submit an extra job to extract a pair of fastqs from the cram/bam,
         because dragmap can't read streamed files from bazam.
 
-    - if the sorted bam can be reused, skip the alignment job(s) and go straight to markdup.
-
-    - the markdup tool is picard, deduplication is submitted in a separate job.
+    - deduplication (dupblaster) and CRAM conversion run in-stream within the
+    alignment/merge job, so no separate markdup job is submitted.
 
     - nthreads can be set for smaller test runs on toy instance, so the job
     doesn't take entire 32-cpu/64-threaded instance.
@@ -66,94 +63,85 @@ def align(
     sharded_align_jobs = []
     sorted_bams = []
 
-    if utils.can_reuse(sorted_bam_path):
-        logging.info(f'{sequencing_group.id} :: Re-using sorted BAM: {sorted_bam_path}')
-        # It's necessary to create this merge_or_align_j object to pass it to finalise_alignment,
-        # and to declare the sorted_bam_path as a resource, so it can be written to the checkpoint.
-        job_attrs = (job_attrs or {}) | {'label': 'Reusing sorted bam', 'tool': 'Reusing sorted bam'}
-        merge_or_align_j = batch_instance.new_bash_job('Reusing sorted bam', job_attrs or {})
-        merge_or_align_j.image(config.config_retrieve(['workflow', 'driver_image']))
-        merge_or_align_j.sorted_bam = batch_instance.read_input(sorted_bam_path)
-        jobs.append(merge_or_align_j)
-        # The align_cmd and other parameters are not used but are necessary to pass to finalise_alignment.
-        align_cmd = ''
-        stdout_is_sorted = True
-
-    elif not sharded:  # Just running one alignment job
+    if not sharded:  # Just running one alignment job
         if isinstance(alignment_input, filetypes.FastqPairs):
             alignment_input = alignment_input[0]
-        align_j, align_cmd = _align_one(
+        align_j, align_cmd, fifo_epilogue = _align_one(
             alignment_input=alignment_input,
             sequencing_group_name=sequencing_group.id,
             job_attrs=job_attrs,
-            should_sort=False,
+            name_sort_for_merge=False,
         )
-        stdout_is_sorted = False
         jobs.append(align_j)
         merge_or_align_j = align_j
 
     # Aligning in parallel and merging afterwards
     else:
+        fifo_epilogue = ''  # the merged command below never uses a fifo
         if sharded_fq:  # Aligning each lane separately, merging after
             # running alignment for each fastq pair in parallel
             fastq_pairs = cast('filetypes.FastqPairs', alignment_input)
             for pair in fastq_pairs:
-                # dragmap command, without sorting and deduplication:
-                j, cmd = _align_one(
+                # dragmap command, name-sorting each lane (dedup happens after the merge):
+                j, cmd, shard_fifo_epilogue = _align_one(
                     alignment_input=pair,
                     sequencing_group_name=sequencing_group.id,
                     job_attrs=job_attrs,
-                    should_sort=True,
+                    name_sort_for_merge=True,
                 )
-                j.command(hail_batch.command(cmd, monitor_space=True))
+                if shard_fifo_epilogue:
+                    cmd += f'\n{shard_fifo_epilogue}'
+                j.command(cmd)
                 sorted_bams.append(j.sorted_bam)
                 sharded_align_jobs.append(j)
 
         elif sharded_bazam:  # Using BAZAM to shard CRAM
             for shard_number in range(realignment_shards):
                 shard_string = f'{shard_number + 1}/{realignment_shards}'
-                j, cmd = _align_one(
+                j, cmd, shard_fifo_epilogue = _align_one(
                     alignment_input=alignment_input,
                     sequencing_group_name=sequencing_group.id,
                     job_attrs=job_attrs,
                     shard_string=shard_string,
-                    should_sort=True,
+                    name_sort_for_merge=True,
                 )
-                # Sorting with samtools, but not adding deduplication yet, because we need to merge first.
-                j.command(hail_batch.command(cmd, monitor_space=True))
+                # Name-sorting with samtools; deduplication runs after the merge, since dupblaster
+                # must see the full RG-ordered read stream to catch cross-shard duplicates.
+                if shard_fifo_epilogue:
+                    cmd += f'\n{shard_fifo_epilogue}'
+                j.command(cmd)
                 sorted_bams.append(j.sorted_bam)
                 sharded_align_jobs.append(j)
 
         merge_j = batch_instance.new_bash_job('Merge BAMs', (job_attrs or {}) | {'tool': 'samtools_merge'})
-        merge_j.image(config.config_retrieve(['images', 'samtools']))
+        merge_j.image(config.config_retrieve(['workflow', 'driver_image']))
 
-        nthreads = resources.STANDARD.set_resources(
-            j=merge_j,
-            nthreads=config.config_retrieve(['workflow', 'align_threads'], resources.STANDARD.max_threads()),
-            # for FASTQ or BAM inputs, requesting more disk (400G). Example when
-            # default is not enough: https://batch.hail.populationgenomics.org.au/batches/73892/jobs/56
-            storage_gb=storage_for_align_job(
-                alignment_input=alignment_input,
-            ),
-        ).get_nthreads()
+        # for FASTQ or BAM inputs, requesting more disk (400G). Example when
+        # default is not enough: https://batch.hail.populationgenomics.org.au/batches/73892/jobs/56
+        nthreads = config.config_retrieve(['workflow', 'merge_threads'], 16)
+        storage_gb = storage_for_align_job(alignment_input=alignment_input)
+        merge_j.storage(f'{storage_gb}GiB')
+        merge_j.cpu(nthreads)
+        merge_j.memory('highmem')
 
+        # Merge the name-sorted shards in name order, deduplicate the combined RG-ordered
+        # stream with dupblaster, then coordinate-sort the result for downstream tools.
         align_cmd = f"""\
-        samtools merge -@{nthreads - 1} - {' '.join(map(str, sorted_bams))}
+        {PIPEFAIL}
+        samtools merge -n -@{min(nthreads, 6) - 1} - {' '.join(map(str, sorted_bams))} \
+        {dedup_sort_cmd(nthreads, merge_j.markdup_metrics)}
         """.strip()
         jobs.extend(sharded_align_jobs)
         jobs.append(merge_j)
         merge_or_align_j = merge_j
-        stdout_is_sorted = True
 
     jobs.append(
         finalise_alignment(
             align_cmd=align_cmd,
-            stdout_is_sorted=stdout_is_sorted,
             job=merge_or_align_j,
-            job_attrs=job_attrs,
             output_path=output_path,
-            sorted_bam_path=sorted_bam_path,
             out_markdup_metrics_path=markdup_metrics_path,
+            fifo_epilogue=fifo_epilogue,
         )
     )
 
@@ -171,24 +159,29 @@ def storage_for_align_job(alignment_input: filetypes.AlignmentInput) -> int:
         return storage_gb
 
     # Taking a full instance without attached by default:
-    storage_gb = resources.STANDARD.calc_instance_disk_gb()
+    storage_gb = 100
+
     if config.config_retrieve(['workflow', 'sequencing_type']) == 'genome':
+        storage_gb = 400
+
         # More disk is needed for FASTQ or BAM inputs than for realignment from CRAM
         if isinstance(alignment_input, filetypes.FastqPair | filetypes.FastqPairs | filetypes.BamPath):
             storage_gb = 400
+
         # For unindexed/unsorted CRAM or BAM inputs, extra storage is needed for tmp
         if isinstance(alignment_input, filetypes.CramPath | filetypes.BamPath) and not alignment_input.index_path:
             storage_gb += 150
+
     return storage_gb
 
 
-def _align_one(  # noqa: PLR0915
+def _align_one(
     alignment_input: filetypes.FastqPair | filetypes.FastqOraPair | filetypes.CramPath | filetypes.BamPath,
     sequencing_group_name: str,
     job_attrs: dict,
     shard_string: str | None = None,
-    should_sort: bool = False,
-) -> tuple[BashJob, str]:
+    name_sort_for_merge: bool = False,
+) -> tuple[BashJob, str, str]:
     """
     Creates a job that (re)aligns reads to hg38. Returns the job object and a command
     separately, and doesn't add the command to the Job object, so stream-sorting
@@ -199,23 +192,21 @@ def _align_one(  # noqa: PLR0915
 
     batch_instance = hail_batch.get_batch()
 
-    requested_nthreads = config.config_retrieve(['workflow', 'align_threads'], resources.STANDARD.max_threads())
-
-    job_name = f'Align {shard_string} ' if shard_string else f'Align {alignment_input}'
-
-    job = batch_instance.new_bash_job(name=job_name, attributes=job_attrs | {'tool': 'dragmap'})
+    job = batch_instance.new_bash_job(
+        name=f'Align {shard_string} ' if shard_string else f'Align {alignment_input}',
+        attributes=job_attrs | {'tool': 'dragmap'},
+    )
 
     # allow alignment jobs to be non-spot
     job.spot(config.config_retrieve(['workflow', 'align_spot'], True))
 
-    vm_type = resources.HIGHMEM if config.config_retrieve(['workflow', 'align_use_highmem']) else resources.STANDARD
-
-    # confused by this error message
-    nthreads = vm_type.set_resources(
-        j=job,
-        nthreads=config.config_retrieve(['workflow', 'align_threads'], resources.STANDARD.max_threads()),
-        storage_gb=storage_for_align_job(alignment_input=alignment_input),
-    ).get_nthreads()
+    # stop messing about with the indirection of the resource profiles - set explicitly
+    storage_gb = storage_for_align_job(alignment_input)
+    nthreads = config.config_retrieve(['workflow', 'align_threads'], 16)
+    # this uses the DRAGMAP base image, but with the ORAD decompression software added in (see config)
+    job.storage(f'{storage_gb}GiB').cpu(nthreads).memory(
+        config.config_retrieve(['workflow', 'align_memory'], 'highmem')
+    ).image(config.config_retrieve(['images', 'dragmap']))
 
     sort_index_input_cmd = ''
 
@@ -283,6 +274,7 @@ def _align_one(  # noqa: PLR0915
         # Need file names to end with ".gz" for BWA or DRAGMAP to parse correctly:
         prepare_fastq_cmd = dedent(
             f"""
+            {PIPEFAIL}
             tar -xf {fqo_resource_group.reference} -C $BATCH_TMPDIR
             orad -c --ora-reference $BATCH_TMPDIR/oradata_homo_sapiens {fqo_resource_group.r1} > {r1_param}
             rm {fqo_resource_group.r1}
@@ -299,13 +291,11 @@ def _align_one(  # noqa: PLR0915
         # Need file names to end with ".gz" for BWA or DRAGMAP to parse correctly:
         prepare_fastq_cmd = dedent(
             f"""\
+        {PIPEFAIL}
         mv {fastq_pair.r1} {r1_param}
         mv {fastq_pair.r2} {r2_param}
         """,
         )
-
-    # this uses the DRAGMAP base image, but with the ORAD decompression software added in (see config)
-    job.image(config.config_retrieve(['images', 'dragmap']))
 
     dragmap_index = batch_instance.read_input_group(
         **{
@@ -323,25 +313,29 @@ def _align_one(  # noqa: PLR0915
         --num-threads {nthreads - 1}
     """
 
-    # prepare command for adding sort on the end
+    # name-sort each shard so `samtools merge -n` produces an RG-ordered stream for dupblaster
     cmd = dedent(cmd).strip()
-    if should_sort:
-        cmd += ' ' + sort_cmd(requested_nthreads) + f' -o {job.sorted_bam}'
+    if name_sort_for_merge:
+        cmd += ' ' + name_sort_cmd(nthreads) + f' -o {job.sorted_bam}'
 
+    # Wait-check appended after the core command by the caller, once any downstream pipe
+    # stages (e.g. dedup/sort) have been attached - it must not sit between the aligner's
+    # stdout and those stages, or the pipe ends up reading the echo output instead.
+    fifo_epilogue = ''
     if fifo_commands:
         fifo_pre = [
             dedent(
                 f"""
             mkfifo {fname}
-            {cmd} > {fname} &
+            {sub_cmd} > {fname} &
             pid_{fname}=$!
         """,
             ).strip()
-            for fname, cmd in fifo_commands.items()
+            for fname, sub_cmd in fifo_commands.items()
         ]
 
         _fifo_waits = ' && '.join(f'wait $pid_{fname}' for fname in fifo_commands)
-        fifo_post = dedent(
+        fifo_epilogue = dedent(
             f"""
             if {_fifo_waits}
             then
@@ -354,65 +348,73 @@ def _align_one(  # noqa: PLR0915
         ).strip()
 
         # Now prepare command
-        cmd = '\n'.join([sort_index_input_cmd, *fifo_pre, cmd, fifo_post])
-    return job, cmd
+        cmd = '\n'.join([PIPEFAIL, sort_index_input_cmd, *fifo_pre, cmd])
+    return job, cmd, fifo_epilogue
 
 
-def sort_cmd(requested_nthreads: int) -> str:
+def name_sort_cmd(nthreads: int) -> str:
     """
-    Create command that coordinate-sorts SAM file
+    Create command that name-sorts a SAM/BAM stream, grouping reads by name (RG order)
+    so that dupblaster can deduplicate in-stream after the shards are merged.
     """
-    nthreads = resources.STANDARD.request_resources(nthreads=requested_nthreads).get_nthreads()
-    return dedent(
-        f"""\
-    | samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-sort-tmp -Obam
-    """,
-    ).strip()
+    return f'| samtools sort -n -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/sam-sort-tmp -Obam '
+
+
+def dedup_sort_cmd(nthreads: int, stats_path: str) -> str:
+    """
+    Create command that deduplicates a name-sorted (RG-ordered) stream with dupblaster,
+    writing duplication stats to `stats_path`, then coordinate-sorts the result.
+    """
+    cmd = f'| dupblaster --stats {stats_path} '
+    cmd += f'| samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-dd-tmp -Obam '
+    return cmd
 
 
 def finalise_alignment(
     align_cmd: str,
-    stdout_is_sorted: bool,
     job: BashJob,
-    job_attrs: dict,
     output_path: Path,
-    sorted_bam_path: str,
     out_markdup_metrics_path: str,
+    fifo_epilogue: str = '',
 ) -> BashJob:
     """
-    For `MarkDupTool.PICARD`, creates a new job, as Picard can't read from stdin.
+    Deduplication (dupblaster) and CRAM conversion (samtools) both run in-stream within the
+    alignment/merge job - the DRAGMAP and samtools images both provide samtools, so no extra
+    job or image is needed. This appends the CRAM conversion to the pipeline and persists the
+    duplication stats and indexed CRAM.
     """
 
     batch_instance = hail_batch.get_batch()
 
-    nthreads = resources.STANDARD.request_resources(
-        nthreads=config.config_retrieve(
-            ['workflow', 'align_threads'],
-            resources.STANDARD.max_threads(),
-        )
-    ).get_nthreads()
+    nthreads = config.config_retrieve(['workflow', 'merge_threads'], 8)
+
+    job.declare_resource_group(
+        output_cram={
+            'cram': '{root}.cram',
+            'cram.crai': '{root}.cram.crai',
+        },
+    )
+    fasta_reference = hail_batch.fasta_res_group(batch_instance)
 
     align_cmd = align_cmd.strip()
-    if not stdout_is_sorted:
-        align_cmd += f' {sort_cmd(nthreads)}'
-    align_cmd += f' > {job.sorted_bam}'
 
-    if not utils.can_reuse(sorted_bam_path):
-        job.command(hail_batch.command(align_cmd, monitor_space=True))
+    # dedup the raw RG-ordered dragen-os stream, then coordinate-sort
+    align_cmd += f' {dedup_sort_cmd(nthreads, job.markdup_metrics)}'
 
-    if (
-        sorted_bam_path
-        and not to_path(sorted_bam_path).exists()
-        and config.config_retrieve(['workflow', 'checkpoint_sorted_bam'], False)
-    ):
-        # Write the sorted BAM to the checkpoint if it doesn't already exist and the config is set
-        logging.info(f'Will write sorted bam to checkpoint: {sorted_bam_path}')
-        batch_instance.write_output(job.sorted_bam, sorted_bam_path)
-
-    return picard.markdup(
-        batch_instance=batch_instance,
-        sorted_bam=job.sorted_bam,
-        output_path=output_path,
-        out_markdup_metrics_path=out_markdup_metrics_path,
-        job_attrs=job_attrs,
+    # convert the coordinate-sorted, duplicate-marked stream to an indexed CRAM in-stream
+    align_cmd += (
+        f' | samtools view --write-index -@{min(nthreads, 6) - 1} '
+        f'-T {fasta_reference.base} -O cram,version=3.0 -o {job.output_cram.cram} -'
     )
+    if fifo_epilogue:
+        # bazam background-writer wait-check: must come after the full pipeline, not between
+        # the aligner and the dedup/sort/view stages consuming its stdout
+        align_cmd += f'\n{fifo_epilogue}'
+
+    job.command(align_cmd)
+
+    # persist the duplication stats produced by dupblaster and the indexed CRAM
+    batch_instance.write_output(job.markdup_metrics, out_markdup_metrics_path)
+    batch_instance.write_output(job.output_cram, str(output_path.with_suffix('')))
+
+    return job

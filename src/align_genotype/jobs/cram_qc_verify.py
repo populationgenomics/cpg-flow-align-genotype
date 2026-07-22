@@ -46,7 +46,7 @@ def verifybamid(
 
     job.command(
         f"""\
-        /root/micromamba/share/verifybamid2-2.0.1-8/VerifyBamID \
+        VerifyBamID \
             --NumThread {res.get_nthreads()} \
             --Verbose \
             --NumPC 4 \

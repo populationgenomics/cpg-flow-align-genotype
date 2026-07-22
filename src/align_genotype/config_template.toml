@@ -7,41 +7,22 @@ align_spot = true
 
 # exome/genome workflows choose one of these default values
 exome_realignment_shards = 1
-genome_realignment_shards = 10
+genome_realignment_shards = 6
 
-# use the HIGHMEM template machine type for alignment
-align_use_highmem = false
+# number of threads to use for alignment, defaulting to 16
+#align_threads = 16
 
-# whether to bank the sorted BAM to GCP (temp) prior to markdup
-checkpoint_sorted_bam = false
+# number of threads to use for merging, defaulting to 8
+#merge_threads = 8
 
-# number of threads to use for alignment, defaulting to 32 on a 16-core machine
-#align_threads
-
-# to manually set the storage attached to align jobs
+# to manually set the resources of align jobs
+#align_memory = 'highmem'
 #align_storage = 100
-
-# Set to false to disable the use of spot instances for the Picard MarkDuplicates jobs, which
-# can be particularly long-running and prone to multiple pre-emptions for some large sequencing groups
-picard_spot = true
-
-# set to assign a specific amount of RAM to the picard jobs, defaults available
-#picard_mem_gb
-
-# overhead to add to the memory request for picard markduplicates
-picard_markdup_exome_overhead_gb = 1.0
-picard_markdup_genome_overhead_gb = 5.0
-
-# Maximum number of records to keep in RAM for Picard MarkDuplicates
-# picard_markdup_max_records_in_ram =
 
 # set to use highmem workers for picard qc metrics jobs, defaults to false
 picard_metrics_use_highmem = false
 picard_metrics_ncpu = 2
 picard_metrics_mem_gb = 8
-
-# set to override the picard attached storage, default 250
-picard_storage_gb = 250
 
 # used to make sure we don't repeat previously completed stages
 check_expected_outputs = true
@@ -58,7 +39,7 @@ genome_cram_gb = 100
 downsample_reads = 20
 
 # Shard count for HaplotypeCaller
-scatter_count_genotype = 50
+scatter_count_genotype = 30
 
 # HaplotypeCaller resource options
 # Best performance for genomes - highmem, 4 cpus, 4 pairhmm threads
@@ -100,12 +81,12 @@ plots_force_interactive = true
 ref_fasta = "gs://cpg-common-main/references/hg38/v0/dragen_reference/Homo_sapiens_assembly38_masked.fasta"
 
 [images]
-dragmap = "australia-southeast1-docker.pkg.dev/cpg-common/images/dragmap_plus_ora:2.7.0-1"
+dragmap = "australia-southeast1-docker.pkg.dev/cpg-common/images/dragmap_ora_dupblaster:2.7.0-1"
 gatk = "australia-southeast1-docker.pkg.dev/cpg-common/images/gatk:4.6.2.0-2"
 picard = "australia-southeast1-docker.pkg.dev/cpg-common/images/picard:3.4.0-3"
-samtools = "australia-southeast1-docker.pkg.dev/cpg-common/images/samtools:1.18"
+samtools = "australia-southeast1-docker.pkg.dev/cpg-common/images/samtools:1.23.1-1"
 somalier = "australia-southeast1-docker.pkg.dev/cpg-common/images/somalier:0.3.1-1"
-verifybamid = "australia-southeast1-docker.pkg.dev/cpg-common/images/verifybamid:2.0.1"
+verifybamid = "australia-southeast1-docker.pkg.dev/cpg-common/images/verifybamid:v2.0.3-1"
 vntyper = "australia-southeast1-docker.pkg.dev/cpg-common/images/vntyper:2.0.3-2"
 
 [references]
