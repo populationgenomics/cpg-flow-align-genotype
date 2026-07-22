@@ -26,7 +26,7 @@ import argparse
 
 from cpg_utils import config, hail_batch, to_path
 
-from align_genotype.jobs.align import dedup_sort_cmd
+from align_genotype.jobs.align import PIPEFAIL, dedup_sort_cmd
 
 
 def parser_args() -> argparse.Namespace:
@@ -101,6 +101,7 @@ if __name__ == '__main__':
     #   4. samtools view                  -> indexed CRAM (v3.0) written to GCS
     bam_string = ' '.join(map(str, local_bams))
     CMD = (
+        f'{PIPEFAIL} \n'
         f'samtools merge -n -@5 - {bam_string} '
         f'{dedup_sort_cmd(nthreads, merge_job.markdup_metrics)} '
         f'| samtools view --write-index -@5 '
