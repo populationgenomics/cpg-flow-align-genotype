@@ -2,10 +2,11 @@
 Adding jobs for fingerprinting and pedigree checks. Mostly using Somalier.
 """
 
-from cpg_flow import targets, utils
-from cpg_utils import Path, config, hail_batch
 from hailtop.batch import Resource
 from hailtop.batch.job import BashJob
+
+from cpg_flow import targets, utils
+from cpg_utils import Path, config, hail_batch
 
 # We want to exclude contaminated sequencing groups from relatedness checks. Somalier is not
 # designed to work with contaminated sequencing groups, and in a presence of contamination it

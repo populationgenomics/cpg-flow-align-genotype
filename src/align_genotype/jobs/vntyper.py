@@ -2,10 +2,12 @@
 CRAM to VNtyper results: create Hail Batch jobs to run VNtyper on individual sequencing groups.
 """
 
+from loguru import logger
+
+from hailtop.batch.job import BashJob
+
 from cpg_flow import resources
 from cpg_utils import Path, config, hail_batch
-from hailtop.batch.job import BashJob
-from loguru import logger
 
 """
 Possible outputs:

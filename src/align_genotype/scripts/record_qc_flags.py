@@ -4,6 +4,7 @@ from datetime import datetime
 
 import click
 from loguru import logger
+
 from metamist.graphql import gql, query
 
 from align_genotype.utils import QcFlag
