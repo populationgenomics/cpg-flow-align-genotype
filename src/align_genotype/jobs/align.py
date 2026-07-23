@@ -172,7 +172,7 @@ def storage_for_align_job(alignment_input: filetypes.AlignmentInput) -> int:
     return storage_gb
 
 
-def _align_one(
+def _align_one(  # noqa: PLR0915
     alignment_input: filetypes.FastqPair | filetypes.FastqOraPair | filetypes.CramPath | filetypes.BamPath,
     sequencing_group_name: str,
     job_attrs: dict,
@@ -303,7 +303,27 @@ def _align_one(
     input_params = f'--interleaved=1 -b {r1_param}' if use_bazam else f'-1 {r1_param} -2 {r2_param}'
     # TODO: consider reverting to use of all threads if node capacity
     # issue is resolved: https://hail.zulipchat.com/#narrow/stream/223457-Hail-Batch-support/topic/Job.20becomes.20unresponsive
+    # add a watch_disk loop to monitor disk space, and terminate the job before entering a zombie state.
+    # default value is 2GB in KB
+    storage_buffer = config.config_retrieve(['workflow', 'align_buffer_kb'], 2097152)
     cmd = f"""\
+    watch_disk() {{
+    local min_free_kb={storage_buffer}
+    while true; do
+      local avail
+      avail=$(df --output=avail "$BATCH_TMPDIR" | tail -1)
+      if (( avail < min_free_kb )); then
+        echo "FATAL: $BATCH_TMPDIR has ${{avail}}KB free (< ${{min_free_kb}}KB) — aborting before disk fills" >&2
+        kill -TERM -$$ 2>/dev/null
+        exit 1
+      fi
+      sleep 15
+    done
+    }}
+    watch_disk &
+    WATCHDOG_PID=$!
+    trap 'kill "$WATCHDOG_PID" 2>/dev/null' EXIT
+
     {prepare_fastq_cmd}
     dragen-os -r {dragmap_index} {input_params} \\
         --RGID {sequencing_group_name} --RGSM {sequencing_group_name} \\
