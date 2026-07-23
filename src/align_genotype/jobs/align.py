@@ -304,9 +304,11 @@ def _align_one(
     # TODO: consider reverting to use of all threads if node capacity
     # issue is resolved: https://hail.zulipchat.com/#narrow/stream/223457-Hail-Batch-support/topic/Job.20becomes.20unresponsive
     # add a watch_disk loop to monitor disk space, and terminate the job before entering a zombie state.
+    # default value is 2GB in KB
+    storage_buffer = config.config_retrieve(['workflow', 'align_buffer_kb'], 2097152)
     cmd = f"""\
     watch_disk() {{
-    local min_free_kb=2097152
+    local min_free_kb={storage_buffer}
     while true; do
       local avail
       avail=$(df --output=avail "$BATCH_TMPDIR" | tail -1)

@@ -19,6 +19,9 @@ genome_realignment_shards = 6
 #align_memory = 'highmem'
 #align_storage = 100
 
+# amount of storage space required - once free storage dips below this limit, the job will be killed
+align_buffer_kb = 2097152
+
 # set to use highmem workers for picard qc metrics jobs, defaults to false
 picard_metrics_use_highmem = false
 picard_metrics_ncpu = 2
