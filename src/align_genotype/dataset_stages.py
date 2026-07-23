@@ -1,7 +1,7 @@
 from cpg_flow import stage, targets
 from cpg_utils import Path, config
 
-from align_genotype.jobs import multiqc, somalier
+from align_genotype.jobs import master_qc, multiqc, somalier
 from align_genotype.stages import (
     CramQcPicardCollectMetrics,
     CramQcPicardMultiMetrics,
@@ -244,5 +244,33 @@ class GvcfMultiQC(stage.DatasetStage):
             label='GVCF',
             extra_config=extra_config,
             send_to_slack=send_to_slack,
+        )
+        return self.make_outputs(dataset, data=outputs, jobs=jobs)
+
+
+@stage.stage(
+    required_stages=[CramMultiQC, GvcfMultiQC],
+    analysis_type='web',
+    analysis_keys=['html'],
+)
+class MasterQc(stage.DatasetStage):
+    """
+    Queries Metamist for all QC flags across the dataset's sequencing groups
+    and generates a summary HTML report at a static URL.
+    """
+
+    def expected_outputs(self, dataset: targets.Dataset) -> dict[str, Path]:
+        qc_subdir = f'{subdir}/qc' if (subdir := targets.sequencing_subdir()) else 'qc'
+        return {
+            'html': dataset.web_prefix() / qc_subdir / 'master-qc.html',
+        }
+
+    def queue_jobs(self, dataset: targets.Dataset, _inputs: stage.StageInput) -> stage.StageOutput:
+        outputs = self.expected_outputs(dataset)
+
+        jobs = master_qc.master_qc(
+            dataset=dataset.name,
+            outputs=outputs,
+            job_attrs=self.get_job_attrs(dataset),
         )
         return self.make_outputs(dataset, data=outputs, jobs=jobs)
