@@ -121,8 +121,7 @@ def multiqc(
         jobs.append(check_j)
 
         # Important to add the -test suffix as dataset_name is used in GraphQL queries
-        test = config.config_retrieve(['workflow', 'access_level'], None) == 'test'
-        dataset_name = dataset.name + '-test' if test else dataset.name
+        dataset_name = config.dataset_for_access_level(dataset.name)
         record_j = record_qc_flags_job(
             b=batch_instance,
             dataset_name=dataset_name,

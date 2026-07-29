@@ -1,7 +1,7 @@
 from cpg_flow import stage, targets
 from cpg_utils import Path, config
 
-from align_genotype.jobs import sg_qc_report, multiqc, somalier
+from align_genotype.jobs import multiqc, sg_qc_report, somalier
 from align_genotype.stages import (
     CramQcPicardCollectMetrics,
     CramQcPicardMultiMetrics,
