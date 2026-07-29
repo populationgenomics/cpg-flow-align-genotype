@@ -1,6 +1,6 @@
 """
 Queries Metamist for all QC flags across a dataset's sequencing groups
-and renders the master_qc.html.jinja template.
+and renders the sg_qc_overview.html.jinja template.
 """
 
 from argparse import ArgumentParser
@@ -10,7 +10,7 @@ from pathlib import Path
 import jinja2
 from loguru import logger
 
-from cpg_utils.config import config_retrieve
+from cpg_utils.config import config_retrieve, dataset_for_access_level
 from metamist.graphql import gql, query
 
 JINJA_TEMPLATE_DIR = Path(__file__).absolute().parent.parent / 'templates'
@@ -108,7 +108,7 @@ def render_report(dataset: str, sg_data: list[dict]) -> str:
     rows = [_prepare_sg_row(sg) for sg in sorted(sg_data, key=lambda s: s['id'])]
 
     env = jinja2.Environment(loader=jinja2.FileSystemLoader(JINJA_TEMPLATE_DIR), autoescape=True)
-    template = env.get_template('master_qc.html.jinja')
+    template = env.get_template('sg_qc_overview.html.jinja')
     return template.render(
         dataset=dataset,
         generated_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),  # noqa: DTZ005
@@ -121,10 +121,9 @@ def render_report(dataset: str, sg_data: list[dict]) -> str:
 
 
 def main(dataset: str, output_html: str):
-    """Query Metamist for QC flags and generate a master QC HTML report."""
+    """Query Metamist for QC flags and generate a SG QC HTML report."""
 
-    if config_retrieve(['workflow', 'access_level'], 'standard') == 'test' and '-test' not in dataset:
-        dataset = f'{dataset}-test'
+    dataset = dataset_for_access_level(dataset)
 
     logger.info(f'Querying Metamist for QC flags in dataset: {dataset}')
     response = query(DATASET_QC_FLAGS_QUERY, variables={'dataset': dataset})
@@ -139,7 +138,7 @@ def main(dataset: str, output_html: str):
 
     with open(output_html, 'w') as f:
         f.write(html)
-    logger.info(f'Wrote master QC report to {output_html}')
+    logger.info(f'Wrote SG QC report to {output_html}')
 
 
 if __name__ == '__main__':

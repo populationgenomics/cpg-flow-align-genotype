@@ -1,5 +1,5 @@
 """
-Batch job to generate the master QC HTML report from Metamist QC flags.
+Batch job to generate the SequencingGroup QC HTML report from Metamist QC flags.
 """
 
 from hailtop.batch.job import Job
@@ -7,7 +7,7 @@ from hailtop.batch.job import Job
 from cpg_utils import Path, config, hail_batch
 
 
-def master_qc(
+def sg_qc_report_job(
     dataset: str,
     outputs: dict[str, Path],
     job_attrs: dict,
@@ -18,14 +18,14 @@ def master_qc(
     """
     batch = hail_batch.get_batch()
 
-    j = batch.new_bash_job('Master QC Report', job_attrs | {'tool': 'python'})
+    j = batch.new_bash_job(f'SG QC Report: {dataset}', job_attrs | {'tool': 'python'})
     j.image(config.config_retrieve(['workflow', 'driver_image'])).memory('standard').cpu(2)
 
     j.command(
         f"""\
-    python3 -m align_genotype.scripts.master_qc \\
-    --dataset {dataset} \\
-    --output {j.html}
+    python3 -m align_genotype.scripts.sg_qc_report \\
+        --dataset {dataset} \\
+        --output {j.html}
     """
     )
 
