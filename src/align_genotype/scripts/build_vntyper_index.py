@@ -11,6 +11,7 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 import jinja2
+
 from cpg_utils import config, to_path
 from metamist import graphql
 

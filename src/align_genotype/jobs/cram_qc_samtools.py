@@ -2,9 +2,10 @@
 Create Hail Batch jobs for samtools.
 """
 
+from hailtop.batch.job import Job
+
 from cpg_flow import resources
 from cpg_utils import Path, config, hail_batch
-from hailtop.batch.job import Job
 
 
 def samtools_stats(

@@ -1,10 +1,11 @@
 import click
+from google.cloud import storage
+from loguru import logger
+
 from cpg_flow.resources import STANDARD
 from cpg_utils import Path, to_path
 from cpg_utils.config import get_gcp_project, image_path
 from cpg_utils.hail_batch import Batch, command, get_batch
-from google.cloud import storage
-from loguru import logger
 
 TEN_GB = 10 * 1024**3
 

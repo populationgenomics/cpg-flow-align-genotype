@@ -5,9 +5,10 @@ CRAM to GVCF: create Hail Batch jobs to genotype individual sequencing groups.
 import logging
 
 import hailtop.batch as hb
+from hailtop.batch.job import BashJob
+
 from cpg_flow import filetypes, resources, utils
 from cpg_utils import Path, config, hail_batch
-from hailtop.batch.job import BashJob
 
 GLOBAL_INTERVALS: list[hb.ResourceFile] | None = None
 

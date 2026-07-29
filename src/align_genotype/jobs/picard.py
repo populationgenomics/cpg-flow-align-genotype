@@ -2,9 +2,10 @@
 Create Hail Batch jobs to run Picard tools (interval scattering, QC).
 """
 
+from hailtop.batch.job import BashJob
+
 from cpg_flow import resources
 from cpg_utils import Path, config, hail_batch
-from hailtop.batch.job import BashJob
 
 
 def generate_intervals(output_paths: list[Path], job_attrs: dict[str, str]) -> BashJob:

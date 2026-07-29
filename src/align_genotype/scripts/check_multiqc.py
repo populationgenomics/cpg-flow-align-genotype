@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import Any
 
 import click
+
 from cpg_utils import config, to_path
 from cpg_utils.slack import send_message
 
