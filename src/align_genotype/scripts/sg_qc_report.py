@@ -120,7 +120,7 @@ def render_report(dataset: str, sg_data: list[dict]) -> str:
     )
 
 
-def main(dataset: str, output_html: str):
+def main(dataset: str, output: str):
     """Query Metamist for QC flags and generate a SG QC HTML report."""
 
     dataset = dataset_for_access_level(dataset)
@@ -136,9 +136,9 @@ def main(dataset: str, output_html: str):
 
     html = render_report(dataset, sg_data)
 
-    with open(output_html, 'w') as f:
+    with open(output, 'w') as f:
         f.write(html)
-    logger.info(f'Wrote SG QC report to {output_html}')
+    logger.info(f'Wrote SG QC report to {output}')
 
 
 if __name__ == '__main__':
@@ -146,4 +146,4 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', required=True, help='Metamist dataset/project name')
     parser.add_argument('--output', required=True, help='Path to write the HTML report')
     args = parser.parse_args()
-    main(args.dataset, args.output_html)
+    main(dataset=args.dataset, output=args.output)
