@@ -86,6 +86,7 @@ ref_fasta = "gs://cpg-common-main/references/hg38/v0/dragen_reference/Homo_sapie
 [images]
 dragmap = "australia-southeast1-docker.pkg.dev/cpg-common/images/dragmap_ora_dupblaster:2.7.0-1"
 gatk = "australia-southeast1-docker.pkg.dev/cpg-common/images/gatk:4.6.2.0-2"
+multiqc = "australia-southeast1-docker.pkg.dev/cpg-common/images/multiqc:1.33-1"
 picard = "australia-southeast1-docker.pkg.dev/cpg-common/images/picard:3.4.0-3"
 samtools = "australia-southeast1-docker.pkg.dev/cpg-common/images/samtools:1.23.1-1"
 somalier = "australia-southeast1-docker.pkg.dev/cpg-common/images/somalier:0.3.1-1"
