@@ -29,9 +29,9 @@ def rewrite_cram(
         attributes=job_attrs | {'tool': 'samtools'},
     )
 
-    job.image(config.image_path('samtools', '1.21-1'))
+    job.image(config.config_retrieve(['images', 'samtools']))
     job.memory('16Gi')
-    job.storage('100Gi')
+    job.storage(f'{config.config_retrieve(["workflow", "genome_cram_gb"], "100")}Gi')
     job.cpu(4)
 
     # read in the CRAM and index
