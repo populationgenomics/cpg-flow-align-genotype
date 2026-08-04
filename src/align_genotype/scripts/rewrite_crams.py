@@ -29,9 +29,9 @@ def rewrite_cram(
         attributes=job_attrs | {'tool': 'samtools'},
     )
 
-    job.image(config.image_path('samtools', '1.21-1'))
+    job.image(config.config_retrieve(['images', 'samtools']))
     job.memory('16Gi')
-    job.storage('100Gi')
+    job.storage(f'{config.config_retrieve(["workflow", "genome_cram_gb"], "100")}Gi')
     job.cpu(4)
 
     # read in the CRAM and index
@@ -103,10 +103,13 @@ if __name__ == '__main__':
         required=True,
         help='List of datasets to query for CRAM files to rewrite.',
     )
+    parser.add_argument('--cram-path', type=str, help='Path to a specific CRAM file to rewrite.')
     parser.add_argument('--dry-run', action='store_true', help='Print the CRAM files that would be rewritten.')
     args = parser.parse_args()
 
     crams_to_rewrite = get_crams_to_rewrite(args.datasets)
+    if args.cram_path:
+        crams_to_rewrite = [args.cram_path]
 
     if args.dry_run:
         for cram_path in crams_to_rewrite:
