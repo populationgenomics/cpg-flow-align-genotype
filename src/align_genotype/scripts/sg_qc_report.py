@@ -3,17 +3,18 @@ Queries Metamist for all QC flags across a dataset's sequencing groups
 and renders the sg_qc_overview.html.jinja template.
 """
 
-import asyncio
+import re
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 
 import jinja2
 from loguru import logger
 
 from cpg_utils.config import dataset_for_access_level
-from metamist.graphql import gql, query, query_async
+from metamist.graphql import gql, query
 
 from align_genotype.utils import QcFlag
 
@@ -35,8 +36,8 @@ DATASET_SGS_QUERY = gql(
 
 SGS_INFO_QUERY = gql(
     """
-    query sgInfo($sgId: String!) {
-        sequencingGroup(id: $sgId) {
+    query sgInfo($sgIds: [String!]!) {
+        sequencingGroups(id: {in_: $sgIds}) {
             id
             meta
             type
@@ -64,6 +65,32 @@ SGS_INFO_QUERY = gql(
     """
 )
 
+# ---------------------------------------------------------------------------
+# Human-readable labels for MultiQC metric keys and module sections.
+#
+# The `flag`/`section` on a QcFlag are the raw MultiQC metric key and module
+# key (see check_multiqc.py). MultiQC's friendly headers aren't captured in the
+# JSON we parse, so we maintain a small map here. The metric set is small and
+# stable (see config_template.toml :: qc_thresholds).
+# ---------------------------------------------------------------------------
+METRIC_LABELS: dict[str, tuple[str, str]] = {
+    # metric key: (human label, unit suffix)
+    'reads_mapped_percent': ('Reads mapped', '%'),
+    'reads_duplicated_percent': ('Duplicated reads', '%'),
+    'PCT_PF_READS_ALIGNED': ('Reads aligned (PF)', ''),
+    'FREEMIX': ('Contamination (FreeMix)', ''),
+    'MEDIAN_COVERAGE': ('Median coverage', '×'),  # noqa: RUF001
+    'MEAN_COVERAGE': ('Mean coverage', '×'),  # noqa: RUF001
+}
+
+SECTION_LABELS: dict[str, str] = {
+    'samtools': 'Samtools',
+    'verifybamid': 'VerifyBamID',
+    'picard': 'Picard',
+    'vcfcheck': 'VCF check',
+    'bcftools': 'bcftools',
+}
+
 
 @dataclass
 class SGInfo:
@@ -71,135 +98,224 @@ class SGInfo:
     sg_type: str
     sg_technology: str
     sg_platform: str
-    read_files: list[str]
+    crams: list[str]
+    fastq_pairs: list[tuple[str, str]]
+    other_reads: list[str]
     sample_external_id: str
     sample_type: str
     participant_external_id: str
     family_external_id: str
 
 
-@dataclass
-class SGQCFlag:
+@dataclass(frozen=True)
+class SGReport:
+    """All QC flags for a single sequencing group, plus its metadata."""
+
     sg_info: SGInfo
-    flag: QcFlag
-    source: str  # 'CRAM' or 'GVCF'
+    cram_flags: list[QcFlag]
+    gvcf_flags: list[QcFlag]
 
 
 def _has_active(flags: list[QcFlag]) -> bool:
     return any(not f.resolved for f in flags)
 
 
-def _prepare_sg_rows(sg_data: list[dict[str, SGInfo | list[QcFlag]]]) -> list[SGQCFlag]:
-    """
-    Extracts each SG's info and QC flags into a SGQCFlag dataclass
-    """
-    rows = []
-    for sg in sg_data:
-        sg_info = sg['sg_info']
-        cram_flags = sg['cram_qc_flags']
-        gvcf_flags = sg['gvcf_qc_flags']
-        for flag in cram_flags:
-            rows.append(
-                SGQCFlag(
-                    sg_info=sg_info,
-                    flag=flag,
-                    source='CRAM',
-                )
-            )
-        for flag in gvcf_flags:
-            rows.append(
-                SGQCFlag(
-                    sg_info=sg_info,
-                    flag=flag,
-                    source='GVCF',
-                )
-            )
-    return sorted(rows, key=lambda r: (r.sg_info.sg_id, r.source, r.flag.date or ''))
+# ---------------------------------------------------------------------------
+# Flag label / value / date formatting
+# ---------------------------------------------------------------------------
+def _metric_label(metric: str) -> tuple[str, str]:
+    """(human label, unit) for a MultiQC metric key; falls back to the key."""
+    return METRIC_LABELS.get(metric, (metric, ''))
 
 
-def _prepare_sg_row(sg: SGQCFlag) -> dict:
-    """Transform raw SG data into a template-ready row dict."""
-    # We need to rework this function to handle the SGQCFlag dataclass instead of the previous dict structure.
-    # From this, we want to render the SG info and the QC flags in a way that is suitable for the HTML template.
-    # Ideally we should display the SG ID, type, technology, platform, sample external ID, participant external ID,
-    # family external ID, and then the QC flags with their details.
-    cram_flags = sg.flag if sg.source == 'CRAM' else []
-    gvcf_flags = sg.flag if sg.source == 'GVCF' else []
-    has_active_cram = _has_active(cram_flags)
-    has_active_gvcf = _has_active(gvcf_flags)
+def _section_label(section: str) -> str:
+    """Human tool name for a MultiQC module key (e.g. 'picard_4' -> 'Picard')."""
+    base = re.sub(r'_\d+$', '', section or '')  # strip MultiQC module-instance suffix
+    return SECTION_LABELS.get(base.lower(), base.replace('_', ' ').title() or '—')
 
-    if has_active_cram or has_active_gvcf:
-        status_class = 'status-fail'
-        status_text = 'Flagged'
-    elif cram_flags or gvcf_flags:
-        status_class = 'status-resolved'
-        status_text = 'Resolved'
-    else:
-        status_class = 'status-pass'
-        status_text = 'Clean'
 
-    display_id = sg.sg_info.sg_id + (
-        f' ({sg.sg_info.sample_external_id})' if sg.sg_info.participant_external_id else ''
-    )
+def _fmt_num(n: float | str) -> str:
+    """Format a metric number: drop trailing '.0', keep real decimals."""
+    if isinstance(n, bool) or not isinstance(n, (int, float)):
+        return str(n)
+    f = float(n)
+    return str(int(f)) if f.is_integer() else f'{f:g}'
 
-    flags = []
-    for f in cram_flags:
-        flags.append({**f, 'source': 'CRAM', 'date': f.get('resolution_date') or f.get('date', '')})
-    for f in gvcf_flags:
-        flags.append({**f, 'source': 'GVCF', 'date': f.get('resolution_date') or f.get('date', '')})
 
-    n_active_cram = sum(1 for f in cram_flags if not f.get('resolved', False))
-    n_active_gvcf = sum(1 for f in gvcf_flags if not f.get('resolved', False))
-    n_resolved = (len(cram_flags) + len(gvcf_flags)) - (n_active_cram + n_active_gvcf)
+def _value_display(value: float, comparison: str, threshold: float, unit: str) -> str:
+    """Plain-language value vs threshold, using the comparison direction."""
+    v = f'{_fmt_num(value)}{unit}'
+    t = f'{_fmt_num(threshold)}{unit}'
+    if comparison == '<':
+        return f'{v} (below minimum {t})'
+    if comparison == '>':
+        return f'{v} (above maximum {t})'
+    return f'{v} {comparison} {t}'
 
-    summary_parts = []
-    if n_active_cram:
-        summary_parts.append(f'{n_active_cram} CRAM')
-    if n_active_gvcf:
-        summary_parts.append(f'{n_active_gvcf} GVCF')
 
+def _flag_to_dict(flag: QcFlag, source: str) -> dict:
+    """Flatten a QcFlag into a template-ready, human-readable dict."""
+    label, unit = _metric_label(flag.flag)
+    # Active flags carry their detection date; resolved carry the resolution date.
+    date_full = (flag.resolution_date if flag.resolved else flag.date) or ''
     return {
-        'display_id': display_id,
-        'status_class': status_class,
-        'status_text': status_text,
-        'active_summary': ', '.join(summary_parts) if summary_parts else '—',
-        'resolved_summary': str(n_resolved) if n_resolved else '—',
-        'flags': flags,
+        'source': source,
+        'flag': flag.flag,
+        'metric_label': label,
+        'section': flag.section,
+        'section_label': _section_label(flag.section),
+        'resolved': flag.resolved,
+        'value_display': _value_display(flag.value, flag.comparison, flag.threshold, unit),
+        'ar_guid': flag.ar_guid,
+        'date_full': date_full,
+        'date_short': date_full[:10],  # YYYY-MM-DD
     }
 
 
-async def get_sg_info(sg_id: str) -> SGInfo:
-    """Query Metamist for detailed SG info."""
-    response = query_async(SGS_INFO_QUERY, variables={'sgId': sg_id})
-    sg = response['sequencingGroup']
-    sample = sg['sample']
-    participant = sample['participant']
-    family = participant['families'][0] if participant['families'] else None
+# ---------------------------------------------------------------------------
+# Row / section building
+# ---------------------------------------------------------------------------
+def _make_row(report: SGReport, flags: list[dict], *, resolved: bool) -> dict:
+    """Build a template-ready row for one SG within one section."""
+    info = report.sg_info
+    n_cram = sum(1 for f in flags if f['source'] == 'CRAM')
+    n_gvcf = sum(1 for f in flags if f['source'] == 'GVCF')
+    parts = []
+    if n_cram:
+        parts.append(f'{n_cram} CRAM')
+    if n_gvcf:
+        parts.append(f'{n_gvcf} GVCF')
 
-    read_files = []
-    for assay in sg.get('assays', []):
-        assay_meta = assay.get('meta') or {}
-        reads = assay_meta.get('reads', [])
-        if isinstance(reads, dict):
-            read_files.append(reads.get('basename'))
-        elif isinstance(reads, list):
-            for r in reads:
-                if isinstance(r, dict):
-                    read_files.append(r.get('basename'))
-                elif isinstance(r, str):
-                    read_files.append(r)
+    noun = 'resolved' if resolved else 'active'
+    count_summary = f'{len(flags)} {noun} flag' + ('' if len(flags) == 1 else 's')
 
-    return SGInfo(
-        sg_id=sg['id'],
-        sg_type=sg['type'],
-        sg_technology=sg['technology'],
-        sg_platform=sg['platform'],
-        read_files=read_files,
-        sample_external_id=sample['externalIds'][''],
-        sample_type=sample['type'],
-        participant_external_id=participant['externalIds'][''],
-        family_external_id=family['externalIds'][''],
-    )
+    return {
+        'info': info,
+        'flags': flags,
+        'source_summary': ' · '.join(parts),
+        'count_summary': count_summary,
+        # Group by family, then participant, then SG (collaborator-facing order).
+        'sort_key': (
+            info.family_external_id or '~',
+            info.participant_external_id or '~',
+            info.sg_id,
+        ),
+    }
+
+
+def build_sections(reports: list[SGReport]) -> tuple[list[dict], list[dict]]:
+    """Split reports into (unresolved rows, resolved rows).
+
+    An SG with both active and resolved flags appears in both lists, showing
+    only the flags relevant to each section.
+    """
+    unresolved, resolved = [], []
+    for report in reports:
+        all_flags = [_flag_to_dict(f, 'CRAM') for f in report.cram_flags]
+        all_flags += [_flag_to_dict(f, 'GVCF') for f in report.gvcf_flags]
+
+        active = [f for f in all_flags if not f['resolved']]
+        past = [f for f in all_flags if f['resolved']]
+
+        if active:
+            active.sort(key=lambda f: (f['source'], f['date_full']))
+            unresolved.append(_make_row(report, active, resolved=False))
+        if past:
+            past.sort(key=lambda f: f['date_full'], reverse=True)  # most recent first
+            resolved.append(_make_row(report, past, resolved=True))
+
+    unresolved.sort(key=lambda row: row['sort_key'])
+    resolved.sort(key=lambda row: row['sort_key'])
+    return unresolved, resolved
+
+
+# ---------------------------------------------------------------------------
+# Metamist querying
+# ---------------------------------------------------------------------------
+def _primary_external_id(obj: dict | None) -> str:
+    """Metamist keys the primary external ID under ''. Fall back gracefully."""
+    ext = (obj or {}).get('externalIds') or {}
+    return ext.get('') or next(iter(ext.values()), '')
+
+
+def _basename(entry: dict | str | None) -> str | None:
+    """Pull a file basename from a reads entry (dict or path string)."""
+    if isinstance(entry, dict):
+        return entry.get('basename') or ((entry.get('location') or '').rsplit('/', 1)[-1] or None)
+    if isinstance(entry, str):
+        return entry.rsplit('/', 1)[-1] or None
+    return None
+
+
+def _extract_reads(assays: list[dict]) -> tuple[list[str], list[tuple[str, str]], list[str]]:
+    """Group an SG's assay read files into (crams, fastq_pairs, other).
+
+    Each assay's ``meta.reads`` is a list of file entries; ``meta.reads_type``
+    tells us whether they're fastq (R1/R2 pairs) or aligned (bam/cram).
+    """
+    crams: list[str] = []
+    fastq_pairs: list[tuple[str, str]] = []
+    other: list[str] = []
+
+    for assay in assays:
+        meta = assay.get('meta') or {}
+        reads = meta.get('reads')
+        reads_type = (meta.get('reads_type') or '').lower()
+        entries = reads if isinstance(reads, list) else ([reads] if reads else [])
+        names = [n for n in (_basename(e) for e in entries) if n]
+        if not names:
+            continue
+
+        if reads_type == 'fastq':
+            # A fastq assay is one (or more) R1/R2 pair(s); pair sequentially.
+            for i in range(0, len(names), 2):
+                r2 = names[i + 1] if i + 1 < len(names) else ''
+                fastq_pairs.append((names[i], r2))
+        elif reads_type in ('bam', 'cram'):
+            crams.extend(names)
+        else:
+            # Unknown reads_type — classify by extension.
+            for name in names:
+                low = name.lower()
+                if low.endswith(('.cram', '.bam')):
+                    crams.append(name)
+                elif low.endswith(('.fastq.gz', '.fq.gz', '.fastq', '.fq')):
+                    fastq_pairs.append((name, ''))
+                else:
+                    other.append(name)
+
+    return crams, fastq_pairs, other
+
+
+def get_sg_infos(sg_ids: list[str]) -> dict[str, SGInfo]:
+    """Query Metamist for detailed SG info, keyed by SG id."""
+    logger.info(f'Querying Metamist for detailed info on {len(sg_ids)} SG(s): {", ".join(sg_ids)}')
+    started = perf_counter()
+    response = query(SGS_INFO_QUERY, variables={'sgIds': sg_ids})
+    logger.info(f'Received SG info for {len(sg_ids)} SG(s) in {perf_counter() - started:.1f}s')
+    infos: dict[str, SGInfo] = {}
+    for sg in response['sequencingGroups']:
+        sample = sg.get('sample') or {}
+        participant = sample.get('participant') or {}
+        families = participant.get('families') or []
+        family = families[0] if families else None
+
+        crams, fastq_pairs, other = _extract_reads(sg.get('assays', []))
+
+        infos[sg['id']] = SGInfo(
+            sg_id=sg['id'],
+            sg_type=sg.get('type') or '',
+            sg_technology=sg.get('technology') or '',
+            sg_platform=sg.get('platform') or '',
+            crams=crams,
+            fastq_pairs=fastq_pairs,
+            other_reads=other,
+            sample_external_id=_primary_external_id(sample),
+            sample_type=sample.get('type') or '',
+            participant_external_id=_primary_external_id(participant),
+            family_external_id=_primary_external_id(family),
+        )
+    return infos
 
 
 def collect_qc_flags(sequencing_groups: list[dict]) -> list[dict]:
@@ -217,25 +333,63 @@ def collect_qc_flags(sequencing_groups: list[dict]) -> list[dict]:
     return results
 
 
-def render_report(dataset: str, sg_data: list[dict[str, SGInfo | list[QcFlag]]]) -> str:
-    """Build template context and render the Jinja template."""
-    total = len(sg_data)
-    flagged_cram = sum(1 for sg in sg_data if _has_active(sg['cram_qc_flags']))
-    flagged_gvcf = sum(1 for sg in sg_data if _has_active(sg['gvcf_qc_flags']))
-    flagged_any = sum(1 for sg in sg_data if _has_active(sg['cram_qc_flags']) or _has_active(sg['gvcf_qc_flags']))
+def summarise_flags(sg_data: list[dict]) -> dict:
+    """Dataset-wide, flag-centric summary counts for the header cards."""
+    all_flags = [(f, 'CRAM') for sg in sg_data for f in sg['cram_qc_flags']]
+    all_flags += [(f, 'GVCF') for sg in sg_data for f in sg['gvcf_qc_flags']]
 
-    rows = [_prepare_sg_row(sg) for sg in _prepare_sg_rows(sg_data)]
+    active_cram = sum(1 for f, src in all_flags if src == 'CRAM' and not f.resolved)
+    active_gvcf = sum(1 for f, src in all_flags if src == 'GVCF' and not f.resolved)
+    resolved_flags = sum(1 for f, _ in all_flags if f.resolved)
+    sgs_affected = sum(1 for sg in sg_data if _has_active(sg['cram_qc_flags']) or _has_active(sg['gvcf_qc_flags']))
+
+    return {
+        'total_sgs': len(sg_data),
+        'active_flags': active_cram + active_gvcf,
+        'active_cram': active_cram,
+        'active_gvcf': active_gvcf,
+        'sgs_affected': sgs_affected,
+        'resolved_flags': resolved_flags,
+    }
+
+
+def metric_histogram(rows: list[dict]) -> list[dict]:
+    """Per-metric SG counts for the filter chips (one count per SG per metric)."""
+    counts: dict[str, dict] = {}
+    for row in rows:
+        for key in {f['flag'] for f in row['flags']}:
+            entry = counts.setdefault(key, {'key': key, 'label': _metric_label(key)[0], 'count': 0})
+            entry['count'] += 1
+    return sorted(counts.values(), key=lambda d: (-d['count'], d['label']))
+
+
+def source_histogram(rows: list[dict]) -> list[dict]:
+    """Per-source (CRAM/GVCF) SG counts for the filter toggles."""
+    counts: dict[str, int] = {}
+    for row in rows:
+        for source in {f['source'] for f in row['flags']}:
+            counts[source] = counts.get(source, 0) + 1
+    return [{'key': k, 'count': counts[k]} for k in ('CRAM', 'GVCF') if k in counts]
+
+
+def render_report(dataset: str, reports: list[SGReport], *, summary: dict) -> str:
+    """Build template context and render the Jinja template.
+
+    Only SGs with at least one flag appear in ``reports``; ``summary`` holds the
+    dataset-wide, flag-centric counts for the header cards.
+    """
+    unresolved, resolved = build_sections(reports)
 
     env = jinja2.Environment(loader=jinja2.FileSystemLoader(JINJA_TEMPLATE_DIR), autoescape=True)
     template = env.get_template('sg_qc_overview.html.jinja')
     return template.render(
         dataset=dataset,
         generated_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),  # noqa: DTZ005
-        total=total,
-        flagged_any=flagged_any,
-        flagged_cram=flagged_cram,
-        flagged_gvcf=flagged_gvcf,
-        sequencing_groups=rows,
+        summary=summary,
+        unresolved=unresolved,
+        resolved=resolved,
+        active_metrics=metric_histogram(unresolved),
+        active_sources=source_histogram(unresolved),
     )
 
 
@@ -245,23 +399,36 @@ def main(dataset: str, output: str):
     dataset = dataset_for_access_level(dataset)
 
     logger.info(f'{dataset} :: Querying Metamist for QC flags')
+    started = perf_counter()
     response = query(DATASET_SGS_QUERY, variables={'dataset': dataset})
     sequencing_groups = response['project']['sequencingGroups']
-    logger.info(f'{dataset} :: Found {len(sequencing_groups)} sequencing groups.')
+    logger.info(f'{dataset} :: Found {len(sequencing_groups)} sequencing groups in {perf_counter() - started:.1f}s')
 
     sg_data = collect_qc_flags(sequencing_groups)
+    summary = summarise_flags(sg_data)
+
+    # Only fetch rich SG metadata for SGs that actually have flags to report.
     flagged = [sg for sg in sg_data if sg['cram_qc_flags'] or sg['gvcf_qc_flags']]
+    if not flagged:
+        logger.info(f'{dataset} :: No sequencing groups have QC flags; skipping report generation')
+        return
     logger.info(f'{dataset} :: {len(flagged)} sequencing groups have QC flags.')
-    flagged_sgs_info = [
-        {
-            'sg_info': asyncio.run(get_sg_info(sg['id'])),
-            'cram_qc_flags': sg['cram_qc_flags'],
-            'gvcf_qc_flags': sg['gvcf_qc_flags'],
-        }
+
+    infos = get_sg_infos([sg['id'] for sg in flagged])
+    reports = [
+        SGReport(
+            sg_info=infos[sg['id']],
+            cram_flags=sg['cram_qc_flags'],
+            gvcf_flags=sg['gvcf_qc_flags'],
+        )
         for sg in flagged
+        if sg['id'] in infos
     ]
 
-    html = render_report(dataset, flagged_sgs_info)
+    logger.info(f'{dataset} :: Rendering report for {len(reports)} flagged SG(s)')
+    started = perf_counter()
+    html = render_report(dataset, reports, summary=summary)
+    logger.info(f'{dataset} :: Rendered report in {perf_counter() - started:.1f}s')
 
     with open(output, 'w') as f:
         f.write(html)
