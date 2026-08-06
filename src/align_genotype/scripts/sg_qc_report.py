@@ -135,11 +135,21 @@ def _section_label(section: str) -> str:
 
 
 def _fmt_num(n: float | str) -> str:
-    """Format a metric number: drop trailing '.0', keep real decimals."""
+    """Format a metric number for display.
+
+    Integers stay integers (30 -> '30'); values >= 1 get 2 decimal places
+    (64.579124 -> '64.58'); small values < 1 get 2 significant figures
+    (0.0616722 -> '0.062'). Trailing zeros are stripped (64.50 -> '64.5').
+    """
     if isinstance(n, bool) or not isinstance(n, (int, float)):
         return str(n)
     f = float(n)
-    return str(int(f)) if f.is_integer() else f'{f:g}'
+    if f.is_integer():
+        return str(int(f))
+    s = f'{f:.2f}' if abs(f) >= 1 else f'{f:.2g}'
+    if '.' in s and 'e' not in s.lower():
+        s = s.rstrip('0').rstrip('.')
+    return s
 
 
 def _value_display(value: float, comparison: str, threshold: float, unit: str) -> str:

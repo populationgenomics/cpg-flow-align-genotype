@@ -10,6 +10,7 @@ from align_genotype.scripts.sg_qc_report import (
     SGInfo,
     SGReport,
     _extract_reads,
+    _fmt_num,
     _section_label,
     _value_display,
     build_sections,
@@ -184,6 +185,21 @@ def test_value_display_direction():
     assert _value_display(0.12, '>', 0.04, '') == '0.12 (above maximum 0.04)'
 
 
+def test_fmt_num_rounding():
+    assert _fmt_num(30) == '30'  # int stays int
+    assert _fmt_num(30.0) == '30'  # integer-valued float stays int
+    assert _fmt_num(64.579124) == '64.58'  # >= 1 -> 2 decimal places
+    assert _fmt_num(64.5) == '64.5'  # trailing zeros stripped
+    assert _fmt_num(0.0616722) == '0.062'  # < 1 -> 2 significant figures
+    assert _fmt_num(0.12) == '0.12'
+    assert _fmt_num(0.04) == '0.04'
+
+
+def test_value_display_rounds_long_floats():
+    assert _value_display(64.579124, '<', 80, '%') == '64.58% (below minimum 80%)'
+    assert _value_display(0.0616722, '>', 0.04, '') == '0.062 (above maximum 0.04)'
+
+
 def test_section_label_normalises_multiqc_suffix():
     assert _section_label('picard_4') == 'Picard'
     assert _section_label('verifybamid') == 'VerifyBamID'
@@ -265,7 +281,9 @@ def test_render_report_smoke():
     html = render_report('validation-test', [_report()], summary=summary)
     assert 'Unresolved flags' in html
     assert 'Resolved — past incidents' in html
-    assert 'Family GIAB_ASHKENAZI' in html  # family-primary identifier
+    assert 'QC Flag Summary' in html  # new title
+    assert 'id-family">GIAB_ASHKENAZI' in html  # family id, no "Family" prefix, distinct styling
+    assert 'id-participant">HG003_NA24149' in html  # participant styled separately
     assert 'CPG276402' in html  # SG id still present (muted)
     assert 'Median coverage' in html  # human metric label
     assert 'below minimum 30×' in html  # value display
