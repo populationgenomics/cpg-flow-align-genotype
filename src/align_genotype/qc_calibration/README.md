@@ -257,31 +257,57 @@ The merge bar is looser, not absent. A metric churning a quarter of its flag set
 merge is unstable however you frame the scenario, and dropping merge from the verdict
 entirely would have admitted the two exome metrics recorded as rejected below.
 
+Both bars are **conservative defaults you may revisit with evidence**, not values derived
+from a shipped decision. Read the record below before treating either as settled.
+
+The merge simulation runs every *ordered* pair — `n*(n-1)`, so 90 at ten cohorts, not 45
+— because a merge disturbs both projects' flag sets and the two directions measure
+differently. Note the structural tension: a metric earns a relative tier precisely
+because its normal level shifts between cohorts, and the merge simulation punishes
+exactly that property. A high merge figure may be intrinsic to the whole class of metric
+relative tiers exist for, rather than evidence that one metric is broken.
+
 The growth simulation is run twice per cohort, on the leading 60% and on a
-seeded-shuffled 60%, and the verdict uses the **worse** of the two. This is not
-paranoia: the same 50 values differing only in order have measured 16.7% churn on the
-leading slice against 0.0% shuffled - a `REJECT` and a `RECOMMEND` for one metric. The
-cache inherits its value order from MultiQC's JSON key order, and whether that order
-tracks sequencing batches is plausible for sequentially-assigned IDs but nowhere
-guaranteed. An `ORDERING-SENSITIVE` marker on a row means the two readings disagree about
-whether that cohort clears the bar, so the number depends on an assumption about key
-ordering rather than on the data. Treat it as a reason to look harder, not as noise.
+seeded-shuffled 60%, and the verdict uses the **worse** of the two. That is not paranoia,
+and the ordered reading is not noise: across ten real WGS cohorts, four show the leading
+60% and trailing 40% of the report differing in median duplication by 2.6 to 9.5
+percentage points — one goes 14.8% to 24.4%. Samples later in a MultiQC report have
+systematically higher duplication, which is what batch-ordered sequencing looks like. So
+the leading slice is a genuine forecast of batch growth, and an `ORDERING-SENSITIVE`
+marker means the ordered and shuffled readings disagree about whether that cohort clears
+the bar — treat it as the batch-growth reading being the one that matters, not as an
+artifact to discount.
 
 ### The record so far
 
-- **Adopted**: exome `ZERO_CVG_TARGETS_PCT` (kit-dependent zero-coverage rate; warn 0-8%
-  per cohort, under 1% churn) and genome `reads_duplicated_percent` (warn 0-4.2% per
-  cohort, ~1% churn on homogeneous growth). Both keep their absolute `fail` gate.
+- **Adopted**: exome `ZERO_CVG_TARGETS_PCT` (kit-dependent zero-coverage rate) and genome
+  `reads_duplicated_percent` (library-prep dependent, cohort medians 7.2-18.0%). Both
+  keep their absolute `fail` gate. Warn rates are comfortable: exome 0-8.2% per cohort,
+  genome 0-4.2%.
 - **Rejected**: exome `PCT_SELECTED_BASES` and `PCT_OFF_BAIT` - cohort-dependent spread
   and churn up to 24.5% of the flag set. Left un-gated, with the rejection recorded in
   the spec.
-- Genome duplication measures roughly 2.1% churn on the contrived cross-project merge,
-  comfortably inside `MAX_MERGE_CHURN`, alongside ~1% on growth - so `mad` prints
-  `RECOMMEND` for it. Under a single shared 2% bar it printed `REJECT`, contradicting a
-  tier already shipped and working, which is what prompted splitting the two. If you
-  ever find the verdict disagreeing with a decision you are confident in, suspect the
-  bar before the decision - and record the reasoning in the metric's `rationale`
-  either way.
+
+**Read this before trusting either adoption.** Both tiers were adopted on a hand-picked
+subset — growth measured on 3 of 10 cohorts (leading slice only, no shuffle), merge on 2
+ordered pairs — which gave ~1% growth and ~2.1% merge. Run over the full cohort set, this
+tool reports:
+
+| tier | growth churn | merge churn | verdict |
+|---|---|---|---|
+| exome `ZERO_CVG_TARGETS_PCT` | 1.0% | 51.1% | `REJECT` (merge only) |
+| genome `reads_duplicated_percent` | 8.6% | 64.7% | `REJECT` (both bars) |
+
+On the same three cohorts the original analysis used, this tool reproduces its 1.1% /
+0.0% / 0.0% exactly — so the arithmetic agrees and the gap is sampling, not a defect. The
+8.6% comes from a cohort the manual analysis never examined, and it is the batch-ordering
+effect described above rather than an artifact.
+
+So `mad` will print `REJECT` for both currently-shipped tiers. That is a **live QC
+question** — are these tiers churnier than intended, or is gating on a cross-project
+merge the wrong test for this class of metric? — and not evidence that the bars are
+miscalibrated. Whichever way it resolves, record the reasoning in the metric's
+`rationale`.
 
 ## Memory
 
