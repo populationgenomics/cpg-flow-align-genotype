@@ -23,8 +23,12 @@ BARE_KEY_RE = re.compile(r'^[A-Za-z0-9_-]+$')
 
 
 def require_bare_key(key: str, kind: str) -> None:
-    """Raise unless `key` can be written as an unquoted TOML key."""
-    if not BARE_KEY_RE.match(key):
+    """Raise unless `key` can be written as an unquoted TOML key.
+
+    `fullmatch`, not `match`: Python's ``$`` also matches before a trailing newline, so
+    ``match`` would accept ``'abc\\n'`` and go on to write a malformed ``abc\\n = 1`` line.
+    """
+    if not BARE_KEY_RE.fullmatch(key):
         raise ValueError(f'{kind} {key!r} is not a bare TOML key; expected only letters, digits, underscore or hyphen')
 
 
@@ -35,6 +39,9 @@ def loads(text: str) -> dict[str, Any]:
 
 def load_path(path: str | Path) -> dict[str, Any]:
     """Parse a TOML document from a local or cloud path."""
+    # Lazy: cpg_utils pulls in cloudpathlib and the S3 client stack, ~1.7s of import
+    # time. Keeping it in here lets the rest of qc_calibration - and its tests - run
+    # without paying that, and without coupling to cpg-utils config state.
     from cpg_utils import to_path  # noqa: PLC0415
 
     with to_path(path).open('rb') as f:
@@ -42,12 +49,25 @@ def load_path(path: str | Path) -> dict[str, Any]:
 
 
 def fmt_value(value: Any) -> str:
-    """Render a Python scalar as a TOML value."""
+    """Render a Python scalar as a TOML value.
+
+    Numpy scalars are unwrapped first. Every threshold this tool writes comes out of
+    ``numpy`` (percentiles, medians), and numpy scalars render wrong in two different
+    ways: ``np.float64`` subclasses ``float`` but reprs as ``np.float64(0.75)``, which
+    is not valid TOML; ``np.int64`` and ``np.bool_`` subclass nothing we check, so they
+    would fall through to the string branch and be silently written as ``"15"`` /
+    ``"True"`` - valid TOML of the wrong type, which is the worse failure. Callers do
+    cast, but this is the single sink for every artifact we write, so it defends here.
+    """
+    if hasattr(value, 'item'):  # numpy/pandas scalar -> Python builtin
+        value = value.item()
     if isinstance(value, bool):  # bool subclasses int - must be checked first
         return 'true' if value else 'false'
     if isinstance(value, (int, float)):
         return repr(value)
-    escaped = str(value).replace('\\', '\\\\').replace('"', '\\"')
+    if not isinstance(value, str):
+        raise TypeError(f'cannot render {type(value).__name__} as a TOML scalar: {value!r}')
+    escaped = value.replace('\\', '\\\\').replace('"', '\\"')
     return f'"{escaped}"'
 
 
