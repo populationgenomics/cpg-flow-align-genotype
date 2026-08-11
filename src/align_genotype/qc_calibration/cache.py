@@ -6,14 +6,25 @@ already in memory instead of re-parsing gigabytes, which is what makes the
 flagrates/mad loop usable interactively.
 """
 
+from __future__ import annotations
+
 import json
+import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from align_genotype.qc_calibration.spec import CalibrationSpec
+if TYPE_CHECKING:
+    # `from __future__ import annotations` above means annotations are never evaluated
+    # at runtime, so both of these - like the lazy `to_path` imports below - cost
+    # nothing outside of type checking. `cpg_utils.Path` is the CloudPath | pathlib.Path
+    # union `to_path` can hand back.
+    from cpg_utils import Path as CpgPath
+
+    from align_genotype.qc_calibration.spec import CalibrationSpec
 
 
 class CacheError(RuntimeError):
@@ -55,28 +66,69 @@ class ValueCache:
 
         Non-finite values are filtered here as well as during collect: the cache is a
         plain JSON file an operator may hand-edit, and every downstream percentile and
-        MAD calculation assumes finite input.
+        MAD calculation assumes finite input. A value that isn't numeric at all (a
+        typo'd string, a stray table) is the same hand-edit risk, so it raises
+        `CacheError` naming the cohort and metric rather than a bare numpy exception.
         """
         raw = self.cohort(label).values.get(metric, [])
         if not raw:
             return np.array([], dtype=float)
-        values = np.array([v for v in raw if v is not None], dtype=float)
+        try:
+            values = np.array([v for v in raw if v is not None], dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise CacheError(f'cache: cohort {label!r} metric {metric!r} has a non-numeric value - {exc}') from exc
         return values[np.isfinite(values)]
 
 
-def save(cache: ValueCache, path: str | Path) -> None:
+def _coerce_metric_values(label: str, metric: str, values: list) -> list[float]:
+    """Cast every value to float for writing, or fail loudly naming cohort and metric.
+
+    `series` tolerates a hand-edited `None` or junk value on read (see its docstring)
+    because a hand-edited cache is expected to need defending against. Writing one back
+    out is a different situation: `collect` never emits a non-numeric value, so if one
+    reaches `save` it's either a bug or a hand-edit that already broke the contract this
+    function exists to keep. Dropping it silently would hide that; a plain `TypeError`
+    from `float()` would report it with no cohort or metric context.
+    """
+    coerced = []
+    for v in values:
+        try:
+            coerced.append(float(v))
+        except (TypeError, ValueError) as exc:
+            raise CacheError(
+                f'cache: cohort {label!r} metric {metric!r} has a non-numeric value {v!r} - {exc}',
+            ) from exc
+    return coerced
+
+
+def save(cache: ValueCache, path: str | Path | CpgPath) -> None:
     """Write the cache as JSON, all-or-nothing.
 
     This is the one artifact in the workflow that costs ten minutes of report-parsing
     to regenerate, so a failed or interrupted `save` must never destroy a previously
-    good cache at the same path. Two guards:
+    good cache at the same path. Guards, in order:
 
-    - The payload is serialised with `json.dumps` before anything touches disk, so a
-      stray NaN (`allow_nan=False`) raises with nothing written, instead of partway
-      through `json.dump` streaming into an already-open target file.
-    - On local disk, the write lands in a sibling `.tmp` file first and is only moved
-      onto `path` via `Path.replace`, which is an atomic rename - a crash or Ctrl-C
-      mid-write can leave a stray `.tmp` file but can never leave `path` truncated.
+    - Every value is cast with `float()` first (`_coerce_metric_values`); a `None` or
+      otherwise non-numeric value raises `CacheError` naming the cohort and metric.
+    - The payload is then serialised with `json.dumps` before anything touches disk, so
+      a stray NaN (`allow_nan=False`) raises with nothing written, rather than partway
+      through streaming into an already-open target file.
+    - On local disk, the write lands in a sibling temp file - via `tempfile.mkstemp` in
+      the same directory, so two concurrent saves can't collide on one temp name and
+      the final rename stays same-filesystem - and is only moved onto `path` via
+      `Path.replace`, an atomic rename. The temp file is removed on any failure so a
+      crash doesn't leave a full-size unexplained file next to the cache.
+
+    `CloudPath.replace` is deliberately not used as the non-local equivalent of that
+    temp-then-replace dance: cloudpathlib's implementation unlinks the destination
+    *before* copying the source (`cloudpathlib/cloudpath.py`, `Path.replace`: `if
+    target.exists(): target.unlink()`), so a tmp-then-replace write on a CloudPath
+    would delete a good cache and then perform a non-transactional copy - strictly
+    worse than writing directly, whether or not that copy happens to be server-side
+    (e.g. GCS's `copy_blob`). A direct `open('w')` write is already a single atomic
+    per-object upload on the object stores we use, so that's what the non-local branch
+    does. Caches are written locally in practice, so there's nothing to gain chasing
+    this further.
     """
     payload: dict[str, Any] = {
         'seq_type': cache.seq_type,
@@ -89,7 +141,9 @@ def save(cache: ValueCache, path: str | Path) -> None:
                 'multiqc_version': c.multiqc_version,
                 'shape': c.shape,
                 'n_dropped': c.n_dropped,
-                'values': {metric: [float(v) for v in values] for metric, values in c.values.items()},
+                'values': {
+                    metric: _coerce_metric_values(c.label, metric, values) for metric, values in c.values.items()
+                },
             }
             for c in cache.cohorts
         },
@@ -103,42 +157,54 @@ def save(cache: ValueCache, path: str | Path) -> None:
 
     target = to_path(path)
     if isinstance(target, Path):
-        # Local filesystem: rename is atomic, so use a temp-file-then-replace write.
-        tmp = target.parent / f'{target.name}.tmp'
-        tmp.write_text(text)
-        tmp.replace(target)
+        fd, tmp_name = tempfile.mkstemp(dir=target.parent, prefix=f'{target.name}.', suffix='.tmp')
+        tmp = Path(tmp_name)
+        try:
+            with os.fdopen(fd, 'w') as f:
+                f.write(text)
+            tmp.replace(target)
+        finally:
+            # A no-op on the success path (`replace` already consumed `tmp`); on
+            # failure this is what stops a crash from leaving a full-size unexplained
+            # file next to the cache.
+            tmp.unlink(missing_ok=True)
     else:
-        # CloudPath does have a `replace`, but it isn't an atomic rename - it
-        # downloads, unlinks the target and re-uploads, so it buys nothing over
-        # writing directly. Caches are written locally in practice, so we don't
-        # contort this path to chase atomicity a cloud store can't actually give us.
         with target.open('w') as f:
             f.write(text)
 
 
-def load(path: str | Path) -> ValueCache:
-    """Read a cache written by `save`."""
+def load(path: str | Path | CpgPath) -> ValueCache:
+    """Read a cache written by `save`.
+
+    Wraps the parse in a single `try` so a missing key, a wrong-shaped value, or
+    malformed JSON all surface as one `CacheError` naming the path, instead of a bare
+    `KeyError`/`TypeError`/`json.JSONDecodeError` with no indication of which file or
+    that it's the cache format that's the problem.
+    """
     from cpg_utils import to_path  # noqa: PLC0415
 
-    with to_path(path).open() as f:
-        raw = json.load(f)
-    return ValueCache(
-        seq_type=raw['seq_type'],
-        generated=raw['generated'],
-        complete=bool(raw['complete']),
-        metrics=tuple(raw['metrics']),
-        cohorts=tuple(
-            CohortValues(
-                label=label,
-                n_samples=body['n_samples'],
-                multiqc_version=body['multiqc_version'],
-                shape=body['shape'],
-                n_dropped=body['n_dropped'],
-                values=body['values'],
-            )
-            for label, body in raw['cohorts'].items()
-        ),
-    )
+    try:
+        with to_path(path).open() as f:
+            raw = json.load(f)
+        return ValueCache(
+            seq_type=raw['seq_type'],
+            generated=raw['generated'],
+            complete=bool(raw['complete']),
+            metrics=tuple(raw['metrics']),
+            cohorts=tuple(
+                CohortValues(
+                    label=label,
+                    n_samples=body['n_samples'],
+                    multiqc_version=body['multiqc_version'],
+                    shape=body['shape'],
+                    n_dropped=body['n_dropped'],
+                    values=body['values'],
+                )
+                for label, body in raw['cohorts'].items()
+            ),
+        )
+    except (KeyError, TypeError, AttributeError, json.JSONDecodeError) as exc:
+        raise CacheError(f'{path}: not a usable value cache - {exc}') from exc
 
 
 def require_usable(cache: ValueCache, spec: CalibrationSpec) -> None:

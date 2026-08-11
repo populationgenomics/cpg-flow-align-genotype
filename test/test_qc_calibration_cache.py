@@ -1,9 +1,13 @@
 """Unit tests for the calibration value cache."""
 
+import io
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
+
+import cpg_utils
 
 from align_genotype.qc_calibration import cache as cache_mod
 from align_genotype.qc_calibration import spec as spec_mod
@@ -33,6 +37,36 @@ def _cache(complete: bool = True, metrics: tuple[str, ...] = ('MEDIAN_COVERAGE',
             ),
         ),
     )
+
+
+class _FakeCloudFile:
+    """File-like double returned by `_FakeCloudPath.open`; records what got written."""
+
+    def __init__(self, owner: '_FakeCloudPath') -> None:
+        self._owner = owner
+        self._buffer = io.StringIO()
+
+    def __enter__(self) -> io.StringIO:
+        return self._buffer
+
+    def __exit__(self, *exc_info: object) -> bool:
+        self._owner.contents = self._buffer.getvalue()
+        return False
+
+
+class _FakeCloudPath:
+    """Minimal double for `cloudpathlib.CloudPath`: has `.open` but is not a `pathlib.Path`.
+
+    `save` branches on `isinstance(target, Path)` to decide whether the tmp-then-replace
+    dance is safe; this stands in for the "no" case without touching the network.
+    """
+
+    def __init__(self) -> None:
+        self.contents: str | None = None
+
+    def open(self, mode: str = 'r') -> _FakeCloudFile:
+        assert mode == 'w'
+        return _FakeCloudFile(self)
 
 
 def test_save_and_load_round_trip(tmp_path):
@@ -88,27 +122,86 @@ def test_save_over_existing_cache_is_atomic_on_nan_failure(tmp_path):
         cache_mod.save(bad, path)
 
     assert cache_mod.load(path) == good
-    assert not path.with_name(path.name + '.tmp').exists()
+    assert list(tmp_path.glob('*.tmp')) == []
 
 
 def test_save_leaves_no_tmp_file_on_success(tmp_path):
     path = tmp_path / 'values.json'
     cache_mod.save(_cache(), path)
-    assert not path.with_name(path.name + '.tmp').exists()
+    assert list(tmp_path.glob('*.tmp')) == []
 
 
-def test_save_handles_numpy_floats(tmp_path):
-    """collect casts to float, but the sink shouldn't corrupt if one slips through."""
+def test_save_over_existing_cache_survives_replace_failure(tmp_path, monkeypatch):
+    """Pins the actual atomic-write mechanism, not just the pre-write NaN guard.
+
+    `test_save_over_existing_cache_is_atomic_on_nan_failure` above passes purely
+    because `json.dumps` raises before any file is touched - it never exercises the
+    temp-file-then-replace machinery at all. This forces `Path.replace` itself to fail
+    *after* the temp file has been fully written, which is the scenario that
+    machinery exists to survive (e.g. a crash or a full disk during the rename).
+    """
+    path = tmp_path / 'values.json'
+    good = _cache()
+    cache_mod.save(good, path)
+
+    def boom(_self: Path, _target: Path) -> Path:
+        raise OSError('simulated failure during rename')
+
+    monkeypatch.setattr(Path, 'replace', boom)
+
+    with pytest.raises(OSError, match='simulated failure during rename'):
+        cache_mod.save(_cache(metrics=('MEDIAN_COVERAGE',)), path)
+
+    assert cache_mod.load(path) == good
+    assert list(tmp_path.glob('*.tmp')) == []
+
+
+def test_save_writes_directly_for_non_local_targets(monkeypatch):
+    """A CloudPath-like target isn't a `pathlib.Path`, so `save` must skip the
+    tmp-then-replace dance entirely and write straight through `.open('w')` - see the
+    docstring on `save` for why that dance is actively harmful on a real CloudPath."""
+    fake = _FakeCloudPath()
+    monkeypatch.setattr(cpg_utils, 'to_path', lambda _path: fake)
+
+    cache_mod.save(_cache(), 'gs://some-bucket/values.json')
+
+    assert fake.contents is not None
+    written = json.loads(fake.contents)
+    assert written['seq_type'] == 'genome'
+    assert written['cohorts']['dataset-a']['values']['MEDIAN_COVERAGE'] == [30.0, 28.0, 12.0]
+
+
+def test_save_raises_cache_error_on_non_numeric_value(tmp_path):
+    """`series` tolerates a bad hand-edited value on read; `save` must not write one
+    back out silently - see `_coerce_metric_values`."""
     c = ValueCache(
         seq_type='genome',
         generated='x',
         complete=True,
         metrics=('M',),
-        cohorts=(CohortValues('dataset-a', 2, '1.33', 'dict', 0, {'M': [np.float64(1.5), np.float64(2.5)]}),),
+        cohorts=(CohortValues('dataset-a', 2, '1.33', 'dict', 0, {'M': [1.0, None]}),),
+    )
+    with pytest.raises(CacheError, match=r"dataset-a.*'M'.*non-numeric"):
+        cache_mod.save(c, tmp_path / 'values.json')
+
+
+def test_save_handles_numpy_floats(tmp_path):
+    """collect casts to float, but the sink shouldn't corrupt if one slips through.
+
+    `np.float64` subclasses `float`, so it round-trips through `json.dumps` even
+    without a cast - it's `np.int64` that actually pins the `float()` cast, since
+    `json.dumps` raises `TypeError` on a bare numpy integer.
+    """
+    c = ValueCache(
+        seq_type='genome',
+        generated='x',
+        complete=True,
+        metrics=('M',),
+        cohorts=(CohortValues('dataset-a', 2, '1.33', 'dict', 0, {'M': [np.float64(1.5), np.int64(2)]}),),
     )
     path = tmp_path / 'values.json'
     cache_mod.save(c, path)
-    assert json.loads(path.read_text())['cohorts']['dataset-a']['values']['M'] == [1.5, 2.5]
+    assert json.loads(path.read_text())['cohorts']['dataset-a']['values']['M'] == [1.5, 2.0]
 
 
 def test_labels_and_cohort_lookup():
@@ -143,6 +236,37 @@ def test_series_for_absent_metric_is_empty():
 def test_series_for_empty_list_is_empty():
     c = ValueCache('genome', 'x', True, ('M',), (CohortValues('dataset-a', 0, '1.33', 'dict', 0, {'M': []}),))
     assert c.series('dataset-a', 'M').size == 0
+
+
+def test_series_raises_cache_error_on_non_numeric_junk():
+    """A hand-edited cache can contain outright junk, not just `None` - `series` should
+    name the cohort and metric rather than let a bare numpy exception through."""
+    c = ValueCache('genome', 'x', True, ('M',), (CohortValues('dataset-a', 1, '1.33', 'dict', 0, {'M': ['abc']}),))
+    with pytest.raises(CacheError, match=r"dataset-a.*'M'.*non-numeric"):
+        c.series('dataset-a', 'M')
+
+
+def test_load_raises_cache_error_on_missing_key(tmp_path):
+    path = tmp_path / 'values.json'
+    path.write_text(json.dumps({'seq_type': 'genome'}))
+    with pytest.raises(CacheError, match='not a usable value cache'):
+        cache_mod.load(path)
+
+
+def test_load_raises_cache_error_on_wrong_shaped_value(tmp_path):
+    path = tmp_path / 'values.json'
+    path.write_text(
+        json.dumps({'seq_type': 'genome', 'generated': 'x', 'complete': True, 'metrics': [], 'cohorts': 'nope'})
+    )
+    with pytest.raises(CacheError, match='not a usable value cache'):
+        cache_mod.load(path)
+
+
+def test_load_raises_cache_error_on_malformed_json(tmp_path):
+    path = tmp_path / 'values.json'
+    path.write_text('{not valid json')
+    with pytest.raises(CacheError, match='not a usable value cache'):
+        cache_mod.load(path)
 
 
 def test_require_usable_accepts_a_superset_cache():
