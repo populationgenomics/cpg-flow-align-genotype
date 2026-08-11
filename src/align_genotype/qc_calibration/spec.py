@@ -77,9 +77,47 @@ class CalibrationSpec:
         raise KeyError(f'{key!r} is not in this calibration spec')
 
     def with_metric(self, replace_key: str, **changes: Any) -> 'CalibrationSpec':
-        """Return a copy with one metric's fields replaced; order preserved."""
+        """Return a copy with one metric's fields replaced; order preserved.
+
+        Validates the replaced metric so a rule-violating change (or a typo'd
+        `replace_key`) fails here rather than silently no-opping or surfacing later on
+        reload - this is the method `suggest` calls to seed thresholds, and it is the
+        only caller, so there's no cost to validating eagerly.
+        """
+        if replace_key not in self.metric_keys:
+            raise KeyError(f'{replace_key!r} is not in this calibration spec')
+        if 'key' in changes:
+            raise SpecError('with_metric cannot rename a metric')
         updated = tuple(replace(m, **changes) if m.key == replace_key else m for m in self.metrics)
+        _validate_metric(next(m for m in updated if m.key == replace_key))
         return replace(self, metrics=updated)
+
+
+def _require_bool(key: str, field: str, value: Any, default: bool) -> bool:
+    """Reject anything that isn't already a TOML boolean rather than coercing it.
+
+    `bool("false")` is `True` - a quoted boolean is a plausible typo, and for
+    `reviewed` in particular that typo would silently defeat the one interlock
+    stopping an unreviewed, percentile-seeded threshold from reaching emit-config.
+    """
+    if value is None:
+        return default
+    if not isinstance(value, bool):
+        raise SpecError(f'metric {key!r}: {field} must be true or false, got {value!r}')
+    return value
+
+
+def _require_number(key: str, field: str, value: Any) -> float | None:
+    """Reject non-numeric fail/warn values instead of storing them uninterpreted.
+
+    An unchecked string or bool round-trips through `dumps` unchanged and only
+    surfaces later inside threshold comparisons, with no metric name in the error.
+    The `bool` exclusion matters because `bool` subclasses `int` - without it,
+    `fail = true` would silently become `1`.
+    """
+    if value is None or (isinstance(value, (int, float)) and not isinstance(value, bool)):
+        return value
+    raise SpecError(f'metric {key!r}: {field} must be a number, got {value!r}')
 
 
 def _parse_relative(key: str, raw: Any) -> RelativeSpec:
@@ -87,7 +125,10 @@ def _parse_relative(key: str, raw: Any) -> RelativeSpec:
         raise SpecError(f'metric {key!r}: [metrics.{key}.relative] must be a table')
     if unknown := sorted(set(raw) - _RELATIVE_KEYS):
         raise SpecError(f'metric {key!r}: unknown relative key(s) {unknown}; expected {sorted(_RELATIVE_KEYS)}')
-    return RelativeSpec(k=float(raw.get('k', 3.5)), min_cohort=int(raw.get('min_cohort', 50)))
+    try:
+        return RelativeSpec(k=float(raw.get('k', 3.5)), min_cohort=int(raw.get('min_cohort', 50)))
+    except (TypeError, ValueError) as exc:
+        raise SpecError(f'metric {key!r}: relative k and min_cohort must be numeric - {exc}') from exc
 
 
 def _parse_metric(key: str, raw: Any) -> MetricSpec:
@@ -112,11 +153,11 @@ def _parse_metric(key: str, raw: Any) -> MetricSpec:
         key=key,
         direction=direction,
         unit=unit,
-        gated=bool(raw.get('gated', True)),
-        fail=raw.get('fail'),
-        warn=raw.get('warn'),
+        gated=_require_bool(key, 'gated', raw.get('gated'), True),
+        fail=_require_number(key, 'fail', raw.get('fail')),
+        warn=_require_number(key, 'warn', raw.get('warn')),
         relative=_parse_relative(key, raw['relative']) if 'relative' in raw else None,
-        reviewed=bool(raw.get('reviewed', False)),
+        reviewed=_require_bool(key, 'reviewed', raw.get('reviewed'), False),
         rationale=str(raw.get('rationale', '')),
     )
     _validate_metric(metric)
@@ -176,6 +217,9 @@ def dumps(spec: CalibrationSpec) -> str:
     """Render a spec back to TOML, preserving metric order."""
     lines = [tomlio.fmt_kv('seq_type', spec.seq_type), tomlio.fmt_kv('cache', spec.cache)]
     for metric in spec.metrics:
+        # Metric keys are written unquoted as TOML table headers; anything that needs
+        # quoting would reload as a nested table and fail with a misleading error.
+        tomlio.require_bare_key(metric.key, 'metric key')
         lines += ['', f'[metrics.{metric.key}]', tomlio.fmt_kv('direction', metric.direction)]
         lines.append(tomlio.fmt_kv('unit', metric.unit))
         lines.append(tomlio.fmt_kv('gated', metric.gated))
