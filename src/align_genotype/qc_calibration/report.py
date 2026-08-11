@@ -46,6 +46,11 @@ _LOUD = '!! '
 # for its indent, and narrow enough to stay readable next to the tables.
 _WIDTH = 110
 
+# Widest a table is allowed to get before its cohort columns are split into groups. The
+# tables that grow with cohort *count* rather than cohort size are the ones that need
+# this: the metric-presence matrix reaches ~250 columns for ten real dataset labels.
+MAX_TABLE_WIDTH = 120
+
 # Merged-cohort churn runs every unordered pair, which is quadratic in cohort count -
 # 45 rows for ten cohorts. Only the worst few decide anything, so only those are shown,
 # and the total is reported alongside so nothing looks hidden.
@@ -178,21 +183,65 @@ def _survey_cohorts(result: CollectResult) -> str:
     return '\n'.join(lines)
 
 
+def _column_width(header: str, cells: Sequence[str]) -> int:
+    return max(len(header), max((len(cell) for cell in cells), default=0))
+
+
+def _label_groups(labels: Sequence[str], columns: dict[str, list[str]], lead_width: int) -> list[list[str]]:
+    """Greedily pack cohort columns into groups no wider than `MAX_TABLE_WIDTH`.
+
+    A group can still overflow when one cohort's own column is wider than the budget -
+    there is nowhere left to split - but that is one column too wide rather than ten.
+    """
+    groups: list[list[str]] = []
+    current: list[str] = []
+    width = lead_width
+    for label in labels:
+        needed = _column_width(label, columns[label]) + len(_GAP)
+        if current and width + needed > MAX_TABLE_WIDTH:
+            groups.append(current)
+            current, width = [], lead_width
+        current.append(label)
+        width += needed
+    groups.append(current)
+    return groups
+
+
 def _survey_presence(result: CollectResult, spec: CalibrationSpec) -> str:
-    headers = ['metric', 'gated', *(row.label for row in result.rows)]
-    rows = []
-    for metric in spec.metrics:
-        cells = [metric.key, 'yes' if metric.gated else 'no']
-        for survey in result.rows:
-            where = survey.where.get(metric.key, ())
-            cells.append(','.join(where) if where else 'MISSING')
-        rows.append(cells)
-    return '\n'.join(
-        [
-            _titled('Metric presence (which general-stats section carries each metric)'),
-            table(headers, rows),
-        ],
+    """The metric x cohort matrix, in column groups narrow enough to read.
+
+    Ten cohorts with real dataset labels put a single matrix past 240 columns, which
+    wraps into an unreadable block in any terminal. Splitting it into groups keeps every
+    cell - truncating a section name or dropping a cohort column is exactly the silent
+    loss this survey exists to prevent - and repeats the metric and gated columns in each
+    group so every group reads on its own.
+    """
+    labels = [row.label for row in result.rows]
+    columns = {
+        row.label: [
+            ','.join(where) if (where := row.where.get(metric.key, ())) else 'MISSING' for metric in spec.metrics
+        ]
+        for row in result.rows
+    }
+    lead_headers = ['metric', 'gated']
+    lead_rows = [[metric.key, 'yes' if metric.gated else 'no'] for metric in spec.metrics]
+    lead_width = sum(
+        _column_width(header, [row[i] for row in lead_rows]) + len(_GAP) for i, header in enumerate(lead_headers)
     )
+
+    groups = _label_groups(labels, columns, lead_width)
+    blocks = [_titled('Metric presence (which general-stats section carries each metric)')]
+    first = 1
+    for group in groups:
+        rows = [[*lead, *(columns[label][i] for label in group)] for i, lead in enumerate(lead_rows)]
+        rendered = table([*lead_headers, *group], rows)
+        if len(groups) > 1:
+            last = first + len(group) - 1
+            blocks.append(f'cohorts {first}-{last} of {len(labels)}\n{rendered}')
+            first = last + 1
+        else:
+            blocks.append(rendered)
+    return '\n\n'.join(blocks)
 
 
 def _survey_missing(result: CollectResult) -> str:

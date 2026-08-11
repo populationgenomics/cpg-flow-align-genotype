@@ -166,6 +166,48 @@ def test_survey_report_presence_matrix_names_the_carrying_section():
     assert 'MISSING' in dup_row  # dataset-b
 
 
+def wide_survey_row(label):
+    """A surveyed cohort whose label is as long as a real dataset label."""
+    return SurveyRow(
+        label=label,
+        uri=f'gs://bucket/{label}.json',
+        multiqc_version='1.33',
+        shape='dict',
+        n_samples=120,
+        section_sizes={'general': 120, 'picard_1': 118},
+        where={metric.key: ('picard_1',) for metric in SPEC.metrics},
+        section_keys={'general': tuple(m.key for m in SPEC.metrics)},
+        n_dropped=0,
+        n_dropped_by_metric={},
+    )
+
+
+def matrix_headers(out):
+    return [line for line in out.splitlines() if line.startswith('metric ') and 'gated' in line]
+
+
+def test_survey_report_chunks_a_presence_matrix_too_wide_for_a_terminal():
+    """Ten real dataset labels put one matrix past 240 columns; chunk, never truncate."""
+    labels = [f'cohort-with-a-long-name-{i}' for i in range(10)]
+    result = CollectResult(
+        cache=CACHE,
+        rows=tuple(wide_survey_row(label) for label in labels),
+        missing_gated={},
+        failures=(),
+    )
+    out = report.survey_report(result, SPEC)
+    assert max(len(line) for line in out.splitlines()) <= report.MAX_TABLE_WIDTH
+    for label in labels:
+        assert label in out  # every cohort is still there
+    assert len(matrix_headers(out)) > 1  # the matrix was split into groups
+    assert f'of {len(labels)}' in out  # and each group says which cohorts it covers
+
+
+def test_survey_report_does_not_chunk_a_narrow_presence_matrix():
+    out = report.survey_report(collect_result(), SPEC)
+    assert len(matrix_headers(out)) == 1
+
+
 def test_survey_report_marks_gated_metrics():
     lines = report.survey_report(collect_result(), SPEC).splitlines()
     header = next(line for line in lines if line.startswith('metric '))
