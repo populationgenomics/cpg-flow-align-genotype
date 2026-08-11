@@ -46,6 +46,10 @@ test = [
 run_workflow = 'align_genotype.run_workflow:cli_main'
 dataset_workflow = 'align_genotype.dataset_workflow:cli_main'
 
+# the QC threshold calibration tool - operator-facing, run by hand off a checkout; the
+# pipeline never invokes it
+qc_calibrate = 'align_genotype.qc_calibration.cli:main'
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/align_genotype"]
 
