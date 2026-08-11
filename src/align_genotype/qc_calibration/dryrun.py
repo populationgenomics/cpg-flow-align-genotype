@@ -28,6 +28,7 @@ from typing import Any
 
 from cpg_utils import config
 
+from align_genotype.qc_calibration import tomlio
 from align_genotype.qc_calibration.cache import ValueCache
 from align_genotype.qc_calibration.emit import render
 from align_genotype.qc_calibration.manifest import Cohort
@@ -41,7 +42,7 @@ class DryRunResult:
 
     cohort: str
     n_samples_flagged: int
-    counts: Counter
+    counts: Counter[tuple[str, str, str]]
     seconds: float
     peak_rss_gb: float
     output_path: str
@@ -53,6 +54,13 @@ def _peak_rss_gb() -> float:
     `resource.getrusage(...).ru_maxrss` is bytes on macOS/Darwin but KiB everywhere
     else (Linux), per the platform's `getrusage(2)`. Branching on `sys.platform` is
     the only way to interpret the same field correctly on both.
+
+    This is a monotonic whole-process high-water mark, not a measurement scoped to
+    this dry run: it never falls, so a second `execute()` call in the same CLI
+    invocation reports the same or a higher number, and it can't be attributed to
+    the check alone if anything else in the process allocated memory first. It's
+    still the right number for the question an operator actually asks - "will this
+    fit in a 4 GB job?" - just not a per-call delta.
     """
     import resource  # noqa: PLC0415 - posix-only, and only needed here
 
@@ -66,9 +74,14 @@ def build_config(spec: CalibrationSpec, cache: ValueCache) -> str:
 
     `check_multiqc.run` reads `['workflow', 'sequencing_type']` to pick which
     `qc_thresholds` table applies, so that key has to be present alongside the
-    thresholds themselves for the check to do anything.
+    thresholds themselves for the check to do anything. Rendered with `tomlio.fmt_kv`
+    rather than a hand-quoted f-string, matching every other scalar this package
+    writes: `spec.seq_type` is unvalidated (`spec._from_dict` only does `str(...)`)
+    and `emit.render` bare-key-checks metric keys but not `seq_type`, so a stray
+    quote in it would otherwise produce malformed TOML and a confusing parse error
+    instead of `fmt_value`'s clean escaping.
     """
-    lines = ['[workflow]', f'sequencing_type = "{spec.seq_type}"', '']
+    lines = ['[workflow]', tomlio.fmt_kv('sequencing_type', spec.seq_type), '']
     return '\n'.join(lines) + render(spec, cache, generated='dryrun')
 
 
@@ -115,18 +128,32 @@ def _restore_config_paths(previous: list[str]) -> None:
         logging.warning(f'Could not restore previous config paths {previous}, leaving as-is - {exc}')
 
 
-def execute(spec: CalibrationSpec, cache: ValueCache, cohort: Cohort, output_dir: Path) -> DryRunResult:
+def execute(spec: CalibrationSpec, cache: ValueCache, cohort: Cohort, output_dir: str | Path) -> DryRunResult:
     """Run the production QC check against `cohort`'s report, under `spec`'s thresholds.
 
     `send_to_slack=False` always: a calibration dry run must never post to the lab's
     Slack channel. Structured output is written to
     `<output_dir>/dryrun_<cohort.label>.json`, exactly as a production run would
-    write it with `--output-json`.
+    write it with `--output-json`. `output_dir` is created if it doesn't exist -
+    without this, a full run (parse, absolute pass, relative pass) would complete
+    and only then fail at the write, throwing away the whole result for a missing
+    directory. Any stale output file at that path is removed up front, so a failed
+    run can't leave a previous run's numbers behind for an operator to misread as
+    current.
+
+    `seconds` times only the production check itself (`check_multiqc.run`), not the
+    config plumbing around it - tempdir creation, the TOML write and two
+    `set_config_paths` calls, each of which parses every installed path. That
+    plumbing dominates the number on a tiny fixture (a fraction of a millisecond),
+    so timing it would make `seconds` misleading as an estimate of how long the
+    check itself takes on a real, large report.
     """
     output_path = Path(output_dir) / f'dryrun_{cohort.label}.json'
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.unlink(missing_ok=True)
     text = build_config(spec, cache)
-    start = time.perf_counter()
     with _config_from(text):
+        start = time.perf_counter()
         result: dict[str, Any] = check_multiqc.run(
             multiqc_json_path=cohort.uri,
             html_url=None,
@@ -135,9 +162,9 @@ def execute(spec: CalibrationSpec, cache: ValueCache, cohort: Cohort, output_dir
             send_to_slack=False,
             output_json_path=str(output_path),
         )
-    seconds = time.perf_counter() - start
+        seconds = time.perf_counter() - start
 
-    counts: Counter = Counter()
+    counts: Counter[tuple[str, str, str]] = Counter()
     for flags in result['qc_flags'].values():
         for flag in flags:
             counts[(flag['flag'], flag['severity'], flag.get('method', 'absolute'))] += 1

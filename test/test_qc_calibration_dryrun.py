@@ -3,6 +3,7 @@
 import json
 import os
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any, NoReturn
 
 import pytest
@@ -140,7 +141,14 @@ def test_restore_failure_does_not_mask_the_real_error(report, tmp_path, monkeypa
 
 
 def test_dryrun_does_not_send_to_slack(report, tmp_path, monkeypatch):
-    """A calibration dry run must never post to the lab's Slack channel."""
+    """Flipping send_to_slack in execute() must fail this test - the spy records any post.
+
+    There's a second, independent barrier behind this one: under `_config_from` the
+    installed config carries only `[workflow]` and `[qc_thresholds...]`, so
+    `send_message` -> `_get_token()` raises `ValueError('slack.token_secret_id and
+    slack.token_project_id must be set in config')` before any HTTP call is made. A
+    flipped flag fails loudly rather than silently posting.
+    """
     calls = []
     monkeypatch.setattr(dryrun_mod.check_multiqc, 'send_message', lambda *a, **_k: calls.append(a))
     dryrun_mod.execute(SPEC, CACHE, report, output_dir=tmp_path)
@@ -152,3 +160,20 @@ def test_dryrun_works_from_a_cold_start_with_no_config_paths(report, tmp_path):
     os.environ.pop('CPG_CONFIG_PATH', None)
     result = dryrun_mod.execute(SPEC, CACHE, report, output_dir=tmp_path)
     assert result.n_samples_flagged == 3
+
+
+def test_dryrun_creates_a_missing_output_dir(report, tmp_path):
+    """A full run must not be thrown away just because output_dir doesn't exist yet."""
+    missing_dir = tmp_path / 'nested' / 'output'
+    result = dryrun_mod.execute(SPEC, CACHE, report, output_dir=missing_dir)
+    assert Path(result.output_path).exists()
+
+
+def test_dryrun_removes_stale_output_on_failure(tmp_path):
+    """A pre-existing output file must not survive a failed run to be misread as current."""
+    output_path = tmp_path / 'dryrun_dataset-a.json'
+    output_path.write_text('{"stale": true}')
+    missing = Cohort('dataset-a', str(tmp_path / 'nope.json'))
+    with pytest.raises(Exception):  # noqa: B017 - any failure is fine; the point is the cleanup
+        dryrun_mod.execute(SPEC, CACHE, missing, output_dir=tmp_path)
+    assert not output_path.exists()
