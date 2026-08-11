@@ -46,9 +46,12 @@ _LOUD = '!! '
 # for its indent, and narrow enough to stay readable next to the tables.
 _WIDTH = 110
 
-# Widest a table is allowed to get before its cohort columns are split into groups. The
-# tables that grow with cohort *count* rather than cohort size are the ones that need
-# this: the metric-presence matrix reaches ~250 columns for ten real dataset labels.
+# The budget every line of the survey report stays inside, and the point at which the
+# presence matrix splits its cohort columns into groups. The tables that need it are the
+# ones that grow with cohort *count* or section count rather than with a fixed field
+# width: the presence matrix reaches ~250 columns for ten real dataset labels, and a
+# comma-joined section list reaches ~135 on the six-section MultiQC 1.33 set. Both are
+# restructured rather than truncated - see `_survey_presence` and `_survey_cohorts`.
 MAX_TABLE_WIDTH = 120
 
 # Merged-cohort churn runs every unordered pair, which is quadratic in cohort count -
@@ -113,10 +116,23 @@ def _fmt_rate(rate: float) -> str:
 
 
 def _fmt_stat(value: float | None) -> str:
-    """A median/MAD/threshold at 4 significant figures; '-' when there isn't one."""
+    """A median, MAD or threshold at 4 decimal places; '-' when there isn't one.
+
+    Four *decimal places*, not four significant figures. `relative._evaluate_cohort`
+    rounds `threshold` to 4 dp precisely because that is the rounding
+    `check_multiqc.relative_flags` applies before comparing, so that "the displayed
+    threshold therefore always explains the displayed count". A `.4g` render would shorten
+    17.7825 to 17.78 and 1234.5678 to 1235, quietly breaking the one invariant the
+    producing module went out of its way to hold - the threshold is the number an operator
+    would use to re-derive the warn count by hand.
+
+    `median` and `mad_raw` get the same precision: they sit in the same units on the same
+    row, and re-deriving the threshold from them (median +/- k * 1.4826 * MAD) needs all
+    three at full width, not two of them rounded to a different rule.
+    """
     if value is None or math.isnan(value):
         return '-'
-    return f'{value:.4g}'
+    return f'{value:.4f}'
 
 
 def _wrap(text: str, initial: str = '', subsequent: str = '') -> list[str]:
@@ -147,7 +163,12 @@ def survey_report(result: CollectResult, spec: CalibrationSpec) -> str:
     in a report that read perfectly well. Collapsing them into one "problems" list would
     send an operator to the wrong place half the time.
     """
-    blocks = [_survey_cohorts(result), _survey_presence(result, spec)]
+    if result.rows:
+        blocks = [_survey_cohorts(result), _survey_presence(result, spec)]
+    else:
+        # Header-and-rule tables with no cohort columns are a confusing artefact; the
+        # failures block below is the whole story when nothing could be read.
+        blocks = ['No cohort was surveyed, so there is nothing to profile.']
     if result.missing_gated:
         blocks.append(_survey_missing(result))
     if result.failures:
@@ -158,28 +179,39 @@ def survey_report(result: CollectResult, spec: CalibrationSpec) -> str:
 
 
 def _survey_cohorts(result: CollectResult) -> str:
-    headers = ['cohort', 'multiqc', 'shape', 'samples', 'sections', 'dropped']
+    """Provenance and shape per cohort, with the per-section and per-metric detail below.
+
+    The section sizes and the drop breakdown are wrapped prose rather than table cells
+    because both grow with the *number of sections and metrics*, not with a fixed field
+    width. A single comma-joined `sections` cell put this - the first table an operator
+    reads - past 130 columns on the six-section MultiQC 1.33 set, which is the same
+    readability failure the presence matrix is chunked to avoid. Nothing is dropped: the
+    table keeps the section count so an odd cohort still stands out at a glance, and every
+    size is listed underneath.
+    """
+    headers = ['cohort', 'multiqc', 'shape', 'samples', 'n sections', 'dropped']
     rows = [
         [
             row.label,
             row.multiqc_version,
             row.shape,
             str(row.n_samples),
-            ', '.join(f'{name}={size}' for name, size in row.section_sizes.items()) or '-',
+            str(len(row.section_sizes)),
             str(row.n_dropped),
         ]
         for row in result.rows
     ]
-    lines = [_titled('Cohorts surveyed'), table(headers, rows)]
-    detail = [
-        f'  {row.label}: ' + ', '.join(f'{key}={n}' for key, n in row.n_dropped_by_metric.items() if n)
-        for row in result.rows
-        if row.n_dropped
-    ]
-    if detail:
+    lines = [_titled('Cohorts surveyed'), table(headers, rows), '', 'Section sizes:']
+    for row in result.rows:
+        sizes = ', '.join(f'{name}={size}' for name, size in row.section_sizes.items()) or '(none)'
+        lines += _wrap(sizes, initial=f'  {row.label}: ', subsequent='    ')
+    if dropped := [row for row in result.rows if row.n_dropped]:
         # Per metric, not just the total: a metric where most samples are Picard's '?'
         # placeholder is a real signal, and one total can't be unpicked back into it.
-        lines += ['', 'Dropped values by metric (non-numeric or non-finite):', *detail]
+        lines += ['', 'Dropped values by metric (non-numeric or non-finite):']
+        for row in dropped:
+            detail = ', '.join(f'{key}={n}' for key, n in row.n_dropped_by_metric.items() if n) or '(unattributed)'
+            lines += _wrap(detail, initial=f'  {row.label}: ', subsequent='    ')
     return '\n'.join(lines)
 
 
@@ -360,9 +392,10 @@ def _flagrate_legend() -> str:
                 'not a computable property, so read the threshold against the cohort and decide.',
             ),
             *_wrap(
-                "A rate of '-' means there is no threshold to score it against: either the warn tier is "
-                'cohort-relative (the header says so, and `qc_calibrate mad` scores it) or the metric has no '
-                'tier at that severity at all.',
+                "A rate of '-' means there was nothing to score. Either the metric has no absolute threshold at "
+                'that severity - a cohort-relative warn tier says so in the header, and `qc_calibrate mad` scores '
+                'that one instead - or the cohort has no values for the metric at all, which the n column shows '
+                'as 0.',
             ),
         ],
     )
@@ -484,7 +517,12 @@ def _mad_verdict(evaluation: MadEvaluation) -> str:
     reason = f' - {evaluation.verdict_reason}' if evaluation.verdict_reason else ''
     return '\n'.join(
         [
-            f'Peak warn rate {evaluation.max_warn_rate:.1%}; peak cohort-growth churn {evaluation.max_churn:.1%}.',
+            # `max_churn` spans *both* simulations, so it must not be labelled with the
+            # title of one of them: an operator told "peak cohort-growth churn 8.0%" reads
+            # the cohort-growth table, finds 0.0%, and doubts the tool rather than looking
+            # at the merged-cohort table the 8.0% actually came from.
+            f'Peak warn rate {evaluation.max_warn_rate:.1%}; peak churn {evaluation.max_churn:.1%} '
+            '(the worse of the cohort-growth and merged-cohort simulations).',
             f'Verdict: {evaluation.verdict}{reason}',
             *_wrap(
                 "Adoption is the operator's decision: this verdict is advice for you to sign off, not an "

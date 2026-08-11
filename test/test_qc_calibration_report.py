@@ -166,37 +166,55 @@ def test_survey_report_presence_matrix_names_the_carrying_section():
     assert 'MISSING' in dup_row  # dataset-b
 
 
+# The section set MultiQC 1.33 produces for a genome cohort. Six sections in one
+# comma-joined cell is what pushed the cohort table past 130 columns.
+WIDE_SECTIONS = {
+    'general': 120,
+    'picard_3': 118,
+    'picard_4': 118,
+    'verifybamid': 120,
+    'samtools': 120,
+    'somalier': 119,
+}
+
+
 def wide_survey_row(label):
-    """A surveyed cohort whose label is as long as a real dataset label."""
+    """A surveyed cohort with a real-length label and the full 1.33 section set."""
     return SurveyRow(
         label=label,
         uri=f'gs://bucket/{label}.json',
         multiqc_version='1.33',
         shape='dict',
         n_samples=120,
-        section_sizes={'general': 120, 'picard_1': 118},
-        where={metric.key: ('picard_1',) for metric in SPEC.metrics},
+        section_sizes=dict(WIDE_SECTIONS),
+        where={metric.key: ('picard_3', 'picard_4') for metric in SPEC.metrics},
         section_keys={'general': tuple(m.key for m in SPEC.metrics)},
-        n_dropped=0,
-        n_dropped_by_metric={},
+        n_dropped=4,
+        n_dropped_by_metric={metric.key: 1 for metric in SPEC.metrics},
     )
+
+
+def wide_result(n_cohorts):
+    labels = [f'cohort-with-a-long-name-{i}' for i in range(n_cohorts)]
+    rows = tuple(wide_survey_row(label) for label in labels)
+    return labels, CollectResult(cache=CACHE, rows=rows, missing_gated={}, failures=())
 
 
 def matrix_headers(out):
     return [line for line in out.splitlines() if line.startswith('metric ') and 'gated' in line]
 
 
+def matrix_lines(out):
+    """Every line of the presence matrix, headers, rules and rows alike."""
+    block = out.split('Metric presence')[1]
+    return [line for line in block.splitlines() if line]
+
+
 def test_survey_report_chunks_a_presence_matrix_too_wide_for_a_terminal():
     """Ten real dataset labels put one matrix past 240 columns; chunk, never truncate."""
-    labels = [f'cohort-with-a-long-name-{i}' for i in range(10)]
-    result = CollectResult(
-        cache=CACHE,
-        rows=tuple(wide_survey_row(label) for label in labels),
-        missing_gated={},
-        failures=(),
-    )
+    labels, result = wide_result(10)
     out = report.survey_report(result, SPEC)
-    assert max(len(line) for line in out.splitlines()) <= report.MAX_TABLE_WIDTH
+    assert max(len(line) for line in matrix_lines(out)) <= report.MAX_TABLE_WIDTH
     for label in labels:
         assert label in out  # every cohort is still there
     assert len(matrix_headers(out)) > 1  # the matrix was split into groups
@@ -206,6 +224,34 @@ def test_survey_report_chunks_a_presence_matrix_too_wide_for_a_terminal():
 def test_survey_report_does_not_chunk_a_narrow_presence_matrix():
     out = report.survey_report(collect_result(), SPEC)
     assert len(matrix_headers(out)) == 1
+
+
+def test_survey_report_keeps_every_line_within_the_width_budget():
+    """Not just the matrix: the cohort table grows with section count and needs it too."""
+    _, result = wide_result(10)
+    out = report.survey_report(result, SPEC)
+    over = [line for line in out.splitlines() if len(line) > report.MAX_TABLE_WIDTH]
+    assert over == []
+
+
+def test_survey_report_lists_every_section_size_outside_the_table():
+    """Bounding the table must not cost a single section size."""
+    _, result = wide_result(2)
+    out = report.survey_report(result, SPEC)
+    for name, size in WIDE_SECTIONS.items():
+        assert f'{name}={size}' in out
+    # and the table still says how many sections there were, so an odd cohort stands out
+    assert 'n sections' in out
+    assert next(line for line in out.splitlines() if line.startswith('cohort-with-a-long-name-0')).split()[4] == '6'
+
+
+def test_survey_report_omits_the_tables_when_no_cohort_could_be_read():
+    result = CollectResult(cache=CACHE, rows=(), missing_gated={}, failures=(('cohort-1', 'HTTP 403'),))
+    out = report.survey_report(result, SPEC)
+    assert 'Metric presence' not in out  # a matrix with no cohort columns is just noise
+    assert 'Cohorts surveyed' not in out
+    assert 'No cohort was surveyed' in out
+    assert 'UNREADABLE COHORTS' in out
 
 
 def test_survey_report_marks_gated_metrics():
@@ -335,6 +381,14 @@ def test_flagrates_report_legend_explains_warn_exclusion_and_the_mark():
     assert 'not a rejection' in out
 
 
+def test_flagrates_report_legend_covers_both_readings_of_a_dash():
+    """A '-' is a missing threshold *or* a cohort with no values; say both."""
+    out = report.flagrates_report(CACHE, SPEC)
+    assert 'no absolute threshold at that severity' in out
+    assert 'no values for the metric at all' in out
+    assert 'n column' in out  # which is what tells the two apart
+
+
 def test_flagrates_report_handles_a_spec_with_no_gated_metrics():
     ungated = spec_mod.loads(
         'seq_type = "genome"\ncache = "cache.json"\n\n[metrics.error_rate]\ndirection = "max"\ngated = false\n',
@@ -386,10 +440,32 @@ def test_mad_report_shows_the_metric_and_direction_sense():
 
 def test_mad_report_shows_per_cohort_numbers():
     row = next(line for line in report.mad_report(mad_evaluation()).splitlines() if line.startswith('dataset-a'))
-    assert '12' in row  # median
-    assert '1.5' in row  # MAD
-    assert '17.78' in row  # derived threshold
+    assert '12.0000' in row  # median
+    assert '1.5000' in row  # MAD
+    assert '17.7825' in row  # derived threshold
     assert '3.0%' in row  # warn rate: 3 of 100 values
+
+
+def test_mad_report_keeps_the_threshold_at_the_precision_relative_rounded_it_to():
+    """`relative` rounds to 4 dp so the threshold explains the count; .4g would shorten it."""
+    cohort = CohortMad(
+        label='dataset-a',
+        n_values=100,
+        n_samples=100,
+        median=1234.5678,
+        mad_raw=12.3456,
+        threshold=1301.9012,
+        n_warn=1,
+        skipped=None,
+    )
+    row = next(
+        line
+        for line in report.mad_report(mad_evaluation(cohorts=(cohort,))).splitlines()
+        if line.startswith('dataset-a')
+    )
+    assert '1301.9012' in row  # not '1302', which is what 4 significant figures gives
+    assert '1234.5678' in row
+    assert '12.3456' in row
 
 
 def test_mad_report_notes_a_skipped_cohort_and_its_reason():
@@ -480,6 +556,21 @@ def test_mad_report_verdict_recommend_needs_no_reason():
     evaluation = mad_evaluation(homogeneous=(HomogeneousChurn('dataset-a', churn(), churn()),))
     assert evaluation.verdict == 'RECOMMEND'
     assert 'RECOMMEND' in report.mad_report(evaluation)
+
+
+def test_mad_report_peak_churn_is_not_labelled_with_one_simulations_title():
+    """`max_churn` spans both simulations, so it must not read as the growth figure."""
+    evaluation = mad_evaluation(
+        homogeneous=(HomogeneousChurn('dataset-a', churn(flips=0), churn(flips=0)),),
+        heterogeneous=(('dataset-a', 'dataset-b', churn(n_initial=100, flips=8)),),
+    )
+    assert evaluation.max_churn == pytest.approx(0.08)
+    summary = next(line for line in report.mad_report(evaluation).splitlines() if line.startswith('Peak warn rate'))
+    assert '8.0%' in summary
+    assert 'cohort-growth' in summary  # both sources are named, so 8.0% is findable
+    assert 'merged-cohort' in summary
+    # ... and it is not presented as the cohort-growth table's own worst figure, which is 0.0%
+    assert 'peak cohort-growth churn 8.0%' not in summary
 
 
 def test_mad_report_says_adoption_is_the_operators_decision():
@@ -583,7 +674,14 @@ def probe(code):
 
 
 def test_report_does_not_import_dryrun_or_emit_at_runtime():
-    """report -> dryrun -> emit -> report would close an import cycle."""
+    """The load-bearing cycle guard: report -> dryrun -> emit -> report must not exist.
+
+    Asserting on `sys.modules` rather than on whether the import *raised* is what makes
+    this bite in both directions. A runtime `from ...dryrun import DryRunResult` here only
+    raises when `report` is imported second - `emit` does `from ... import report`, which
+    Python satisfies from `sys.modules` with a partially-initialised module and which only
+    touches `fmt_measure` at call time. Absence from `sys.modules` has no such asymmetry.
+    """
     done = probe(
         'import sys\n'
         'import align_genotype.qc_calibration.report\n'
@@ -595,6 +693,11 @@ def test_report_does_not_import_dryrun_or_emit_at_runtime():
 
 
 @pytest.mark.parametrize(('first', 'second'), [('dryrun', 'report'), ('report', 'dryrun')])
-def test_report_and_dryrun_import_in_either_order(first, second):
+def test_report_and_dryrun_are_importable_in_either_order(first, second):
+    """A smoke test, not a cycle guard - see the `sys.modules` test above for that.
+
+    The `report`-first case would survive a partially-initialised-module cycle, so passing
+    here proves only that neither order raises today.
+    """
     done = probe(f'import align_genotype.qc_calibration.{first}\nimport align_genotype.qc_calibration.{second}\n')
     assert done.returncode == 0, done.stderr
