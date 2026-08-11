@@ -76,13 +76,33 @@ def is_eligible(project: dict[str, Any]) -> bool:
     return not any(token in name for token in EXCLUDED_NAME_TOKENS)
 
 
-def latest_analysis(analyses: list[dict[str, Any]], seq_type: str) -> dict[str, Any] | None:
+def latest_analysis(
+    analyses: list[dict[str, Any]],
+    seq_type: str,
+    dataset_label: str | None = None,
+) -> dict[str, Any] | None:
     """The most recently completed analysis of `seq_type` that produced an output.
 
     Selection is by `timestampCompleted`, not by id or list order: a higher id with an
-    older timestamp must lose.
+    older timestamp must lose. This is talking to a live external service, so malformed
+    rows are expected: an analysis with a missing or non-string `timestampCompleted`
+    can't be ordered against the others, so it is excluded rather than compared - it's
+    better to silently drop a candidate we can't rank than to silently pick the wrong
+    one, or crash with a `TypeError`/`KeyError` instead of a clean `DiscoveryError`.
+    `dataset_label` is only used to name the dataset in that warning.
     """
-    candidates = [a for a in analyses if (a.get('meta') or {}).get('sequencing_type') == seq_type and a.get('output')]
+    candidates = []
+    for analysis in analyses:
+        if (analysis.get('meta') or {}).get('sequencing_type') != seq_type or not analysis.get('output'):
+            continue
+        timestamp = analysis.get('timestampCompleted')
+        if not isinstance(timestamp, str):
+            logging.warning(
+                f'discovery: dataset {dataset_label!r} analysis {analysis.get("id")!r} has no usable '
+                f'timestampCompleted ({timestamp!r}); excluding it from latest-analysis selection',
+            )
+            continue
+        candidates.append(analysis)
     if not candidates:
         return None
     return max(candidates, key=lambda a: a['timestampCompleted'])
@@ -107,7 +127,7 @@ def build_manifest(seq_type: str, query_fn: QueryFn = default_query, generated: 
 
         result = query_fn(ANALYSES_QUERY, {'datasetName': label})
         analyses = result.get('project', {}).get('analyses', [])
-        analysis = latest_analysis(analyses, seq_type)
+        analysis = latest_analysis(analyses, seq_type, label)
         if analysis is None:
             continue
 

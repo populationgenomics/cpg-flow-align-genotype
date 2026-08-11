@@ -112,6 +112,64 @@ def test_dataset_with_no_matching_analysis_is_omitted():
     assert 'dataset-b' not in manifest.labels
 
 
+def test_analysis_with_null_timestamp_is_skipped_but_valid_one_wins(caplog):
+    def query_fn(query_text, variables=None) -> dict:  # noqa: ARG001 - fake must match QueryFn signature
+        if 'myProjects' in query_text:
+            return {'myProjects': [{'name': 'dataset-a', 'dataset': 'dataset-a', 'meta': {'is_seqr': True}}]}
+        return {
+            'project': {
+                'analyses': [
+                    {
+                        'id': 1,
+                        'meta': {'sequencing_type': 'genome'},
+                        'output': 'gs://a/no-ts.json',
+                        'timestampCompleted': None,
+                    },
+                    {
+                        'id': 2,
+                        'meta': {'sequencing_type': 'genome'},
+                        'output': 'gs://a/g.json',
+                        'timestampCompleted': '2026-01-01T00:00:00',
+                    },
+                ],
+            },
+        }
+
+    manifest = discovery_mod.build_manifest('genome', query_fn=query_fn, generated='x')
+    cohort = manifest.cohort('dataset-a')
+    assert cohort.analysis_id == 2
+    assert cohort.uri == 'gs://a/g.json'
+    assert 'dataset-a' in caplog.text
+    assert '1' in caplog.text
+
+
+def test_all_null_timestamps_omits_dataset_and_raises_when_none_left():
+    def query_fn(query_text, variables=None) -> dict:  # noqa: ARG001 - fake must match QueryFn signature
+        if 'myProjects' in query_text:
+            return {'myProjects': [{'name': 'dataset-a', 'dataset': 'dataset-a', 'meta': {'is_seqr': True}}]}
+        return {
+            'project': {
+                'analyses': [
+                    {
+                        'id': 1,
+                        'meta': {'sequencing_type': 'genome'},
+                        'output': 'gs://a/no-ts.json',
+                        'timestampCompleted': None,
+                    },
+                    {
+                        'id': 2,
+                        'meta': {'sequencing_type': 'genome'},
+                        'output': 'gs://a/no-ts-2.json',
+                        'timestampCompleted': 12345,
+                    },
+                ],
+            },
+        }
+
+    with pytest.raises(discovery_mod.DiscoveryError, match='no cohorts'):
+        discovery_mod.build_manifest('genome', query_fn=query_fn, generated='x')
+
+
 def test_analysis_without_an_output_path_is_ignored():
     def query_fn(query_text, variables=None) -> dict:  # noqa: ARG001 - fake must match QueryFn signature
         if 'myProjects' in query_text:
