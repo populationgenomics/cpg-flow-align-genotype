@@ -177,7 +177,7 @@ No `gcloud storage cp`. Inputs via `batch.read_input(uri)`, outputs via
 `batch.write_output(j.values, path)`, matching `jobs/multiqc.py` and `jobs/sg_qc_report.py`.
 
 | Job | Resources | Rationale |
-|---|---|---|
+| --- | --- | --- |
 | extract (per dataset) | `HIGHMEM`, `storage` configurable, default `20Gi` | a 500 MB JSON parses into several GB of Python objects; one report localised per job |
 | report (per multicohort) | `STANDARD`, 2 CPU | reads N small JSON files |
 
@@ -240,7 +240,7 @@ those fields encoded moves to the README and to the report's own framing text.
 ## Module layout
 
 | Current | Fate | Target size | Notes |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `cli.py` (241) | delete | — | the stage is the entrypoint; `qc_calibrate` leaves `pyproject.toml` |
 | `tomlio.py` (77) | delete | — | nothing reads or writes TOML; the emitted block is f-strings |
 | `manifest.py` (131) | delete | — | no manifest artifact; provenance lives in the report JSON |
@@ -289,9 +289,9 @@ through `relative_flags` additionally bought was exercising `load_thresholds`, w
 
 ```python
 ANALYSES_QUERY = gql("""
-    query CramMultiqc($dataset: String!, $meta: JSON!) {
+    query CramMultiqc($dataset: String!, $analysisType: String!, $metaFilter: JSON!) {
         project(name: $dataset) {
-            analyses(status: {eq: COMPLETED}, type: {eq: "qc"}, meta: $meta) {
+            analyses(status: {eq: COMPLETED}, type: {eq: $analysisType}, meta: $metaFilter) {
                 id
                 output
                 timestampCompleted
@@ -301,8 +301,26 @@ ANALYSES_QUERY = gql("""
 """)
 ```
 
-with `meta = {'stage': 'CramMultiQC', 'sequencing_type': seq_type}`, then keep only
-outputs ending `multiqc_data.json` and take the newest `timestampCompleted`. Datasets come
+Meta filtering takes a per-key operator dict, not a flat mapping, and both it and the
+analysis type are passed as query variables:
+
+```python
+meta_filter = {
+    'stage': {'eq': 'CramMultiQC'},
+    'sequencing_type': {'eq': seq_type},
+}
+result = query(
+    ANALYSES_QUERY,
+    variables={
+        'dataset': dataset_name,
+        'analysisType': 'qc',
+        'metaFilter': meta_filter,
+    },
+)
+```
+
+Then keep only outputs ending `multiqc_data.json` and take the newest
+`timestampCompleted`. Datasets come
 from `multicohort.get_datasets()`, so the `is_seqr` check and the
 `('test', 'training', 'seqr')` name-substring exclusions are gone — dataset selection is
 now the operator's, expressed through `input_cohorts`. `metamist` is imported normally
@@ -313,7 +331,7 @@ ranked and is skipped with a warning.
 
 ### `calibration.json` — analysis dataset main bucket
 
-```
+```text
 sequencing_type, generated, ar_guid
 settings            k, min_samples, max_warn_rate, max_growth_churn, max_merge_churn
 datasets[]          dataset, analysis_id, timestamp, uri, n_sequencing_groups,
@@ -362,7 +380,7 @@ No separate `.toml` output file — the snippet exists in the HTML and in the JS
 ### Failure policy
 
 | Condition | Behaviour |
-|---|---|
+| --- | --- |
 | Configured metric missing from *some* datasets | red banner, `warnings[]` entry, WARNING log. Not a job failure. |
 | Configured metric missing from *every* dataset | loudest banner, ERROR log. Still not a job failure. |
 | Report has no usable `report_general_stats_data` | extract job fails, mirroring `check_multiqc.load_sections` |
@@ -384,7 +402,7 @@ Nine files, ~1,120 lines, down from thirteen and 3,692. Almost all of the reduct
 consequence of deleted module surface rather than thinned coverage.
 
 | | now | after | why |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `tomlio`, `manifest`, `cli`, `dryrun` | 714 | 0 | modules deleted |
 | `spec` → `settings` | 284 | ~80 | tested validation rules and TOML round-trips that no longer exist |
 | `report` → `summary` | 703 | ~150 | see below |
@@ -497,11 +515,6 @@ testable offline.
 
 ## Risks
 
-- **Metamist meta filtering.** The `meta: JSON!` argument shape on the `analyses` field is
-  assumed from the schema. If server-side meta filtering isn't available as written, the
-  fallback is to fetch all completed `qc` analyses for the dataset and filter client-side
-  on `meta['stage']` — same result, one more round of data over the wire. Resolved in
-  step 7 against a live query.
 - **Report size at 16 datasets.** The percentile and flag-rate tables are metric ×
   dataset. At ~14 metrics and ~16 datasets that is legible in HTML where it was not in a
   terminal, but the presence matrix should still be checked for width once real labels
