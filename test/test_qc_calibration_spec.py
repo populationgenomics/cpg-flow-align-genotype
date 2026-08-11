@@ -128,6 +128,19 @@ def test_no_metrics_rejected():
         spec_mod.loads('seq_type = "genome"\ncache = "c.json"\n')
 
 
+@pytest.mark.parametrize(
+    'text',
+    [
+        'seq_type = "genome"\ncache = "c.json"\n\n[[metrics]]\ndirection = "min"\nfail = 1\n',
+        'seq_type = "genome"\ncache = "c.json"\nmetrics = "oops"\n',
+    ],
+)
+def test_non_table_metrics_rejected(text):
+    """A hand-edit to `[[metrics]]` (an array of tables) is a plausible typo for a table of tables."""
+    with pytest.raises(SpecError, match=r'\[metrics\] must be a table'):
+        spec_mod.loads(text)
+
+
 def test_metric_key_needing_quoting_rejected():
     """dumps() writes metric keys unquoted, so a key that needs quoting can't round-trip."""
     text = 'seq_type = "genome"\ncache = "c.json"\n\n[metrics."odd.key"]\ndirection = "min"\nfail = 1\n'

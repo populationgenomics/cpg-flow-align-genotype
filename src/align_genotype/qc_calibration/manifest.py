@@ -57,7 +57,9 @@ def _parse_cohort(label: str, raw: Any) -> Cohort:
         raise ManifestError(f'cohort {label!r}: unknown key(s) {unknown}; expected {sorted(_COHORT_KEYS)}')
     if 'uri' not in raw:
         raise ManifestError(f'cohort {label!r}: missing required key: uri')
-    uri = str(raw['uri'])
+    uri = raw['uri']
+    if not isinstance(uri, str):
+        raise ManifestError(f'cohort {label!r}: uri must be a string, got {uri!r}')
     if not uri:
         raise ManifestError(f'cohort {label!r}: uri must not be empty')
     return Cohort(
@@ -99,6 +101,8 @@ def _from_dict(raw: dict[str, Any]) -> Manifest:
     if 'seq_type' not in raw:
         raise ManifestError('manifest: missing required key: seq_type')
     cohorts_raw = raw.get('cohorts', {})
+    if not isinstance(cohorts_raw, dict):
+        raise ManifestError('manifest: [cohorts] must be a table of [cohorts.<LABEL>] tables')
     if not cohorts_raw:
         raise ManifestError('manifest lists no cohorts; add at least one [cohorts.<LABEL>] table')
     return Manifest(

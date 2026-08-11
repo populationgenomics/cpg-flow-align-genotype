@@ -66,9 +66,14 @@ def test_validation_errors(text, match):
         manifest_mod.loads(text)
 
 
-def test_non_numeric_analysis_id_rejected():
-    """int() on a bad value would raise ValueError, which the CLI's except ManifestError misses."""
-    text = 'seq_type = "genome"\ngenerated = "x"\n[cohorts.a]\nuri = "u"\nanalysis_id = "many"\n'
+@pytest.mark.parametrize('bad_value', ['"many"', '1.5', '[1]', 'true'])
+def test_non_numeric_analysis_id_rejected(bad_value):
+    """int() on a bad value would raise ValueError, which the CLI's except ManifestError misses.
+
+    `true` must be checked explicitly: bool subclasses int, so without an explicit
+    exclusion `analysis_id = true` would silently become `1` instead of being rejected.
+    """
+    text = f'seq_type = "genome"\ngenerated = "x"\n[cohorts.a]\nuri = "u"\nanalysis_id = {bad_value}\n'
     with pytest.raises(ManifestError, match='analysis_id'):
         manifest_mod.loads(text)
 
@@ -76,6 +81,27 @@ def test_non_numeric_analysis_id_rejected():
 def test_empty_uri_rejected():
     text = 'seq_type = "genome"\ngenerated = "x"\n[cohorts.a]\nuri = ""\n'
     with pytest.raises(ManifestError, match='uri'):
+        manifest_mod.loads(text)
+
+
+@pytest.mark.parametrize('bad_value', ['[]', '42'])
+def test_non_string_uri_rejected(bad_value):
+    """str(raw['uri']) would silently coerce [] to '[]' (truthy) or 42 to '42' (a bogus local path)."""
+    text = f'seq_type = "genome"\ngenerated = "x"\n[cohorts.a]\nuri = {bad_value}\n'
+    with pytest.raises(ManifestError, match='uri must be a string'):
+        manifest_mod.loads(text)
+
+
+@pytest.mark.parametrize(
+    'text',
+    [
+        'seq_type = "genome"\ngenerated = "x"\n[[cohorts]]\nlabel = "a"\nuri = "u"\n',
+        'seq_type = "genome"\ngenerated = "x"\ncohorts = "oops"\n',
+    ],
+)
+def test_non_table_cohorts_rejected(text):
+    """A hand-edit to `[[cohorts]]` (an array of tables) is a plausible typo for a table of tables."""
+    with pytest.raises(ManifestError, match=r'\[cohorts\] must be a table'):
         manifest_mod.loads(text)
 
 

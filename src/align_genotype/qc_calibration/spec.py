@@ -204,6 +204,8 @@ def _from_dict(raw: dict[str, Any]) -> CalibrationSpec:
         if required not in raw:
             raise SpecError(f'calibration spec: missing required key: {required}')
     metrics_raw = raw.get('metrics', {})
+    if not isinstance(metrics_raw, dict):
+        raise SpecError('calibration spec: [metrics] must be a table of [metrics.<KEY>] tables')
     if not metrics_raw:
         raise SpecError('calibration spec defines no metrics; add at least one [metrics.<KEY>] table')
     return CalibrationSpec(
