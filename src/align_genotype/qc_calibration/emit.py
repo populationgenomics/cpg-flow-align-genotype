@@ -182,6 +182,15 @@ def _relative_section(spec: CalibrationSpec) -> list[str]:
     looking at the relative table specifically still deserves the "why is *this*
     metric cohort-relative" the rationale records, without having to cross-reference
     a different section for it.
+
+    Deliberately no per-metric warn evidence here, unlike `_absolute_section`: spec
+    validation guarantees `metric.warn is None` for every relative metric, so routing
+    it through `_evidence` would call `stats.flag_rates(..., warn=None)`, which always
+    reports a flat 0% warn rate - not merely uninformative but actively wrong, since it
+    would read as "this tier flags nothing" when the real per-cohort warn rates (0-4.2%
+    on the genome duplication metric, historically) only exist via `relative.evaluate`
+    and the `mad` command's output, which this module has no access to. Don't "fix" the
+    asymmetry with `_absolute_section` by adding one back.
     """
     relative: list[tuple[MetricSpec, RelativeSpec]] = [(m, m.relative) for m in spec.gated if m.relative is not None]
     if not relative:

@@ -55,6 +55,11 @@ _FRACTION_DP = 2
 # own prose - anything not starting with this marker, and any non-empty rationale
 # `seed` didn't itself write - is left alone; only a metric with no rationale, or one
 # still carrying a previous seed's text, gets overwritten on the next run.
+#
+# `_seed_metric`'s evidence text is written to read as the rest of this sentence (it
+# opens with 'from cohort percentiles...'), not as a second, redundant "Seeded" of its
+# own - the rendered rationale is `RATIONALE_MARKER + evidence`, read verbatim by an
+# operator and later pasted into config_template.toml.
 RATIONALE_MARKER = 'Seeded: '
 
 
@@ -118,7 +123,7 @@ def _seed_metric(cache: ValueCache, metric: MetricSpec) -> Seeded | None:
         return None
     fail = _round_for_unit(fail_raw, metric.unit)
     n_cohorts = _n_with_data(cache, metric.key)
-    evidence = f'Seeded from cohort percentiles across {n_cohorts} cohorts: fail from p{pcts["fail"]} ({fail_raw:.4g})'
+    evidence = f'from cohort percentiles across {n_cohorts} cohorts (fail p{pcts["fail"]}={fail_raw:.4g}'
 
     warn = None
     if metric.relative is None:
@@ -132,8 +137,8 @@ def _seed_metric(cache: ValueCache, metric: MetricSpec) -> Seeded | None:
             # narrows `warn_raw` to `float` from here on.
             raise AssertionError('a cohort with fail-percentile data must also have warn-percentile data')
         warn = _round_for_unit(warn_raw, metric.unit)
-        evidence += f', warn from p{pcts["warn"]} ({warn_raw:.4g})'
-    evidence += '.'
+        evidence += f', warn p{pcts["warn"]}={warn_raw:.4g}'
+    evidence += ').'
 
     return Seeded(key=metric.key, fail=fail, warn=warn, evidence=evidence)
 
