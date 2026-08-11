@@ -65,7 +65,19 @@ class ValueCache:
 
 
 def save(cache: ValueCache, path: str | Path) -> None:
-    """Write the cache as JSON. Raises rather than emitting NaN, which isn't valid JSON."""
+    """Write the cache as JSON, all-or-nothing.
+
+    This is the one artifact in the workflow that costs ten minutes of report-parsing
+    to regenerate, so a failed or interrupted `save` must never destroy a previously
+    good cache at the same path. Two guards:
+
+    - The payload is serialised with `json.dumps` before anything touches disk, so a
+      stray NaN (`allow_nan=False`) raises with nothing written, instead of partway
+      through `json.dump` streaming into an already-open target file.
+    - On local disk, the write lands in a sibling `.tmp` file first and is only moved
+      onto `path` via `Path.replace`, which is an atomic rename - a crash or Ctrl-C
+      mid-write can leave a stray `.tmp` file but can never leave `path` truncated.
+    """
     payload: dict[str, Any] = {
         'seq_type': cache.seq_type,
         'generated': cache.generated,
@@ -82,13 +94,26 @@ def save(cache: ValueCache, path: str | Path) -> None:
             for c in cache.cohorts
         },
     }
+    text = json.dumps(payload, indent=2, allow_nan=False)
+
     # Lazy: cpg_utils pulls in cloudpathlib and the S3 client stack, ~1.7s of import
     # time. Keeping it in here lets the rest of qc_calibration - and its tests - run
     # without paying that, and without coupling to cpg-utils config state.
     from cpg_utils import to_path  # noqa: PLC0415
 
-    with to_path(path).open('w') as f:
-        json.dump(payload, f, indent=2, allow_nan=False)
+    target = to_path(path)
+    if isinstance(target, Path):
+        # Local filesystem: rename is atomic, so use a temp-file-then-replace write.
+        tmp = target.parent / f'{target.name}.tmp'
+        tmp.write_text(text)
+        tmp.replace(target)
+    else:
+        # CloudPath does have a `replace`, but it isn't an atomic rename - it
+        # downloads, unlinks the target and re-uploads, so it buys nothing over
+        # writing directly. Caches are written locally in practice, so we don't
+        # contort this path to chase atomicity a cloud store can't actually give us.
+        with target.open('w') as f:
+            f.write(text)
 
 
 def load(path: str | Path) -> ValueCache:

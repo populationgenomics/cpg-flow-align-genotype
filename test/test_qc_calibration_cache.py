@@ -66,6 +66,37 @@ def test_save_refuses_to_write_nan(tmp_path):
         cache_mod.save(bad, tmp_path / 'values.json')
 
 
+def test_save_over_existing_cache_is_atomic_on_nan_failure(tmp_path):
+    """A failed save must not destroy a previously-saved valid cache at the same path.
+
+    `save` used to stream JSON straight into the open target file; hitting a NaN
+    partway through left a truncated file in place of whatever was there before -
+    destroying up to ten minutes of report-parsing work for no benefit.
+    """
+    path = tmp_path / 'values.json'
+    good = _cache()
+    cache_mod.save(good, path)
+
+    bad = ValueCache(
+        seq_type='genome',
+        generated='x',
+        complete=True,
+        metrics=('M',),
+        cohorts=(CohortValues('dataset-a', 1, '1.33', 'dict', 0, {'M': [float('nan')]}),),
+    )
+    with pytest.raises(ValueError, match=r'Out of range float values|NaN'):
+        cache_mod.save(bad, path)
+
+    assert cache_mod.load(path) == good
+    assert not path.with_name(path.name + '.tmp').exists()
+
+
+def test_save_leaves_no_tmp_file_on_success(tmp_path):
+    path = tmp_path / 'values.json'
+    cache_mod.save(_cache(), path)
+    assert not path.with_name(path.name + '.tmp').exists()
+
+
 def test_save_handles_numpy_floats(tmp_path):
     """collect casts to float, but the sink shouldn't corrupt if one slips through."""
     c = ValueCache(
