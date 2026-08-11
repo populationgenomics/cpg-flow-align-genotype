@@ -106,11 +106,11 @@ plots_force_interactive = true
 # fail above 4% is a pure safety gate for gross contamination.
 "FREEMIX" = 0.04
 # samtools - duplicate rate. Strongly cohort/library-prep dependent on WGS (cohort
-# medians 7-18%), so a fixed warn line over-flags high-dup preps - candidate for
-# cohort-relative (MAD-based) warn flagging rather than the fixed warn below. This
-# absolute fail above 40% catches only true library-complexity disasters (0% of
-# every cohort). The lab's original 25% would hard-fail ~25-37% of legitimately
-# higher-dup preps (afhcs/schr-neuro), so it is relaxed here.
+# medians 7-18%), so a fixed warn line over-flags high-dup preps - the warn tier is
+# handled cohort-relatively instead (see [..genome.relative]). This absolute fail
+# above 40% catches only true library-complexity disasters (0% of every cohort). The
+# lab's original 25% would hard-fail ~25-37% of legitimately higher-dup preps
+# (afhcs/schr-neuro), so it is relaxed here.
 "reads_duplicated_percent" = 40
 
 [qc_thresholds.genome.warn.min]
@@ -132,10 +132,23 @@ plots_force_interactive = true
 # Contamination early-warning. ~0 across all cohorts, so this rarely fires - the
 # fail>0.04 gate is the real protection.
 "FREEMIX" = 0.02
-# samtools - duplicate rate. Cohort medians 7-18%; warn above 30% flags the high-dup
-# tail (~0-5% per cohort). Because dup is strongly cohort-dependent, this fixed line
-# is an interim gate - it is superseded by cohort-relative flagging in the MAD tier.
-"reads_duplicated_percent" = 30
+# NB: reads_duplicated_percent has no absolute warn - its warn tier is cohort-relative
+# (see [qc_thresholds.genome.relative] below).
+
+# Cohort-relative (MAD / modified z-score) warn flagging for genome - warn only, same
+# mechanism as the exome ZERO_CVG_TARGETS_PCT tier below. reads_duplicated_percent is
+# strongly cohort/library-prep dependent on WGS (medians range 7.2% to 18.0% across the
+# 10 cohorts), so a fixed warn line either floods high-dup preps or never fires on
+# low-dup ones. Flagging within-cohort outliers instead gives 0-4.2% warn per cohort
+# with ~1% flag churn on homogeneous cohort growth (2.1% worst case when merging two
+# very different projects). The absolute fail>40% gate above still applies as a hard
+# stop; a sample caught there is not double-flagged here. Validated across all 10 WGS
+# cohorts via the production relative_flags() path (testing_scripts/mad_relative_prototype.py,
+# verify_relative_6cohorts.py).
+[qc_thresholds.genome.relative.reads_duplicated_percent]
+direction = "max"  # bad = high (more duplicate reads than the cohort norm)
+k = 3.5            # standard Iglewicz-Hoaglin outlier threshold
+min_cohort = 50    # below this, MAD is too noisy; skip relative flagging
 
 # Exome thresholds. Whole-genome coverage metrics (MEDIAN_COVERAGE from
 # CollectWgsMetrics) are meaningless on exomes, so we gate on Picard
