@@ -88,6 +88,22 @@ SEVERITIES: tuple[str, ...] = ('fail', 'warn')
 MODIFIED_Z_CONST = 0.6745
 
 
+def normalise_sections(raw: Any) -> dict[str, dict[str, Any]]:
+    """Normalise ``report_general_stats_data`` to ``{section: {sample: {metric: value}}}``.
+
+    MultiQC >=1.33 keys general-stats sections by tool name (a dict); v1.14 stores a
+    positional list instead, and both shapes turn up in real archived reports. Every
+    consumer - this check and the qc_calibration tooling - goes through here, so
+    calibration and enforcement can never disagree about what a report contains.
+    Members that aren't dicts are dropped.
+    """
+    if isinstance(raw, dict):
+        return {str(name): section for name, section in raw.items() if isinstance(section, dict)}
+    if isinstance(raw, list):
+        return {f'section_{i}': section for i, section in enumerate(raw) if isinstance(section, dict)}
+    return {}
+
+
 def robust_threshold(values: list[float], direction: str, k: float) -> float | None:
     """Cohort-relative outlier threshold from the modified z-score.
 
@@ -156,9 +172,14 @@ def warn_unmatched_metrics(sections: dict[str, Any], seq_type: str) -> None:
         )
 
 
-def _gather_metric_values(sections: dict[str, Any], metric: str) -> list[tuple[str, str, float]]:
-    """(section, sample, float value) for every sample carrying `metric`; non-numeric skipped."""
+def gather_metric_values(sections: dict[str, Any], metric: str) -> tuple[list[tuple[str, str, float]], int]:
+    """``([(section, sample, value)], n_dropped)`` for every sample carrying `metric`.
+
+    Non-numeric placeholders (Picard writes ``'?'`` when coverage is ~0) are skipped and
+    counted rather than raising, so one bad cell can't sink the whole check.
+    """
     entries: list[tuple[str, str, float]] = []
+    n_dropped = 0
     for section_name, section in sections.items():
         for sample, val_by_metric in section.items():
             if metric not in val_by_metric:
@@ -166,10 +187,9 @@ def _gather_metric_values(sections: dict[str, Any], metric: str) -> list[tuple[s
             try:
                 entries.append((section_name, sample, float(val_by_metric[metric])))
             except (TypeError, ValueError):
-                logging.warning(
-                    f'{sample}: relative metric {metric!r} non-numeric {val_by_metric[metric]!r}; skipping.',
-                )
-    return entries
+                n_dropped += 1
+                logging.warning(f'{sample}: metric {metric!r} non-numeric {val_by_metric[metric]!r}; skipping.')
+    return entries, n_dropped
 
 
 def _relative_flags_for_metric(
@@ -196,21 +216,23 @@ def _relative_flags_for_metric(
         sg_id = sample.split('|', 1)[0]
         if (section_name, metric) in already_flagged.get(sg_id, set()):
             continue  # already flagged absolutely (e.g. fail) - don't double up
-        results.append((
-            sample,
-            sg_id,
-            QcFlag(
-                flag=metric,
-                value=val,
-                comparison=sign,
-                threshold=threshold,
-                section=section_name,
-                date=today.isoformat(timespec='seconds'),
-                ar_guid=config.try_get_ar_guid(),
-                severity='warn',
-                method='relative',
-            ),
-        ))
+        results.append(
+            (
+                sample,
+                sg_id,
+                QcFlag(
+                    flag=metric,
+                    value=val,
+                    comparison=sign,
+                    threshold=threshold,
+                    section=section_name,
+                    date=today.isoformat(timespec='seconds'),
+                    ar_guid=config.try_get_ar_guid(),
+                    severity='warn',
+                    method='relative',
+                ),
+            )
+        )
     return results
 
 
@@ -234,7 +256,7 @@ def relative_flags(
     spec = config.config_retrieve(['qc_thresholds', seq_type, 'relative'], {})
     results: list[tuple[str, str, QcFlag]] = []
     for metric, cfg in spec.items():
-        entries = _gather_metric_values(sections, metric)
+        entries, _ = gather_metric_values(sections, metric)
         min_cohort = cfg.get('min_cohort', 0)
         if len(entries) < min_cohort:
             logging.info(f'Relative flagging skipped for {metric!r}: cohort {len(entries)} < min_cohort {min_cohort}.')
@@ -263,6 +285,23 @@ def apply_relative_flags(
         logging.info(f'⚠️ {sample}: {line}')
 
 
+def load_sections(multiqc_json_path: str) -> dict[str, dict[str, Any]]:
+    """Read and normalise ``report_general_stats_data`` from a MultiQC JSON report.
+
+    Raises rather than returning an empty result, so a report we couldn't read
+    can't be mistaken for a clean QC check.
+    """
+    with to_path(multiqc_json_path).open() as f:
+        d = json.load(f)
+    sections = normalise_sections(d.get('report_general_stats_data'))
+    if not sections:
+        raise ValueError(
+            f'No usable report_general_stats_data in {multiqc_json_path}; refusing to report a clean QC check '
+            f'on a report we could not read.',
+        )
+    return sections
+
+
 def run(  # noqa: C901
     multiqc_json_path: str,
     html_url: str | None = None,
@@ -275,9 +314,7 @@ def run(  # noqa: C901
 
     today = datetime.now()  # noqa: DTZ005
 
-    with to_path(multiqc_json_path).open() as f:
-        d = json.load(f)
-        sections = d['report_general_stats_data']
+    sections = load_sections(multiqc_json_path)
 
     # Log a compact structural summary rather than pprint-ing the whole blob: on a
     # large cohort (e.g. 647 WES samples) the full dump is a multi-MB string built

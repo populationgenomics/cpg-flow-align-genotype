@@ -234,7 +234,7 @@ _REL_SECTIONS = {
         'S4': {'ZERO_CVG_TARGETS_PCT': 0.022},
         'S5': {'ZERO_CVG_TARGETS_PCT': 0.020},
         'S6': {'ZERO_CVG_TARGETS_PCT': 0.023},
-        'OUT': {'ZERO_CVG_TARGETS_PCT': 0.080},   # relative outlier (< 0.10 fail gate) -> warn
+        'OUT': {'ZERO_CVG_TARGETS_PCT': 0.080},  # relative outlier (< 0.10 fail gate) -> warn
         'FAILS': {'ZERO_CVG_TARGETS_PCT': 0.150},  # absolute fail (> 0.10)
     },
 }
@@ -275,6 +275,64 @@ def test_absolute_fail_takes_precedence_over_relative(tmp_path, patch_config):
     assert fails[0]['method'] == 'absolute'
     # OUT (0.08) is still a relative warn.
     assert _flags_by_metric(result, 'OUT')['ZERO_CVG_TARGETS_PCT']['method'] == 'relative'
+
+
+# --- section shape normalisation ---------------------------------------------
+
+
+def test_normalise_sections_dict_shape_passes_through():
+    raw = {'picard': {'S1': {'MEDIAN_COVERAGE': 30}}, 'samtools': {'S1': {'error_rate': 0.01}}}
+    assert check_multiqc.normalise_sections(raw) == raw
+
+
+def test_normalise_sections_list_shape_gets_positional_names():
+    raw = [{'S1': {'FREEMIX': 0.01}}, {'S1': {'MEDIAN_COVERAGE': 30}}]
+    assert check_multiqc.normalise_sections(raw) == {
+        'section_0': {'S1': {'FREEMIX': 0.01}},
+        'section_1': {'S1': {'MEDIAN_COVERAGE': 30}},
+    }
+
+
+def test_normalise_sections_drops_non_dict_members():
+    assert check_multiqc.normalise_sections([{'S1': {'a': 1}}, None, 'junk']) == {'section_0': {'S1': {'a': 1}}}
+    assert check_multiqc.normalise_sections({'picard': {'S1': {'a': 1}}, 'broken': None}) == {
+        'picard': {'S1': {'a': 1}},
+    }
+
+
+def test_normalise_sections_unexpected_type_is_empty():
+    assert check_multiqc.normalise_sections(None) == {}
+    assert check_multiqc.normalise_sections('nonsense') == {}
+
+
+def test_run_handles_list_shaped_general_stats(tmp_path, patch_config):
+    """A MultiQC v1.14 report stores general stats as a list; it must not crash."""
+    patch_config('genome', GENOME_THRESHOLDS)
+    path = _write_json(tmp_path, [{'CPG1|S1': {'MEDIAN_COVERAGE': 5}}])
+    result = _run(path, tmp_path / 'out.json')
+    assert _flags_by_metric(result, 'CPG1')['MEDIAN_COVERAGE']['severity'] == 'fail'
+
+
+def test_run_raises_when_general_stats_absent(tmp_path, patch_config):
+    """A report with no general stats must fail loudly, not silently check nothing."""
+    patch_config('genome', GENOME_THRESHOLDS)
+    path = tmp_path / 'multiqc_data.json'
+    path.write_text(json.dumps({'report_saved_raw_data': {}}))
+    with pytest.raises(ValueError, match='report_general_stats_data'):
+        _run(str(path), tmp_path / 'out.json')
+
+
+# --- gather_metric_values ------------------------------------------------------
+
+
+def test_gather_metric_values_returns_entries_and_drop_count():
+    sections = {
+        'picard': {'S1': {'MEDIAN_COVERAGE': 30}, 'S2': {'MEDIAN_COVERAGE': '?'}},
+        'samtools': {'S1': {'MEDIAN_COVERAGE': '28.5'}, 'S3': {'other': 1}},
+    }
+    entries, n_dropped = check_multiqc.gather_metric_values(sections, 'MEDIAN_COVERAGE')
+    assert sorted(entries) == [('picard', 'S1', 30.0), ('samtools', 'S1', 28.5)]
+    assert n_dropped == 1
 
 
 if __name__ == '__main__':
