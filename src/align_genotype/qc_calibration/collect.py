@@ -46,6 +46,7 @@ class SurveyRow:
     where: dict[str, tuple[str, ...]]
     section_keys: dict[str, tuple[str, ...]]
     n_dropped: int
+    n_dropped_by_metric: dict[str, int]
 
 
 @dataclass(frozen=True)
@@ -64,9 +65,13 @@ def sections_carrying(sections: dict[str, Any], metric: str) -> tuple[str, ...]:
     """Section names in which at least one sample carries `metric`.
 
     Presence is judged on the key, not on whether its value parses as a number, so a
-    metric that is present but entirely non-numeric still reads as present - the drop
-    count is what surfaces that. Judging presence on numeric-ness would report a
-    renamed key and an all-'?' column identically, and those need different fixes.
+    metric that is present but entirely non-numeric still reads as present. Judging
+    presence on numeric-ness would report a renamed key and an all-'?' column
+    identically, and those need different fixes - rename the metric in the spec versus
+    investigate why the pipeline emitted no numbers. The two stay distinguishable by
+    reading this against the extracted values: an empty entry here means the key is
+    absent or renamed, while a non-empty entry whose value list is empty means the key
+    is present but every value was unusable.
     """
     return tuple(
         name
@@ -83,15 +88,36 @@ def _all_keys(section: dict[str, Any]) -> tuple[str, ...]:
     return tuple(sorted(keys))
 
 
-def _extract(sections: dict[str, Any], spec: CalibrationSpec) -> tuple[dict[str, list[float]], int]:
+def _extract(sections: dict[str, Any], spec: CalibrationSpec) -> tuple[dict[str, list[float]], dict[str, int]]:
+    """Each metric's finite values, and how many values it lost, per metric.
+
+    Drops are attributed per metric rather than summed, because a single total can't be
+    unpicked: two metrics each losing one value and one metric losing two are both
+    reported as 2. A metric where most samples are Picard's ``'?'`` placeholder is a
+    real signal - production logs it per metric in ``check_multiqc`` - and it needs to
+    survive into the survey report rather than being averaged away.
+
+    A sample carrying `metric` in two sections contributes its value twice. That is not
+    hypothetical: MultiQC 1.33 can split one tool across sections (``picard_1`` and
+    ``picard_4`` both sit in the Picard namespace), and `normalise_sections` keeps them
+    separate on purpose. The duplication is kept rather than de-duplicated here because
+    it is what production does - ``_relative_flags_for_metric`` feeds the same doubled
+    list to ``robust_threshold``, so de-duplicating would make calibration disagree with
+    enforcement, which is the one thing this module exists to prevent. The consequence
+    for callers: ``len(values[metric])`` counts *values*, not samples, and may exceed
+    ``n_samples``. Anything treating it as a cohort size, or taking a percentile or MAD
+    from it, is weighting duplicated samples twice.
+    """
     values: dict[str, list[float]] = {}
-    n_dropped = 0
+    n_dropped_by_metric: dict[str, int] = {}
     for metric in spec.metrics:
-        entries, dropped = check_multiqc.gather_metric_values(sections, metric.key)
+        entries, n_non_numeric = check_multiqc.gather_metric_values(sections, metric.key)
         finite = [value for _, _, value in entries if math.isfinite(value)]
-        n_dropped += dropped + (len(entries) - len(finite))
         values[metric.key] = finite
-    return values, n_dropped
+        # Two disjoint kinds of loss: values float() refused, and values it accepted
+        # that came back nan/inf. Summing them can't double-count.
+        n_dropped_by_metric[metric.key] = n_non_numeric + (len(entries) - len(finite))
+    return values, n_dropped_by_metric
 
 
 def collect_cohort(cohort: Cohort, spec: CalibrationSpec) -> tuple[CohortValues, SurveyRow]:
@@ -100,6 +126,12 @@ def collect_cohort(cohort: Cohort, spec: CalibrationSpec) -> tuple[CohortValues,
 
     with to_path(cohort.uri).open() as f:
         document = json.load(f)
+
+    # `[]`, `null`, `42` and `"str"` are all valid JSON, so a truncated or wrong-file
+    # URI can parse cleanly and then fail on `.get` with a bare AttributeError naming
+    # neither the cohort nor the path. Check the shape and say which report it was.
+    if not isinstance(document, dict):
+        raise CollectError(f'{cohort.label}: report is a {type(document).__name__}, not an object, in {cohort.uri}')
 
     version = str(document.get('config_version', 'unknown'))
     raw = document.get('report_general_stats_data')
@@ -111,7 +143,8 @@ def collect_cohort(cohort: Cohort, spec: CalibrationSpec) -> tuple[CohortValues,
         )
 
     n_samples = len({sample for section in sections.values() for sample in section})
-    values, n_dropped = _extract(sections, spec)
+    values, n_dropped_by_metric = _extract(sections, spec)
+    n_dropped = sum(n_dropped_by_metric.values())
     row = SurveyRow(
         label=cohort.label,
         uri=cohort.uri,
@@ -122,6 +155,7 @@ def collect_cohort(cohort: Cohort, spec: CalibrationSpec) -> tuple[CohortValues,
         where={metric.key: sections_carrying(sections, metric.key) for metric in spec.metrics},
         section_keys={name: _all_keys(section) for name, section in sections.items()},
         n_dropped=n_dropped,
+        n_dropped_by_metric=n_dropped_by_metric,
     )
     cohort_values = CohortValues(
         label=cohort.label,
@@ -140,6 +174,19 @@ def collect_all(manifest: Manifest, spec: CalibrationSpec, generated: str | None
     A cohort that can't be read is recorded and the rest continue, so one bad URI
     doesn't waste a long run - but the result is not `ok`, and the caller must exit
     non-zero.
+
+    That containment is why the per-cohort catch is deliberately broad. The failures
+    worth surviving here are mostly not `OSError` or `ValueError`: a 403 on one
+    dataset's bucket raises `google.api_core.exceptions.Forbidden`, an expired
+    credential raises `google.auth.exceptions.RefreshError`, and cloudpathlib adds its
+    own `MissingCredentialsError` and `NoStatError` - none of which share an ancestor
+    with the two obvious ones. JSON also permits unbounded integer literals, so a
+    400-digit number reaches `float()` and raises `OverflowError`, an `ArithmeticError`.
+    The asymmetry settles it: over-catching costs one cohort recorded as a failure that
+    an operator then reads, while under-catching throws away every report already parsed
+    - a 403 at cohort 9 of 10 would discard the eight successes behind it. `Exception`
+    is the boundary rather than `BaseException`, so Ctrl-C and `SystemExit` still abort
+    the run immediately instead of being logged as ten cohort failures.
     """
     if manifest.seq_type != spec.seq_type:
         raise CollectError(f'manifest is for {manifest.seq_type!r} but the spec is for {spec.seq_type!r}')
@@ -152,7 +199,7 @@ def collect_all(manifest: Manifest, spec: CalibrationSpec, generated: str | None
     for cohort in manifest.cohorts:
         try:
             values, row = collect_cohort(cohort, spec)
-        except (OSError, ValueError, CollectError) as exc:
+        except Exception as exc:  # noqa: BLE001 - one bad cohort must not cost the whole run
             failures.append((cohort.label, str(exc)))
             continue
         finally:
