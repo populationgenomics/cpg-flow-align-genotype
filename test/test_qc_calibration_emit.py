@@ -9,6 +9,7 @@ from cpg_utils import config
 
 from align_genotype.qc_calibration import emit as emit_mod
 from align_genotype.qc_calibration import spec as spec_mod
+from align_genotype.qc_calibration import suggest as suggest_mod
 from align_genotype.qc_calibration import tomlio
 from align_genotype.qc_calibration.cache import CohortValues, ValueCache
 from align_genotype.qc_calibration.emit import EmitError
@@ -133,6 +134,46 @@ def test_no_cohort_label_appears_anywhere_in_the_output():
     text = _rendered()
     for label in CACHE.labels:
         assert label not in text
+
+
+# --- composed with `suggest`: the actual documented workflow ------------------
+#
+# `test_no_cohort_label_appears_anywhere_in_the_output` above uses a hand-written spec
+# with prose rationales, so it can't catch a label `suggest` itself writes into
+# `rationale`. The workflow an operator actually runs is seed -> review -> emit; only a
+# test that runs all three proves the composition is safe.
+
+_TWO_COHORT_CACHE = ValueCache(
+    seq_type='genome',
+    generated='x',
+    complete=True,
+    metrics=('MEDIAN_COVERAGE',),
+    cohorts=(
+        CohortValues('dataset-a', 100, '1.33', 'dict', 0, {'MEDIAN_COVERAGE': [float(v) for v in range(10, 110)]}),
+        CohortValues('dataset-b', 100, '1.33', 'dict', 0, {'MEDIAN_COVERAGE': [float(v) for v in range(20, 120)]}),
+    ),
+)
+
+
+def test_seed_then_review_then_emit_never_leaks_a_cohort_label():
+    """The documented workflow: seed, operator reviews, emit. No label survives it."""
+    raw_spec = spec_mod.loads(
+        'seq_type = "genome"\ncache = "c.json"\n[metrics.MEDIAN_COVERAGE]\ndirection = "min"\nunit = "x"\nfail = 1\n',
+    )
+    updated, seeded = suggest_mod.seed(_TWO_COHORT_CACHE, raw_spec)
+    assert seeded  # sanity: the seed actually produced something to review
+    for result in seeded:
+        updated = updated.with_metric(result.key, reviewed=True)
+    text = emit_mod.render(updated, _TWO_COHORT_CACHE, generated='2026-08-11')
+    for label in _TWO_COHORT_CACHE.labels:
+        assert label not in text
+
+
+def test_render_rejects_a_hand_written_rationale_naming_a_cohort():
+    """The backstop: a label reaching `rationale` by hand-edit must still be caught."""
+    tainted = SPEC.with_metric('MEDIAN_COVERAGE', rationale='Elevated in dataset-a, see lab notes.')
+    with pytest.raises(EmitError, match=r"metric 'MEDIAN_COVERAGE'.*dataset-a"):
+        emit_mod.render(tainted, CACHE, generated='2026-08-11')
 
 
 def test_metric_comment_carries_rationale_and_generated_evidence():

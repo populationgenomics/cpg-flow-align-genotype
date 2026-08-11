@@ -165,3 +165,20 @@ def test_seed_result_survives_a_spec_round_trip():
     """with_metric re-validates, but the seeded spec must also dump and reload."""
     updated, _ = suggest_mod.seed(CACHE, SPEC)
     assert spec_mod.loads(spec_mod.dumps(updated)) == updated
+
+
+def test_seed_preserves_a_hand_written_rationale():
+    """An operator who annotates a still-unreviewed metric shouldn't lose it on re-run."""
+    annotated = SPEC.with_metric('MEDIAN_COVERAGE', rationale='Operator note: legacy assay, keep loose for now.')
+    updated, seeded = suggest_mod.seed(CACHE, annotated)
+    assert updated.metric('MEDIAN_COVERAGE').rationale == 'Operator note: legacy assay, keep loose for now.'
+    assert updated.metric('MEDIAN_COVERAGE').fail == 11  # thresholds still refresh
+    assert 'MEDIAN_COVERAGE' in {s.key for s in seeded}
+
+
+def test_seed_overwrites_its_own_previous_rationale():
+    """A prior seed run's machine-written text refreshes rather than accumulating."""
+    once, _ = suggest_mod.seed(CACHE, SPEC)
+    twice, _ = suggest_mod.seed(CACHE, once)
+    assert twice.metric('MEDIAN_COVERAGE').rationale == once.metric('MEDIAN_COVERAGE').rationale
+    assert twice.metric('MEDIAN_COVERAGE').rationale.startswith(suggest_mod.RATIONALE_MARKER)

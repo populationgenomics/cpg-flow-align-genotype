@@ -86,6 +86,30 @@ def _require_reviewed(spec: CalibrationSpec) -> None:
         )
 
 
+def _require_no_cohort_labels(spec: CalibrationSpec, cache: ValueCache) -> None:
+    """Raise if any metric's `rationale` names a cohort - defence in depth, not the only guard.
+
+    `suggest` never writes a label into `rationale` (see its module docstring), so this
+    should never fire against a seeded spec. But `rationale` is free text an operator
+    can also hand-edit, and the review gate that stops an unreviewed threshold reaching
+    config (`_require_reviewed`) cannot catch this: flipping `reviewed = true` is exactly
+    the expected next step, not a red flag. This module is the one place cohort-labelled
+    text could cross into a file that is committed and pushed to a public repo, so it
+    checks independently, against every label the cache knows about, before printing
+    anything.
+    """
+    for metric in spec.metrics:
+        if not metric.rationale:
+            continue
+        for label in cache.labels:
+            if label in metric.rationale:
+                raise EmitError(
+                    f'metric {metric.key!r}: rationale names cohort {label!r}. Cohort labels are real CPG dataset '
+                    f'names and must never reach a file that is committed and pushed to a public repo - '
+                    f'rewrite the rationale without it before emitting.',
+                )
+
+
 def _evidence(cache: ValueCache, metric: MetricSpec, severity: str) -> str:
     """The cohort median range and observed flag-rate range behind one threshold.
 
@@ -150,16 +174,25 @@ def _absolute_section(spec: CalibrationSpec, cache: ValueCache, severity: str, d
 
 
 def _relative_section(spec: CalibrationSpec) -> list[str]:
-    """The `[qc_thresholds.<seq_type>.relative.<KEY>]` tables, or nothing."""
+    """The `[qc_thresholds.<seq_type>.relative.<KEY>]` tables, or nothing.
+
+    Each table is preceded by its own metric's `rationale`, when it has one - the
+    absolute fail gate a relative metric also carries repeats that same text under
+    `fail.max`/`fail.min` (spec validation requires the fail gate), but a reader
+    looking at the relative table specifically still deserves the "why is *this*
+    metric cohort-relative" the rationale records, without having to cross-reference
+    a different section for it.
+    """
     relative: list[tuple[MetricSpec, RelativeSpec]] = [(m, m.relative) for m in spec.gated if m.relative is not None]
     if not relative:
         return []
     lines = ['', *_comment(_RELATIVE_PREAMBLE)]
-    for index, (metric, settings) in enumerate(relative):
-        if index:
-            # Separate consecutive tables. The first sits directly under the shared
-            # preamble, with no blank line, matching config_template.toml.
-            lines.append('')
+    for metric, settings in relative:
+        # Every table gets a blank line ahead of it, separating it from whatever
+        # precedes it (the shared preamble, or the previous table).
+        lines.append('')
+        if metric.rationale:
+            lines += _comment(metric.rationale)
         # The metric key is written unquoted as part of a table header, so a key needing
         # quotes would silently reload as a further level of nesting. `spec` rejects
         # those on load; this is the same guard `spec.dumps` keeps for the same reason.
@@ -188,6 +221,7 @@ def render(
     today's date.
     """
     _require_reviewed(spec)
+    _require_no_cohort_labels(spec, cache)
     stamp = generated or datetime.now(tz=timezone.utc).date().isoformat()
     lines = _header(spec, cache, spec_path, manifest_path, stamp)
     for severity, direction in _ABSOLUTE_SECTIONS:
