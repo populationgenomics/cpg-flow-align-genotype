@@ -84,6 +84,19 @@ def test_needs_review_is_false_for_nan():
     assert stats.needs_review(float('nan'), float('nan')) is False
 
 
+def test_needs_review_returns_a_real_bool_for_numpy_inputs():
+    """Callers pass values straight out of numpy, and `np.float64 > float` yields np.bool.
+
+    Without an explicit bool() the result is np.bool, which is truthy but fails every
+    `is True` / `is False` identity check - so this pins the one place that conversion
+    happens rather than trusting it.
+    """
+    assert stats.needs_review(np.float64(0.05), np.float64(0.04)) is True
+    assert stats.needs_review(np.float64(0.0), np.float64(0.04)) is False
+    assert stats.needs_review(np.float64('nan'), np.float64('nan')) is False
+    assert type(stats.needs_review(np.float64(0.05), np.float64(0.04))) is bool
+
+
 # --- churn ---------------------------------------------------------------------
 
 INITIAL = np.array([1.0, 2.0, 3.0, 4.0, 20.0])
