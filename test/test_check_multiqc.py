@@ -38,12 +38,15 @@ def patch_config(monkeypatch):
 
     def _apply(seq_type: str, thresholds: dict) -> None:
         def config_retrieve(keys, default=None):  # noqa: ANN202
+            empty = {} if default is None else default
             if keys == ['workflow', 'sequencing_type']:
                 return seq_type
+            # Cohort-relative spec lookup: ['qc_thresholds', <seq_type>, 'relative']
+            if len(keys) == 3 and keys[0] == 'qc_thresholds' and keys[2] == 'relative':
+                return thresholds.get('relative', empty) if keys[1] == seq_type else empty
             # Nested tier lookup: ['qc_thresholds', <seq_type>, <severity>, <direction>]
             if len(keys) == 4 and keys[0] == 'qc_thresholds':
                 _, st, severity, direction = keys
-                empty = {} if default is None else default
                 if st != seq_type:
                     return empty
                 return thresholds.get(severity, {}).get(direction, empty)
@@ -205,6 +208,73 @@ def test_output_json_written_and_structured(tmp_path, patch_config):
     assert flag['flag'] == 'MEDIAN_COVERAGE'
     assert flag['ar_guid'] == 'test-ar-guid'
     assert flag['severity'] == 'fail'
+    assert flag['method'] == 'absolute'  # non-relative flags are tagged 'absolute'
+
+
+# --- cohort-relative (MAD) flagging ----------------------------------------
+def test_robust_threshold_max_and_min():
+    # median=3, MAD=1 -> delta = 3.5*1/0.6745 ~= 5.19
+    assert check_multiqc.robust_threshold([1, 2, 3, 4, 100], 'max', 3.5) == pytest.approx(8.19, abs=0.01)
+    assert check_multiqc.robust_threshold([100, 99, 98, 97, 1], 'min', 3.5) == pytest.approx(92.81, abs=0.01)
+
+
+def test_robust_threshold_zero_mad_returns_none():
+    assert check_multiqc.robust_threshold([5, 5, 5, 5, 5], 'max', 3.5) is None
+    assert check_multiqc.robust_threshold([], 'max', 3.5) is None
+
+
+# A tight ZERO_CVG cohort (~0.02) with one relative outlier (0.08) and one absolute
+# failure (0.15). direction=max; absolute fail gate at >0.10.
+_REL_CFG = {'ZERO_CVG_TARGETS_PCT': {'direction': 'max', 'k': 3.5, 'min_cohort': 5}}
+_REL_SECTIONS = {
+    'picard': {
+        'S1': {'ZERO_CVG_TARGETS_PCT': 0.020},
+        'S2': {'ZERO_CVG_TARGETS_PCT': 0.021},
+        'S3': {'ZERO_CVG_TARGETS_PCT': 0.019},
+        'S4': {'ZERO_CVG_TARGETS_PCT': 0.022},
+        'S5': {'ZERO_CVG_TARGETS_PCT': 0.020},
+        'S6': {'ZERO_CVG_TARGETS_PCT': 0.023},
+        'OUT': {'ZERO_CVG_TARGETS_PCT': 0.080},   # relative outlier (< 0.10 fail gate) -> warn
+        'FAILS': {'ZERO_CVG_TARGETS_PCT': 0.150},  # absolute fail (> 0.10)
+    },
+}
+
+
+def test_relative_flags_warn_only_outlier(tmp_path, patch_config):
+    patch_config('exome', {'relative': _REL_CFG})  # no absolute tiers here
+    result = _run(_write_json(tmp_path, _REL_SECTIONS), tmp_path / 'out.json')
+    out = _flags_by_metric(result, 'OUT')['ZERO_CVG_TARGETS_PCT']
+    assert out['severity'] == 'warn'
+    assert out['method'] == 'relative'
+    assert out['comparison'] == '>'
+    # The tight cohort samples (~0.02) are not flagged.
+    assert 'S1' not in result['qc_flags']
+
+
+def test_relative_skipped_below_min_cohort(tmp_path, patch_config):
+    patch_config('exome', {'relative': {'ZERO_CVG_TARGETS_PCT': {'direction': 'max', 'k': 3.5, 'min_cohort': 100}}})
+    result = _run(_write_json(tmp_path, _REL_SECTIONS), tmp_path / 'out.json')
+    assert result['qc_flags'] == {}  # cohort of 8 < min_cohort 100 -> no relative flags
+
+
+def test_relative_skipped_on_zero_mad(tmp_path, patch_config):
+    patch_config('exome', {'relative': _REL_CFG})
+    flat = {'picard': {f'S{i}': {'ZERO_CVG_TARGETS_PCT': 0.02} for i in range(8)}}
+    result = _run(_write_json(tmp_path, flat), tmp_path / 'out.json')
+    assert result['qc_flags'] == {}  # zero MAD -> skipped, no crash
+
+
+def test_absolute_fail_takes_precedence_over_relative(tmp_path, patch_config):
+    # Same cohort, but now an absolute fail gate at >0.10 is also configured.
+    patch_config('exome', {'fail': {'max': {'ZERO_CVG_TARGETS_PCT': 0.10}}, 'relative': _REL_CFG})
+    result = _run(_write_json(tmp_path, _REL_SECTIONS), tmp_path / 'out.json')
+    # FAILS (0.15) is caught once, as an absolute fail - not double-flagged relatively.
+    fails = result['qc_flags']['FAILS']
+    assert len(fails) == 1
+    assert fails[0]['severity'] == 'fail'
+    assert fails[0]['method'] == 'absolute'
+    # OUT (0.08) is still a relative warn.
+    assert _flags_by_metric(result, 'OUT')['ZERO_CVG_TARGETS_PCT']['method'] == 'relative'
 
 
 if __name__ == '__main__':

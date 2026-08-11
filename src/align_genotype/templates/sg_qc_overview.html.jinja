@@ -81,6 +81,8 @@
         .badge-warn { background: #ffe8c2; color: #b9770e; }
         .badge-resolved { background: #dfe6e9; color: #636e72; }
         .badge-source { background: #eef1f2; color: #636e72; font-weight: 600; }
+        /* Cohort-relative (MAD) flag marker; `cursor: help` surfaces the tooltip. */
+        .badge-relative { background: #e8e2fb; color: #6c5ce7; cursor: help; }
         .sev-count-fail { color: #d63031; font-weight: 700; }
         .sev-count-warn { color: #b9770e; font-weight: 700; }
 
@@ -114,8 +116,12 @@
 </head>
 <body>
 {# ---------------------------------------------------------------------- #}
-{# Reusable section table macro (defined before first use)                #}
+{# Reusable macros (defined before first use)                             #}
 {# ---------------------------------------------------------------------- #}
+{% macro relative_badge(f) %}
+{%- if f.is_relative %}<span class="badge badge-relative" title="Cohort-relative flag: a statistical outlier (MAD / modified z-score) within this run's cohort, not a fixed threshold. Its resolution reflects the cohort composition, not a change in the sample itself.">relative</span>{% endif -%}
+{% endmacro %}
+
 {% macro flag_table(rows, resolved) %}
 <table>
     <thead>
@@ -156,6 +162,7 @@
                     <div class="flag-line {{ ('sev-' ~ f.severity) if not f.resolved else '' }}">
                         <span class="badge badge-source">{{ f.source }}</span>
                         {% if not f.resolved %}<span class="badge badge-{{ f.severity }}">{{ f.severity_label }}</span>{% endif %}
+                        {{ relative_badge(f) }}
                         <span class="metric">{{ f.metric_label }}</span>
                         <span class="result">{{ f.value_display }}</span>
                     </div>
@@ -221,6 +228,7 @@
                                 {%- else -%}
                                     <span class="badge badge-{{ f.severity }}">{{ f.severity_label }}</span>
                                 {%- endif -%}
+                                {{ relative_badge(f) }}
                             </td>
                             <td>{{ f.section_label }}</td>
                             <td>{{ f.metric_label }}</td>

@@ -178,6 +178,12 @@ def _flag_to_dict(flag: QcFlag, source: str) -> dict:
     # Active flags carry their detection date; resolved carry the resolution date.
     date_full = (flag.resolution_date if flag.resolved else flag.date) or ''
     severity = flag.severity or 'fail'
+    method = getattr(flag, 'method', 'absolute') or 'absolute'
+    is_relative = method == 'relative'
+    value_display = _value_display(flag.value, flag.comparison, flag.threshold, unit)
+    if is_relative:
+        # The threshold is cohort-derived, so "above maximum X" reads oddly; reframe.
+        value_display = f'{_fmt_num(flag.value)}{unit} (cohort outlier)'
     return {
         'source': source,
         'flag': flag.flag,
@@ -187,7 +193,9 @@ def _flag_to_dict(flag: QcFlag, source: str) -> dict:
         'resolved': flag.resolved,
         'severity': severity,
         'severity_label': 'Fail' if severity == 'fail' else 'Warn',
-        'value_display': _value_display(flag.value, flag.comparison, flag.threshold, unit),
+        'method': method,
+        'is_relative': is_relative,
+        'value_display': value_display,
         'ar_guid': flag.ar_guid,
         'date_full': date_full,
         'date_short': date_full[:10],  # YYYY-MM-DD

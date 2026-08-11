@@ -20,6 +20,10 @@ class QcFlag:
     # 'fail' = do not analyse without a decision; 'warn' = a human should look.
     # Defaults to 'fail' so flags stored before tiers existed load unchanged.
     severity: str = 'fail'
+    # 'absolute' = fixed config threshold; 'relative' = cohort-derived (MAD) threshold,
+    # so its resolution reflects the cohort composition, not the sample itself.
+    # Defaults to 'absolute' so flags stored before this existed load unchanged.
+    method: str = 'absolute'
     resolved: bool = False
     resolution_date: str | None = None
 

@@ -21,6 +21,7 @@ from align_genotype.scripts.sg_qc_report import (
     source_histogram,
     summarise_flags,
 )
+from align_genotype.utils import QcFlag
 
 # Mirrors the ``meta`` blob returned by Metamist for a flagged SG.
 SAMPLE_SG = {
@@ -437,6 +438,57 @@ def test_severity_histogram_counts():
     unresolved, _ = build_sections([_sev_report()])
     hist = severity_histogram(unresolved)
     assert {h['key']: h['count'] for h in hist} == {'fail': 1, 'warn': 1}
+
+
+# --- cohort-relative (method) display --------------------------------------
+def _sg_with_relative_flag() -> dict:
+    return {
+        'id': 'CPG_REL',
+        'meta': {
+            'cram_qc_flags': [
+                {
+                    'flag': 'ZERO_CVG_TARGETS_PCT',
+                    'value': 0.08,
+                    'comparison': '>',
+                    'threshold': 0.0293,
+                    'section': 'picard',
+                    'date': '2026-07-01T00:00:00',
+                    'ar_guid': 'x',
+                    'severity': 'warn',
+                    'method': 'relative',
+                    'resolved': False,
+                    'resolution_date': None,
+                },
+            ],
+            'gvcf_qc_flags': [],
+        },
+    }
+
+
+def _rel_report() -> SGReport:
+    collected = collect_qc_flags([_sg_with_relative_flag()])[0]
+    return SGReport(_sg_info('CPG_REL'), collected['cram_qc_flags'], [])
+
+
+def test_qcflag_method_defaults_to_absolute():
+    f = QcFlag(flag='x', value=1, comparison='<', threshold=2, section='s', date='d', ar_guid='a')
+    assert f.method == 'absolute'
+
+
+def test_relative_flag_carries_method_and_reframes_value():
+    unresolved, _ = build_sections([_rel_report()])
+    f = unresolved[0]['flags'][0]
+    assert f['method'] == 'relative'
+    assert f['is_relative'] is True
+    assert f['severity'] == 'warn'
+    assert 'cohort outlier' in f['value_display']
+
+
+def test_render_report_shows_relative_badge_and_tooltip():
+    summary = summarise_flags(collect_qc_flags([_sg_with_relative_flag()]))
+    html = render_report('validation-test', [_rel_report()], summary=summary)
+    assert 'badge badge-relative' in html
+    assert 'Cohort-relative flag' in html  # tooltip text
 
 
 if __name__ == '__main__':
