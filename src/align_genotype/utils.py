@@ -17,6 +17,9 @@ class QcFlag:
     section: str
     date: str
     ar_guid: str
+    # 'fail' = do not analyse without a decision; 'warn' = a human should look.
+    # Defaults to 'fail' so flags stored before tiers existed load unchanged.
+    severity: str = 'fail'
     resolved: bool = False
     resolution_date: str | None = None
 

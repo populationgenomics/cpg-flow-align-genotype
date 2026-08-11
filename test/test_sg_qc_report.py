@@ -17,6 +17,7 @@ from align_genotype.scripts.sg_qc_report import (
     collect_qc_flags,
     metric_histogram,
     render_report,
+    severity_histogram,
     source_histogram,
     summarise_flags,
 )
@@ -260,6 +261,8 @@ def test_summarise_flags_counts():
     assert summary['active_flags'] == 3
     assert summary['active_cram'] == 2
     assert summary['active_gvcf'] == 1
+    assert summary['active_fail'] == 3  # SAMPLE_SG flags have no severity -> default 'fail'
+    assert summary['active_warn'] == 0
     assert summary['sgs_affected'] == 1
     assert summary['resolved_flags'] == 1
 
@@ -345,11 +348,95 @@ def test_render_report_all_clear_banner():
         'active_flags': 0,
         'active_cram': 0,
         'active_gvcf': 0,
+        'active_fail': 0,
+        'active_warn': 0,
         'sgs_affected': 0,
         'resolved_flags': 0,
     }
     html = render_report('validation-test', [clean], summary=summary)
     assert 'All clear' in html
+
+
+# --- severity (warn vs fail) -----------------------------------------------
+def _sg_with_severities() -> dict:
+    """A flagged SG carrying one warn and one fail CRAM flag."""
+    return {
+        'id': 'CPG_SEV',
+        'meta': {
+            'cram_qc_flags': [
+                {
+                    'flag': 'FOLD_80_BASE_PENALTY',
+                    'value': 2.5,
+                    'comparison': '>',
+                    'threshold': 2.0,
+                    'section': 'picard',
+                    'date': '2026-07-01T00:00:00',
+                    'ar_guid': 'x',
+                    'severity': 'warn',
+                    'resolved': False,
+                    'resolution_date': None,
+                },
+                {
+                    'flag': 'MEAN_TARGET_COVERAGE',
+                    'value': 40,
+                    'comparison': '<',
+                    'threshold': 50,
+                    'section': 'picard',
+                    'date': '2026-07-01T00:00:00',
+                    'ar_guid': 'x',
+                    'severity': 'fail',
+                    'resolved': False,
+                    'resolution_date': None,
+                },
+            ],
+            'gvcf_qc_flags': [],
+        },
+    }
+
+
+def _sev_report() -> SGReport:
+    collected = collect_qc_flags([_sg_with_severities()])[0]
+    return SGReport(_sg_info('CPG_SEV'), collected['cram_qc_flags'], [])
+
+
+def test_missing_severity_defaults_to_fail():
+    # A stored flag without a 'severity' key (pre-tier data) loads as 'fail'.
+    collected = collect_qc_flags([SAMPLE_SG])[0]
+    assert all(f.severity == 'fail' for f in collected['cram_qc_flags'])
+
+
+def test_summarise_flags_splits_warn_and_fail():
+    summary = summarise_flags(collect_qc_flags([_sg_with_severities()]))
+    assert summary['active_fail'] == 1
+    assert summary['active_warn'] == 1
+
+
+def test_row_orders_fail_before_warn():
+    unresolved, _ = build_sections([_sev_report()])
+    row = unresolved[0]
+    assert row['n_fail'] == 1
+    assert row['n_warn'] == 1
+    assert row['row_severity'] == 'fail'
+    # The fail flag leads the at-a-glance list.
+    assert row['flags'][0]['severity'] == 'fail'
+    assert row['flags'][0]['flag'] == 'MEAN_TARGET_COVERAGE'
+
+
+def test_render_report_shows_severity_badges_and_chips():
+    summary = summarise_flags(collect_qc_flags([_sg_with_severities()]))
+    html = render_report('validation-test', [_sev_report()], summary=summary)
+    assert 'badge badge-warn' in html
+    assert 'badge badge-fail' in html
+    assert 'Failing flags' in html  # summary card
+    assert 'Warning flags' in html
+    assert 'data-severities="' in html
+    assert 'severity-chip' in html  # both tiers present -> severity filter shown
+
+
+def test_severity_histogram_counts():
+    unresolved, _ = build_sections([_sev_report()])
+    hist = severity_histogram(unresolved)
+    assert {h['key']: h['count'] for h in hist} == {'fail': 1, 'warn': 1}
 
 
 if __name__ == '__main__':

@@ -81,6 +81,11 @@ METRIC_LABELS: dict[str, tuple[str, str]] = {
     'FREEMIX': ('Contamination (FreeMix)', ''),
     'MEDIAN_COVERAGE': ('Median coverage', '×'),  # noqa: RUF001
     'MEAN_COVERAGE': ('Mean coverage', '×'),  # noqa: RUF001
+    # Exome (Picard CollectHsMetrics) target-coverage metrics
+    'MEAN_TARGET_COVERAGE': ('Mean target coverage', '×'),  # noqa: RUF001
+    'PCT_TARGET_BASES_20X': ('Target bases ≥20×', ''),  # noqa: RUF001
+    'FOLD_80_BASE_PENALTY': ('Fold-80 base penalty', ''),
+    'ZERO_CVG_TARGETS_PCT': ('Zero-coverage targets', ''),
 }
 
 SECTION_LABELS: dict[str, str] = {
@@ -163,11 +168,16 @@ def _value_display(value: float, comparison: str, threshold: float, unit: str) -
     return f'{v} {comparison} {t}'
 
 
+# Severity ordering for display: failures rank ahead of warnings.
+SEVERITY_RANK: dict[str, int] = {'fail': 0, 'warn': 1}
+
+
 def _flag_to_dict(flag: QcFlag, source: str) -> dict:
     """Flatten a QcFlag into a template-ready, human-readable dict."""
     label, unit = _metric_label(flag.flag)
     # Active flags carry their detection date; resolved carry the resolution date.
     date_full = (flag.resolution_date if flag.resolved else flag.date) or ''
+    severity = flag.severity or 'fail'
     return {
         'source': source,
         'flag': flag.flag,
@@ -175,6 +185,8 @@ def _flag_to_dict(flag: QcFlag, source: str) -> dict:
         'section': flag.section,
         'section_label': _section_label(flag.section),
         'resolved': flag.resolved,
+        'severity': severity,
+        'severity_label': 'Fail' if severity == 'fail' else 'Warn',
         'value_display': _value_display(flag.value, flag.comparison, flag.threshold, unit),
         'ar_guid': flag.ar_guid,
         'date_full': date_full,
@@ -199,13 +211,29 @@ def _make_row(report: SGReport, flags: list[dict], *, resolved: bool) -> dict:
     noun = 'resolved' if resolved else 'active'
     count_summary = f'{len(flags)} {noun} flag' + ('' if len(flags) == 1 else 's')
 
+    n_fail = sum(1 for f in flags if f['severity'] == 'fail')
+    n_warn = sum(1 for f in flags if f['severity'] == 'warn')
+    # A row's overall severity is its worst flag - drives row-level styling/sorting.
+    row_severity = 'fail' if n_fail else 'warn'
+    sev_parts = []
+    if n_fail:
+        sev_parts.append(f'{n_fail} fail')
+    if n_warn:
+        sev_parts.append(f'{n_warn} warn')
+
     return {
         'info': info,
         'flags': flags,
         'source_summary': ' · '.join(parts),
         'count_summary': count_summary,
-        # Group by family, then participant, then SG (collaborator-facing order).
+        'severity_summary': ' · '.join(sev_parts),
+        'n_fail': n_fail,
+        'n_warn': n_warn,
+        'row_severity': row_severity,
+        # Group by family, then participant, then SG (collaborator-facing order),
+        # but surface failing SGs above warn-only ones within the active section.
         'sort_key': (
+            0 if n_fail else 1,
             info.family_external_id or '~',
             info.participant_external_id or '~',
             info.sg_id,
@@ -228,7 +256,9 @@ def build_sections(reports: list[SGReport]) -> tuple[list[dict], list[dict]]:
         past = [f for f in all_flags if f['resolved']]
 
         if active:
-            active.sort(key=lambda f: (f['source'], f['date_full']))
+            # Failures first, then by source and detection date, so the two flags
+            # shown in the "at a glance" row lead with the most serious.
+            active.sort(key=lambda f: (SEVERITY_RANK.get(f['severity'], 0), f['source'], f['date_full']))
             unresolved.append(_make_row(report, active, resolved=False))
         if past:
             past.sort(key=lambda f: f['date_full'], reverse=True)  # most recent first
@@ -348,8 +378,11 @@ def summarise_flags(sg_data: list[dict]) -> dict:
     all_flags = [(f, 'CRAM') for sg in sg_data for f in sg['cram_qc_flags']]
     all_flags += [(f, 'GVCF') for sg in sg_data for f in sg['gvcf_qc_flags']]
 
-    active_cram = sum(1 for f, src in all_flags if src == 'CRAM' and not f.resolved)
-    active_gvcf = sum(1 for f, src in all_flags if src == 'GVCF' and not f.resolved)
+    active = [(f, src) for f, src in all_flags if not f.resolved]
+    active_cram = sum(1 for f, src in active if src == 'CRAM')
+    active_gvcf = sum(1 for f, src in active if src == 'GVCF')
+    active_fail = sum(1 for f, _ in active if (f.severity or 'fail') == 'fail')
+    active_warn = sum(1 for f, _ in active if (f.severity or 'fail') == 'warn')
     resolved_flags = sum(1 for f, _ in all_flags if f.resolved)
     sgs_affected = sum(1 for sg in sg_data if _has_active(sg['cram_qc_flags']) or _has_active(sg['gvcf_qc_flags']))
 
@@ -358,6 +391,8 @@ def summarise_flags(sg_data: list[dict]) -> dict:
         'active_flags': active_cram + active_gvcf,
         'active_cram': active_cram,
         'active_gvcf': active_gvcf,
+        'active_fail': active_fail,
+        'active_warn': active_warn,
         'sgs_affected': sgs_affected,
         'resolved_flags': resolved_flags,
     }
@@ -382,6 +417,16 @@ def source_histogram(rows: list[dict]) -> list[dict]:
     return [{'key': k, 'count': counts[k]} for k in ('CRAM', 'GVCF') if k in counts]
 
 
+def severity_histogram(rows: list[dict]) -> list[dict]:
+    """Per-severity SG counts for the filter toggles (one count per SG per tier)."""
+    counts: dict[str, int] = {}
+    for row in rows:
+        for severity in {f['severity'] for f in row['flags']}:
+            counts[severity] = counts.get(severity, 0) + 1
+    labels = {'fail': 'Failing', 'warn': 'Warnings'}
+    return [{'key': k, 'label': labels[k], 'count': counts[k]} for k in ('fail', 'warn') if k in counts]
+
+
 def render_report(dataset: str, reports: list[SGReport], *, summary: dict) -> str:
     """Build template context and render the Jinja template.
 
@@ -400,6 +445,7 @@ def render_report(dataset: str, reports: list[SGReport], *, summary: dict) -> st
         resolved=resolved,
         active_metrics=metric_histogram(unresolved),
         active_sources=source_histogram(unresolved),
+        active_severities=severity_histogram(unresolved),
     )
 
 

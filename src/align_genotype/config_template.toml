@@ -72,13 +72,81 @@ send_to_slack = true
 [workflow.gvcf_multiqc.extra_config]
 plots_force_interactive = true
 
-[qc_thresholds.genome.min]
+# QC thresholds are keyed by sequencing_type (genome/exome) and severity tier
+# (fail/warn). A metric is flagged when it falls below its `.min` threshold or
+# rises above its `.max` threshold; `fail` = do not analyse without a decision,
+# `warn` = a human should look. A value that breaches `fail` also breaches `warn`,
+# so only the worst tier is recorded per metric (see scripts/check_multiqc.py).
+# Metric keys must match the keys MultiQC surfaces in `report_general_stats_data`;
+# unmatched keys are logged and skipped. A tier may omit any metric.
+[qc_thresholds.genome.fail.min]
+# Picard CollectWgsMetrics - median coverage must be >10x (30x is ideal)
 "MEDIAN_COVERAGE" = 10
-"PCT_PF_READS_ALIGNED" = 0.80
+# samtools - proportion of reads mapped to the reference must be >80%.
+# NB: replaces the old "PCT_PF_READS_ALIGNED" key, which MultiQC only writes to
+# report_saved_raw_data (not general stats), so it was never checked.
+"reads_mapped_percent" = 80
 
-[qc_thresholds.genome.max]
+[qc_thresholds.genome.fail.max]
+# VerifyBamID - contamination must be <4%
 "FREEMIX" = 0.04
+# samtools - proportion of duplicate reads must be <25%
 "reads_duplicated_percent" = 25
+
+[qc_thresholds.genome.warn.min]
+# Below ideal but usable: warn well before the failure line.
+"MEDIAN_COVERAGE" = 25
+"reads_mapped_percent" = 98
+
+[qc_thresholds.genome.warn.max]
+"FREEMIX" = 0.01
+"reads_duplicated_percent" = 10
+
+# Exome thresholds. Whole-genome coverage metrics (MEDIAN_COVERAGE from
+# CollectWgsMetrics) are meaningless on exomes, so we gate on Picard
+# CollectHsMetrics target-coverage metrics instead (see jobs/picard.py::hs_metrics).
+#
+# Calibrated against two real WES cohorts (647- and 522-sample MultiQC runs; see
+# testing_scripts/qc_metric_distributions.py + qc_threshold_flagrates.py). Values
+# are set so a healthy cohort flags at ~0% fail / single-digit % warn, while a
+# genuinely poor batch still surfaces. These metrics are capture-kit dependent -
+# re-run those scripts on a known-good batch when onboarding a new kit.
+[qc_thresholds.exome.fail.min]
+# Picard CollectHsMetrics - mean coverage over the target regions (100x is the
+# usual ask). Cohort medians ~59-82x; fail below 30x (worst ~6% of the poor batch).
+"MEAN_TARGET_COVERAGE" = 30
+# Picard - fraction of target bases at >=20x. A healthy cohort sits >=0.86 (p1);
+# fail below 0.80 flags genuinely inadequate breadth (~0% of the good cohort).
+"PCT_TARGET_BASES_20X" = 0.80
+# samtools - proportion of reads mapped. ~99% in both cohorts; fail below 90%
+# only catches wrong-reference/species/adapter disasters.
+"reads_mapped_percent" = 90
+
+[qc_thresholds.exome.fail.max]
+# VerifyBamID (exome contamination panel) - contamination. Cohorts p95 <= 0.018;
+# fail above 4%.
+"FREEMIX" = 0.04
+# Picard - capture uniformity: fold-coverage penalty to reach 80% of targets.
+# Cohort p90 ~2.2-3.0; fail above 3.5.
+"FOLD_80_BASE_PENALTY" = 3.5
+# Picard - fraction of target regions with zero coverage. Strongly kit-dependent
+# (cohort medians 0.022 vs 0.054); fail above 0.10 catches only true outliers.
+# Candidate for cohort-relative (MAD-based) flagging rather than a fixed line.
+"ZERO_CVG_TARGETS_PCT" = 0.10
+# samtools - duplicate rate. Not a data-quality gate on exomes (10-30% is normal),
+# but a fail above 50% signals a serious library-complexity problem.
+"reads_duplicated_percent" = 50
+
+[qc_thresholds.exome.warn.min]
+"MEAN_TARGET_COVERAGE" = 50
+"PCT_TARGET_BASES_20X" = 0.90
+"reads_mapped_percent" = 97
+
+[qc_thresholds.exome.warn.max]
+"FREEMIX" = 0.02
+"FOLD_80_BASE_PENALTY" = 2.5
+"ZERO_CVG_TARGETS_PCT" = 0.07
+"reads_duplicated_percent" = 35
 
 [references.broad]
 ref_fasta = "gs://cpg-common-main/references/hg38/v0/dragen_reference/Homo_sapiens_assembly38_masked.fasta"
