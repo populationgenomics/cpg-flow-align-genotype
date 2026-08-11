@@ -121,6 +121,8 @@ def normalise_sections(raw: Any) -> dict[str, dict[str, Any]]:
     production is pinned to ``multiqc:1.33-1`` so the list branch never runs there,
     and deriving names from ``report_general_stats_headers`` wouldn't fully fix it
     anyway, since two Picard sections can share the ``Picard`` namespace.
+    Consumers must therefore not persist or join on section names across reports from
+    different MultiQC versions - key on ``(sample, metric)`` instead.
 
     This function never raises - an unreadable or empty report just normalises to
     fewer or zero sections. Deciding whether that result is usable is the caller's

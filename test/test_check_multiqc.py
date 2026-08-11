@@ -327,8 +327,8 @@ def test_normalise_sections_logs_dropped_members(caplog):
     with caplog.at_level('WARNING'):
         check_multiqc.normalise_sections({'picard': {'S1': {'a': 1}, 'S2': None}, 'broken': None})
     messages = [r.message for r in caplog.records]
-    assert any("'broken'" in m for m in messages)  # section-level drop
-    assert any("'S2'" in m for m in messages)  # sample-level drop
+    assert any("'broken'" in m and 'section' in m for m in messages)  # section-level drop
+    assert any("'S2'" in m and 'sample' in m for m in messages)  # sample-level drop
 
 
 def test_normalise_sections_unexpected_type_is_empty():
@@ -353,7 +353,9 @@ def test_run_raises_when_general_stats_absent(tmp_path, patch_config):
     patch_config('genome', GENOME_THRESHOLDS)
     path = tmp_path / 'multiqc_data.json'
     path.write_text(json.dumps({'report_saved_raw_data': {}}))
-    with pytest.raises(ValueError, match='report_general_stats_data'):
+    # Match the absent/malformed wording specifically - 'report_general_stats_data'
+    # alone appears in the present-but-empty message too, so it wouldn't pin the branch.
+    with pytest.raises(ValueError, match='could not read'):
         _run(str(path), tmp_path / 'out.json')
 
 
