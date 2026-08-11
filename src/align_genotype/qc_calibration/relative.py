@@ -54,23 +54,23 @@ MAX_WARN_RATE = 0.10
 
 # Growth and merge churn are judged separately because they model different things.
 #
-# Growth churn is a prediction: samples get added to a project over time, and that is
-# exactly what a shipped relative tier faces. 2% was chosen deliberately for it.
+# Growth churn is a forecast: samples get added to a project over time, which is exactly
+# what a shipped relative tier faces. Merge churn - two whole projects pooled into one
+# run - is a stress test, not a prediction of anything scheduled. That distinction is why
+# the merge bar is the looser of the two.
 #
-# Merge churn - two whole projects pooled into one run - is a stress test, not a forecast
-# of anything scheduled. The shipped genome `reads_duplicated_percent` tier is the case
-# that forces the distinction: it measures ~1% on growth, comfortably inside the 2% bar,
-# but ~2.1% on a cross-project merge. Judged against one shared 2% bar it would print
-# REJECT for a tier already in production and working, and a tool that contradicts a
-# shipped decision on every run teaches operators to ignore its verdict.
+# Both numbers are conservative defaults, not calibrations, and an operator may revisit
+# either with evidence. In particular they do NOT admit the two tiers currently shipped:
 #
-# The merge bar is looser rather than absent. Exome PCT_SELECTED_BASES and PCT_OFF_BAIT
-# were rejected at up to 24.5% merge churn; an advisory-only merge figure would have
-# quietly admitted both. 5% keeps that refusal while leaving room for the ~2.1% that a
-# reviewed, shipped tier actually measures.
+#   metric                            growth   merge    verdict
+#   exome ZERO_CVG_TARGETS_PCT          1.0%   51.11%   REJECT
+#   genome reads_duplicated_percent     8.61%  64.71%   REJECT
 #
-# Exome ZERO_CVG_TARGETS_PCT and genome reads_duplicated_percent are the two tiers these
-# numbers are calibrated to admit.
+# Both were adopted on a hand-picked subset - three cohorts for growth, two ordered pairs
+# for merge - which measured ~1% growth and ~2.1% merge. This module reproduces those
+# figures exactly on that same subset; the full cohort set simply says something else. So
+# the tool reports REJECT for both, and the gap between that and the shipped decision is
+# a live QC question about those tiers, not evidence that these constants are wrong.
 MAX_GROWTH_CHURN = 0.02
 MAX_MERGE_CHURN = 0.05
 
@@ -439,14 +439,27 @@ def _heterogeneous_churn(
     direction: str,
     k: float,
 ) -> tuple[tuple[str, str, stats.ChurnResult], ...]:
-    """Each cohort re-scored against the threshold it gets once a second one joins it.
+    """Each cohort re-scored against the threshold it gets once another one joins it.
 
-    The harsher of the two simulations, and the realistic one: cohorts differ by
-    protocol, so a merged run shifts the median further than growth within one cohort.
-    Pairs are unordered and never self-paired.
+    An entry `(a, b, result)` is *a's* flag set after b merges in. A merge churns both
+    projects' flag sets, and by different amounts, so both directions of every pair are
+    simulated - `n*(n-1)` entries, not `n*(n-1)/2`. Simulating one direction per pair
+    would leave the headline figure depending on cache insertion order, which is the same
+    hazard `_SHUFFLE_SEED` guards against in the growth simulation. Measured effect on the
+    real WGS set: peak merge churn 59.09% one-directional, 64.71% both. `max_merge_churn`
+    takes the peak, so the worse direction is what reaches the verdict.
+
+    The harsher of the two simulations by construction, and there is a structural tension
+    worth naming: a metric earns a relative tier precisely *because* its normal level
+    shifts between cohorts, and a merge punishes exactly that property. A high merge
+    figure may therefore be intrinsic to the whole class of metric relative tiers exist
+    for, rather than evidence that this particular metric is unstable. Read it as "how
+    much would pooling two projects disturb this", not as a defect count.
+
+    Cohorts are never self-paired.
     """
     results = []
-    for (label_a, values_a), (label_b, values_b) in itertools.combinations(usable.items(), 2):
+    for (label_a, values_a), (label_b, values_b) in itertools.permutations(usable.items(), 2):
         result = stats.churn(values_a, np.concatenate([values_a, values_b]), direction, k)
         if result is not None:
             results.append((label_a, label_b, result))

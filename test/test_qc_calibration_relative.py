@@ -238,7 +238,10 @@ def test_evaluate_simulates_homogeneous_and_heterogeneous_growth():
         'genome',
     )
     assert {h.label for h in evaluation.homogeneous} == {'dataset-a', 'dataset-b'}
-    assert {(a, b) for a, b, _ in evaluation.heterogeneous} == {('dataset-a', 'dataset-b')}
+    assert {(a, b) for a, b, _ in evaluation.heterogeneous} == {
+        ('dataset-a', 'dataset-b'),
+        ('dataset-b', 'dataset-a'),
+    }
 
 
 def test_cohorts_too_small_are_excluded_from_churn():
@@ -247,7 +250,13 @@ def test_cohorts_too_small_are_excluded_from_churn():
     assert evaluation.heterogeneous == ()
 
 
-def test_heterogeneous_pairs_are_unordered_and_not_self_paired():
+def test_both_merge_directions_are_simulated_and_no_cohort_is_self_paired():
+    """A merge churns both projects' flag sets, so `n*(n-1)` entries, not `n*(n-1)/2`.
+
+    One direction per pair would leave the headline merge figure depending on cache
+    insertion order.
+    """
+    labels = ('dataset-a', 'dataset-b', 'dataset-c')
     evaluation = relative_mod.evaluate(
         _cache(
             **{
@@ -260,7 +269,30 @@ def test_heterogeneous_pairs_are_unordered_and_not_self_paired():
         'genome',
     )
     pairs = {(a, b) for a, b, _ in evaluation.heterogeneous}
-    assert pairs == {('dataset-a', 'dataset-b'), ('dataset-a', 'dataset-c'), ('dataset-b', 'dataset-c')}
+    assert pairs == {(a, b) for a in labels for b in labels if a != b}
+    assert len(evaluation.heterogeneous) == len(labels) * (len(labels) - 1)
+
+
+def test_the_two_merge_directions_of_one_pair_measure_different_churn():
+    """Which cohort's flag set is being re-scored changes the answer.
+
+    `dataset-a` is a tight 1..49 body plus one extreme; `dataset-b` sits far above it.
+    Pooling them disturbs the two flag sets by different amounts, which is why simulating
+    only one direction under-reports - measured at 59.09% vs 64.71% on the real WGS set.
+    """
+    evaluation = relative_mod.evaluate(
+        _cache(
+            **{
+                'dataset-a': OUTLIER_COHORT,
+                'dataset-b': [float(v) for v in range(200, 250)],
+            }
+        ),
+        METRIC,
+        'genome',
+    )
+    by_pair = {(a, b): result.flip_rate for a, b, result in evaluation.heterogeneous}
+    assert by_pair[('dataset-a', 'dataset-b')] != by_pair[('dataset-b', 'dataset-a')]
+    assert evaluation.max_merge_churn == pytest.approx(max(by_pair.values()))
 
 
 def test_both_before_slice_orderings_are_simulated_and_the_worst_one_counts():
@@ -367,18 +399,33 @@ def test_verdict_rejects_on_high_churn():
     assert 'churn' in evaluation.verdict_reason
 
 
-def test_the_shipped_genome_duplication_tier_is_recommended():
-    """The case that forced growth and merge onto separate bars.
+def test_the_shipped_genome_duplication_tier_is_rejected_on_the_full_cohort_set():
+    """The shipped tier does not clear these bars, and the tool must say so.
 
-    Genome `reads_duplicated_percent` is in production and working: ~1% growth churn,
-    ~2.1% on a cross-project merge. Against one shared 2% bar the tool would print REJECT
-    for a shipped, reviewed decision.
+    Genome `reads_duplicated_percent` is in production, adopted on a hand-picked subset -
+    three cohorts for growth, two ordered pairs for merge - which measured ~1% growth and
+    ~2.1% merge. This module reproduces those numbers exactly on that same subset. Across
+    all 10 WGS cohorts and every ordered pair it measures 8.61% growth and 64.71% merge,
+    so both bars are breached.
+
+    Pinned deliberately, and not as a RECOMMEND: shipping the tool honest is the decision,
+    and the gap between this verdict and the shipped tier is a live QC question about the
+    tier rather than a sign these constants need loosening.
     """
-    evaluation = _evaluation(warn_rates=[0.03], flip_rates=[0.01], merge_rates=(0.021,))
-    assert evaluation.max_growth_churn == pytest.approx(0.01)
-    assert evaluation.max_merge_churn == pytest.approx(0.021)
-    assert evaluation.verdict == 'RECOMMEND'
-    assert evaluation.verdict_reason == ''
+    evaluation = _evaluation(warn_rates=[0.03], flip_rates=[0.0861], merge_rates=(0.6471,))
+    assert evaluation.max_growth_churn == pytest.approx(0.0861)
+    assert evaluation.max_merge_churn == pytest.approx(0.6471)
+    assert evaluation.verdict == 'REJECT'
+    assert 'growth churn' in evaluation.verdict_reason
+    assert 'merge churn' in evaluation.verdict_reason
+
+
+def test_the_shipped_exome_zero_coverage_tier_is_rejected_on_merge_alone():
+    """Exome ZERO_CVG_TARGETS_PCT: 1.0% growth clears, 51.11% merge does not."""
+    evaluation = _evaluation(warn_rates=[0.03], flip_rates=[0.010], merge_rates=(0.5111,))
+    assert evaluation.verdict == 'REJECT'
+    assert 'growth' not in evaluation.verdict_reason
+    assert 'merge churn' in evaluation.verdict_reason
 
 
 def test_verdict_rejects_just_above_the_growth_bar_and_names_growth():
