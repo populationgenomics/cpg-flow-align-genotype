@@ -79,28 +79,63 @@ plots_force_interactive = true
 # so only the worst tier is recorded per metric (see scripts/check_multiqc.py).
 # Metric keys must match the keys MultiQC surfaces in `report_general_stats_data`;
 # unmatched keys are logged and skipped. A tier may omit any metric.
+# Genome thresholds. WGS uses Picard CollectWgsMetrics (whole-genome coverage/
+# breadth), not CollectHsMetrics - so the keys differ from exome (no *_TARGET_* /
+# FOLD_80 / ZERO_CVG). Calibrated against 10 real WGS cohorts (110-841 samples each;
+# see testing_scripts/qc_metric_distributions.py + qc_threshold_flagrates.py). Values
+# are set so a healthy cohort flags at ~0% fail / single-digit % warn, while a
+# genuinely poor batch still surfaces.
 [qc_thresholds.genome.fail.min]
-# Picard CollectWgsMetrics - median coverage must be >10x (30x is ideal)
-"MEDIAN_COVERAGE" = 10
-# samtools - proportion of reads mapped to the reference must be >80%.
-# NB: replaces the old "PCT_PF_READS_ALIGNED" key, which MultiQC only writes to
-# report_saved_raw_data (not general stats), so it was never checked.
+# Picard CollectWgsMetrics - median coverage (30x is the ideal ask). Cohort medians
+# ~32-37x; p1 ~15-28x. Fail below 15x catches the genuinely under-sequenced tail
+# (~0-1% of every cohort) without tripping on normal depth variation.
+"MEDIAN_COVERAGE" = 15
+# Picard CollectWgsMetrics - fraction of the genome at >=20x (primary breadth gate
+# for WGS). Cohort medians ~0.94-0.95; fail below 0.75 flags inadequate breadth
+# (afhcs/chop-gliadx tails ~4-5%, healthy cohorts ~0%).
+"PCT_20X" = 0.75
+# samtools - proportion of reads mapped to the reference. ~99% median across all
+# cohorts; fail below 80% only catches wrong-reference/species/adapter disasters
+# (~5% of the messy chop-gliadx batch, ~0% elsewhere). Preserves the lab's original
+# hard-gate intent. NB: replaces the old "PCT_PF_READS_ALIGNED" key, which MultiQC
+# only writes to report_saved_raw_data (not general stats), so it was never checked.
 "reads_mapped_percent" = 80
 
 [qc_thresholds.genome.fail.max]
-# VerifyBamID - contamination must be <4%
+# VerifyBamID - contamination. Effectively 0 across all 10 cohorts (p99 <= 0.008);
+# fail above 4% is a pure safety gate for gross contamination.
 "FREEMIX" = 0.04
-# samtools - proportion of duplicate reads must be <25%
-"reads_duplicated_percent" = 25
+# samtools - duplicate rate. Strongly cohort/library-prep dependent on WGS (cohort
+# medians 7-18%), so a fixed warn line over-flags high-dup preps - candidate for
+# cohort-relative (MAD-based) warn flagging rather than the fixed warn below. This
+# absolute fail above 40% catches only true library-complexity disasters (0% of
+# every cohort). The lab's original 25% would hard-fail ~25-37% of legitimately
+# higher-dup preps (afhcs/schr-neuro), so it is relaxed here.
+"reads_duplicated_percent" = 40
 
 [qc_thresholds.genome.warn.min]
 # Below ideal but usable: warn well before the failure line.
+# MEDIAN_COVERAGE warn 25x flags ~0-5% per cohort (the sub-ideal-depth tail).
 "MEDIAN_COVERAGE" = 25
-"reads_mapped_percent" = 98
+# PCT_20X warn 0.85 flags the poor-breadth tail (~0-8% per cohort).
+"PCT_20X" = 0.85
+# reads_mapped warn 97% flags the mild-misalignment tail (single-digit % on healthy
+# cohorts, ~15% on chop-gliadx).
+"reads_mapped_percent" = 97
+# samtools - proportion of properly-paired reads. Warn-only (no fail): correlated
+# with reads_mapped, so it is an extra human-look signal for pairing/insert issues
+# rather than a second hard gate. Cohort medians ~96-98%; warn below 92% flags
+# ~0-3% on healthy cohorts (chop-gliadx ~10%).
+"reads_properly_paired_percent" = 92
 
 [qc_thresholds.genome.warn.max]
-"FREEMIX" = 0.01
-"reads_duplicated_percent" = 10
+# Contamination early-warning. ~0 across all cohorts, so this rarely fires - the
+# fail>0.04 gate is the real protection.
+"FREEMIX" = 0.02
+# samtools - duplicate rate. Cohort medians 7-18%; warn above 30% flags the high-dup
+# tail (~0-5% per cohort). Because dup is strongly cohort-dependent, this fixed line
+# is an interim gate - it is superseded by cohort-relative flagging in the MAD tier.
+"reads_duplicated_percent" = 30
 
 # Exome thresholds. Whole-genome coverage metrics (MEDIAN_COVERAGE from
 # CollectWgsMetrics) are meaningless on exomes, so we gate on Picard
