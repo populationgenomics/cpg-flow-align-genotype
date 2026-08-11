@@ -279,7 +279,7 @@ def test_both_before_slice_orderings_are_simulated_and_the_worst_one_counts():
     assert growth.ordered.flip_rate == pytest.approx(5 / 30)
     assert growth.shuffled.flip_rate == pytest.approx(13 / 30)
     assert growth.flip_rate == pytest.approx(13 / 30)
-    assert evaluation.max_churn == pytest.approx(13 / 30)
+    assert evaluation.max_growth_churn == pytest.approx(13 / 30)
 
 
 def test_a_before_slice_below_min_cohort_is_not_simulated():
@@ -328,7 +328,11 @@ def test_ordering_sensitive_only_when_the_orderings_straddle_the_bar():
 # --- verdict ------------------------------------------------------------------
 
 
-def _evaluation(warn_rates: list[float], flip_rates: list[float]) -> MadEvaluation:
+def _evaluation(
+    warn_rates: list[float],
+    flip_rates: list[float],
+    merge_rates: tuple[float, ...] = (),
+) -> MadEvaluation:
     cohorts = tuple(
         CohortMad(
             f'cohort-{i}',
@@ -345,7 +349,8 @@ def _evaluation(warn_rates: list[float], flip_rates: list[float]) -> MadEvaluati
     churns = tuple(
         HomogeneousChurn(f'cohort-{i}', ordered=_churn(rate), shuffled=None) for i, rate in enumerate(flip_rates)
     )
-    return MadEvaluation('DUP', 'max', cohorts, churns, ())
+    merges = tuple((f'cohort-{i}', f'cohort-{i + 1}', _churn(rate)) for i, rate in enumerate(merge_rates))
+    return MadEvaluation('DUP', 'max', cohorts, churns, merges)
 
 
 def test_verdict_recommends_when_warn_and_churn_are_low():
@@ -362,10 +367,59 @@ def test_verdict_rejects_on_high_churn():
     assert 'churn' in evaluation.verdict_reason
 
 
-def test_verdict_rejects_just_above_the_churn_bar():
-    """The bar is strict: 0.02 clears, 0.0201 does not."""
+def test_the_shipped_genome_duplication_tier_is_recommended():
+    """The case that forced growth and merge onto separate bars.
+
+    Genome `reads_duplicated_percent` is in production and working: ~1% growth churn,
+    ~2.1% on a cross-project merge. Against one shared 2% bar the tool would print REJECT
+    for a shipped, reviewed decision.
+    """
+    evaluation = _evaluation(warn_rates=[0.03], flip_rates=[0.01], merge_rates=(0.021,))
+    assert evaluation.max_growth_churn == pytest.approx(0.01)
+    assert evaluation.max_merge_churn == pytest.approx(0.021)
+    assert evaluation.verdict == 'RECOMMEND'
+    assert evaluation.verdict_reason == ''
+
+
+def test_verdict_rejects_just_above_the_growth_bar_and_names_growth():
+    """The growth bar is strict: 0.02 clears, 0.0201 does not."""
     assert _evaluation(warn_rates=[0.0], flip_rates=[0.02]).verdict == 'RECOMMEND'
-    assert _evaluation(warn_rates=[0.0], flip_rates=[0.0201]).verdict == 'REJECT'
+    over = _evaluation(warn_rates=[0.0], flip_rates=[0.0201])
+    assert over.verdict == 'REJECT'
+    assert 'growth churn' in over.verdict_reason
+    assert 'merge' not in over.verdict_reason
+
+
+def test_verdict_rejects_well_over_the_merge_bar_and_names_merge():
+    """24.5% is what rejected the exome PCT_SELECTED_BASES / PCT_OFF_BAIT candidates.
+
+    Merge churn is looser than growth churn, not advisory - a metric this unstable must
+    still be refused.
+    """
+    over = _evaluation(warn_rates=[0.0], flip_rates=[0.0], merge_rates=(0.245,))
+    assert over.verdict == 'REJECT'
+    assert 'merge churn' in over.verdict_reason
+    assert 'growth' not in over.verdict_reason
+
+
+def test_verdict_is_strict_at_the_merge_bar():
+    assert _evaluation(warn_rates=[0.0], flip_rates=[0.0], merge_rates=(0.05,)).verdict == 'RECOMMEND'
+    assert _evaluation(warn_rates=[0.0], flip_rates=[0.0], merge_rates=(0.0501,)).verdict == 'REJECT'
+
+
+def test_verdict_reason_names_each_failing_simulation_separately():
+    evaluation = _evaluation(warn_rates=[0.4], flip_rates=[0.0201], merge_rates=(0.245,))
+    assert evaluation.verdict == 'REJECT'
+    assert 'warn rate' in evaluation.verdict_reason
+    assert 'growth churn' in evaluation.verdict_reason
+    assert 'merge churn' in evaluation.verdict_reason
+
+
+def test_max_churn_is_the_headline_across_both_simulations():
+    """Kept as a display figure; the verdict judges the two separately."""
+    evaluation = _evaluation(warn_rates=[0.0], flip_rates=[0.01], merge_rates=(0.04,))
+    assert evaluation.max_churn == pytest.approx(0.04)
+    assert evaluation.verdict == 'RECOMMEND'
 
 
 def test_verdict_rejects_just_above_the_warn_bar():
@@ -379,7 +433,7 @@ def test_verdict_rejects_on_high_warn_rate():
     assert 'warn' in evaluation.verdict_reason
 
 
-def test_verdict_reports_both_reasons_when_both_fail():
+def test_verdict_reports_both_reasons_when_warn_and_churn_both_fail():
     evaluation = _evaluation(warn_rates=[0.4], flip_rates=[0.245])
     assert evaluation.verdict == 'REJECT'
     assert 'warn' in evaluation.verdict_reason
