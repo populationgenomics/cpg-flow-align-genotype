@@ -88,6 +88,22 @@ SEVERITIES: tuple[str, ...] = ('fail', 'warn')
 MODIFIED_Z_CONST = 0.6745
 
 
+def _drop_non_dict(items: dict[str, Any], kind: str, context: str) -> dict[str, dict[str, Any]]:
+    """Keep only dict-valued entries of `items`, logging a warning for each drop.
+
+    Shared by both levels `normalise_sections` filters: `kind`/`context` only affect
+    the warning text, e.g. kind='section', context='report_general_stats_data', or
+    kind='sample', context="section 'picard'".
+    """
+    cleaned: dict[str, dict[str, Any]] = {}
+    for key, value in items.items():
+        if isinstance(value, dict):
+            cleaned[key] = value
+        else:
+            logging.warning(f'{kind} {key!r} in {context} is not a dict ({type(value).__name__}); dropping.')
+    return cleaned
+
+
 def normalise_sections(raw: Any) -> dict[str, dict[str, Any]]:
     """Normalise ``report_general_stats_data`` to ``{section: {sample: {metric: value}}}``.
 
@@ -95,13 +111,29 @@ def normalise_sections(raw: Any) -> dict[str, dict[str, Any]]:
     positional list instead, and both shapes turn up in real archived reports. Every
     consumer - this check and the qc_calibration tooling - goes through here, so
     calibration and enforcement can never disagree about what a report contains.
-    Members that aren't dicts are dropped.
+    Members that aren't dicts are dropped at both the section and sample level, and
+    each drop is logged.
+
+    When the report is a v1.14 list, sections get positional names (``section_0``,
+    ``section_1``, ...) since there's no tool name to key on at that shape. These
+    names are NOT comparable across MultiQC versions - v1.33 uses tool-derived names
+    like ``picard_4`` instead. This is a deliberate, accepted gap rather than a bug:
+    production is pinned to ``multiqc:1.33-1`` so the list branch never runs there,
+    and deriving names from ``report_general_stats_headers`` wouldn't fully fix it
+    anyway, since two Picard sections can share the ``Picard`` namespace.
+
+    This function never raises - an unreadable or empty report just normalises to
+    fewer or zero sections. Deciding whether that result is usable is the caller's
+    job; see ``load_sections``.
     """
     if isinstance(raw, dict):
-        return {str(name): section for name, section in raw.items() if isinstance(section, dict)}
-    if isinstance(raw, list):
-        return {f'section_{i}': section for i, section in enumerate(raw) if isinstance(section, dict)}
-    return {}
+        by_name = {str(name): section for name, section in raw.items()}
+    elif isinstance(raw, list):
+        by_name = {f'section_{i}': section for i, section in enumerate(raw)}
+    else:
+        return {}
+    sections = _drop_non_dict(by_name, 'section', 'report_general_stats_data')
+    return {name: _drop_non_dict(section, 'sample', f'section {name!r}') for name, section in sections.items()}
 
 
 def robust_threshold(values: list[float], direction: str, k: float) -> float | None:
@@ -149,7 +181,7 @@ def worst_breach(val: float, tiers: dict[str, float], direction: str) -> tuple[s
     return None
 
 
-def warn_unmatched_metrics(sections: dict[str, Any], seq_type: str) -> None:
+def warn_unmatched_metrics(sections: dict[str, dict[str, Any]], seq_type: str) -> None:
     """Log a warning for any configured threshold metric MultiQC never surfaced.
 
     Without this, a typo'd or unsurfaced metric key silently checks nothing -
@@ -172,11 +204,16 @@ def warn_unmatched_metrics(sections: dict[str, Any], seq_type: str) -> None:
         )
 
 
-def gather_metric_values(sections: dict[str, Any], metric: str) -> tuple[list[tuple[str, str, float]], int]:
+def gather_metric_values(
+    sections: dict[str, dict[str, Any]],
+    metric: str,
+) -> tuple[list[tuple[str, str, float]], int]:
     """``([(section, sample, value)], n_dropped)`` for every sample carrying `metric`.
 
     Non-numeric placeholders (Picard writes ``'?'`` when coverage is ~0) are skipped and
-    counted rather than raising, so one bad cell can't sink the whole check.
+    counted rather than raising, so one bad cell can't sink the whole check. Used by
+    both the relative-flagging pass here and the qc_calibration tooling, so the
+    warning names its section explicitly rather than assuming either caller.
     """
     entries: list[tuple[str, str, float]] = []
     n_dropped = 0
@@ -188,7 +225,10 @@ def gather_metric_values(sections: dict[str, Any], metric: str) -> tuple[list[tu
                 entries.append((section_name, sample, float(val_by_metric[metric])))
             except (TypeError, ValueError):
                 n_dropped += 1
-                logging.warning(f'{sample}: metric {metric!r} non-numeric {val_by_metric[metric]!r}; skipping.')
+                logging.warning(
+                    f'{sample}: {metric!r} in section {section_name!r} non-numeric '
+                    f'{val_by_metric[metric]!r}; skipping.',
+                )
     return entries, n_dropped
 
 
@@ -237,7 +277,7 @@ def _relative_flags_for_metric(
 
 
 def relative_flags(
-    sections: dict[str, Any],
+    sections: dict[str, dict[str, Any]],
     seq_type: str,
     today: datetime,
     already_flagged: dict[str, set[tuple[str, str]]],
@@ -256,7 +296,12 @@ def relative_flags(
     spec = config.config_retrieve(['qc_thresholds', seq_type, 'relative'], {})
     results: list[tuple[str, str, QcFlag]] = []
     for metric, cfg in spec.items():
-        entries, _ = gather_metric_values(sections, metric)
+        entries, n_dropped = gather_metric_values(sections, metric)
+        if n_dropped:
+            logging.warning(
+                f'Relative flagging for {metric!r}: {n_dropped} non-numeric values dropped '
+                f'from cohort of {len(entries) + n_dropped}.',
+            )
         min_cohort = cfg.get('min_cohort', 0)
         if len(entries) < min_cohort:
             logging.info(f'Relative flagging skipped for {metric!r}: cohort {len(entries)} < min_cohort {min_cohort}.')
@@ -266,7 +311,7 @@ def relative_flags(
 
 
 def apply_relative_flags(
-    sections: dict[str, Any],
+    sections: dict[str, dict[str, Any]],
     seq_type: str,
     today: datetime,
     qc_flags_by_sample: dict[str, list[QcFlag]],
@@ -288,18 +333,27 @@ def apply_relative_flags(
 def load_sections(multiqc_json_path: str) -> dict[str, dict[str, Any]]:
     """Read and normalise ``report_general_stats_data`` from a MultiQC JSON report.
 
-    Raises rather than returning an empty result, so a report we couldn't read
-    can't be mistaken for a clean QC check.
+    Raises rather than returning an empty result, so a report we couldn't read can't
+    be mistaken for a clean QC check. Distinguishes two failure modes with different
+    operational meanings: the key being absent/malformed (we couldn't read the
+    report) versus present but genuinely holding zero modules (the report parsed
+    fine and there's just nothing in it).
     """
     with to_path(multiqc_json_path).open() as f:
         d = json.load(f)
-    sections = normalise_sections(d.get('report_general_stats_data'))
-    if not sections:
+    raw = d.get('report_general_stats_data')
+    sections = normalise_sections(raw)
+    if sections:
+        return sections
+    if isinstance(raw, (dict, list)) and len(raw) == 0:
         raise ValueError(
-            f'No usable report_general_stats_data in {multiqc_json_path}; refusing to report a clean QC check '
-            f'on a report we could not read.',
+            f'report_general_stats_data in {multiqc_json_path} is present but empty; the report '
+            f'legitimately contains zero QC modules, so there is nothing to check.',
         )
-    return sections
+    raise ValueError(
+        f'No usable report_general_stats_data in {multiqc_json_path}; refusing to report a clean QC check '
+        f'on a report we could not read.',
+    )
 
 
 def run(  # noqa: C901

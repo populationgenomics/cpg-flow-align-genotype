@@ -277,6 +277,22 @@ def test_absolute_fail_takes_precedence_over_relative(tmp_path, patch_config):
     assert _flags_by_metric(result, 'OUT')['ZERO_CVG_TARGETS_PCT']['method'] == 'relative'
 
 
+def test_relative_flags_logs_non_numeric_drop_count(tmp_path, patch_config, caplog):
+    # A cohort where one value is a non-numeric placeholder: the drop should be
+    # surfaced, since it affects whether the resulting MAD threshold can be trusted.
+    patch_config('exome', {'relative': {'ZERO_CVG_TARGETS_PCT': {'direction': 'max', 'k': 3.5, 'min_cohort': 3}}})
+    sections = {
+        'picard': {
+            'S1': {'ZERO_CVG_TARGETS_PCT': 0.02},
+            'S2': {'ZERO_CVG_TARGETS_PCT': 0.021},
+            'S3': {'ZERO_CVG_TARGETS_PCT': '?'},
+        },
+    }
+    with caplog.at_level('WARNING'):
+        _run(_write_json(tmp_path, sections), tmp_path / 'out.json')
+    assert any('1 non-numeric values dropped' in r.message and 'cohort of 3' in r.message for r in caplog.records)
+
+
 # --- section shape normalisation ---------------------------------------------
 
 
@@ -300,6 +316,21 @@ def test_normalise_sections_drops_non_dict_members():
     }
 
 
+def test_normalise_sections_drops_non_dict_sample_value():
+    # A section can type-check fine while one of its samples doesn't - that must
+    # not blow up the triple-nested loops downstream (gather_metric_values etc).
+    raw = {'picard': {'S1': {'a': 1}, 'S2': None}}
+    assert check_multiqc.normalise_sections(raw) == {'picard': {'S1': {'a': 1}}}
+
+
+def test_normalise_sections_logs_dropped_members(caplog):
+    with caplog.at_level('WARNING'):
+        check_multiqc.normalise_sections({'picard': {'S1': {'a': 1}, 'S2': None}, 'broken': None})
+    messages = [r.message for r in caplog.records]
+    assert any("'broken'" in m for m in messages)  # section-level drop
+    assert any("'S2'" in m for m in messages)  # sample-level drop
+
+
 def test_normalise_sections_unexpected_type_is_empty():
     assert check_multiqc.normalise_sections(None) == {}
     assert check_multiqc.normalise_sections('nonsense') == {}
@@ -310,7 +341,11 @@ def test_run_handles_list_shaped_general_stats(tmp_path, patch_config):
     patch_config('genome', GENOME_THRESHOLDS)
     path = _write_json(tmp_path, [{'CPG1|S1': {'MEDIAN_COVERAGE': 5}}])
     result = _run(path, tmp_path / 'out.json')
-    assert _flags_by_metric(result, 'CPG1')['MEDIAN_COVERAGE']['severity'] == 'fail'
+    flag = _flags_by_metric(result, 'CPG1')['MEDIAN_COVERAGE']
+    assert flag['severity'] == 'fail'
+    # Pins the contract documented on normalise_sections: v1.14 list members get
+    # positional names, which are not comparable to v1.33's tool-derived names.
+    assert flag['section'] == 'section_0'
 
 
 def test_run_raises_when_general_stats_absent(tmp_path, patch_config):
@@ -319,6 +354,16 @@ def test_run_raises_when_general_stats_absent(tmp_path, patch_config):
     path = tmp_path / 'multiqc_data.json'
     path.write_text(json.dumps({'report_saved_raw_data': {}}))
     with pytest.raises(ValueError, match='report_general_stats_data'):
+        _run(str(path), tmp_path / 'out.json')
+
+
+def test_run_raises_when_general_stats_present_but_empty(tmp_path, patch_config):
+    """A report that parsed fine but legitimately has zero modules is a different
+    failure mode to an unreadable one, and should say so."""
+    patch_config('genome', GENOME_THRESHOLDS)
+    path = tmp_path / 'multiqc_data.json'
+    path.write_text(json.dumps({'report_general_stats_data': {}}))
+    with pytest.raises(ValueError, match='empty'):
         _run(str(path), tmp_path / 'out.json')
 
 
