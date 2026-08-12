@@ -275,9 +275,19 @@ def test_max_warn_rate_ignores_skipped_datasets():
 def test_global_config_detour_is_not_reintroduced():
     """The hazard this rewrite removes: mutating cpg_utils.config's installed paths.
 
-    Checks call/import sites rather than bare substrings: the module's own docstring
-    names `_relative_flags_for_metric` (production's function) as the thing whose
-    rounding this mirrors, and that name contains `relative_flags` as a substring.
+    This is a source-substring guard, not a semantic one: it catches the detour coming
+    back the way it would plausibly come back - someone re-adding a call or import who
+    doesn't know why it was removed. It does not catch a determined reintroduction via a
+    fully-qualified import (``import align_genotype.qc_calibration.tomlio`` contains no
+    literal ``import tomlio``) or dynamic dispatch (``getattr(check_multiqc, 'relative' +
+    '_flags')``). Treat a pass here as "nobody did this by accident", not as a hard
+    barrier.
+
+    The checks look for call/import sites rather than bare substrings for a narrower
+    reason: this module's own docstring names `_relative_flags_for_metric` (production's
+    function) as the thing whose rounding it mirrors, and that name contains
+    `relative_flags` as a substring - a bare substring check would fail on the docstring
+    itself.
     """
     import inspect  # noqa: PLC0415
 
