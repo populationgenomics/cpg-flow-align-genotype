@@ -296,7 +296,7 @@ through `relative_flags` additionally bought was exercising `load_thresholds`, w
 
 ```python
 ANALYSES_QUERY = gql("""
-    query CramMultiqc($dataset: String!, $analysisType: String!, $metaFilter: JSON!) {
+    query CramMultiqc($dataset: String!, $analysisType: String!, $metaFilter: JSON) {
         project(name: $dataset) {
             analyses(status: {eq: COMPLETED}, type: {eq: $analysisType}, meta: $metaFilter) {
                 id
