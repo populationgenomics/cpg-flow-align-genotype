@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QC threshold calibration — {{ r.sequencing_type }}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+         background: #f5f6fa; color: #2d3436; padding: 24px; }
+  .container { max-width: 1400px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  h2 { font-size: 1.15rem; margin: 32px 0 12px; }
+  h3 { font-size: 0.95rem; margin: 20px 0 8px; color: #2d3436; }
+  .subtitle { color: #636e72; font-size: 0.9rem; margin-bottom: 16px; }
+  .blurb { color: #636e72; font-size: 0.85rem; max-width: 900px; line-height: 1.5; margin-bottom: 16px; }
+  .cards { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
+  .card { background: #fff; border-radius: 8px; padding: 16px 24px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.08); min-width: 140px; }
+  .card .label { font-size: 0.75rem; color: #636e72; text-transform: uppercase; letter-spacing: 0.5px; }
+  .card .value { font-size: 1.7rem; font-weight: 700; margin-top: 4px; }
+  .banner { border-radius: 8px; padding: 14px 18px; margin-bottom: 16px; line-height: 1.5;
+            background: #fdecea; color: #a4271b; border: 1px solid #f5c2bd; font-size: 0.88rem; }
+  .banner.warning { background: #fff8e6; color: #8a6100; border: 1px solid #f2d49b; }
+  .banner ul { margin: 8px 0 0 20px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px;
+          overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); font-size: 0.85rem;
+          margin-bottom: 16px; }
+  th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #eef1f4; white-space: nowrap; }
+  th { background: #f1f3f5; font-weight: 600; font-size: 0.78rem; text-transform: uppercase;
+       letter-spacing: 0.4px; color: #636e72; }
+  td.metric { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.coverage { color: #636e72; font-size: 0.8rem; white-space: normal; }
+  .verdict { font-weight: 700; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; }
+  .verdict.RECOMMEND { background: #e8f8f2; color: #0b8a63; }
+  .verdict.REJECT { background: #fdecea; color: #a4271b; }
+  .over { color: #a4271b; font-weight: 600; }
+  .muted { color: #95a5a6; }
+  .skip { color: #b9770e; font-size: 0.8rem; white-space: normal; }
+  details { background: #fff; border-radius: 8px; padding: 14px 18px; margin-bottom: 10px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  details summary { cursor: pointer; font-weight: 600; font-size: 0.95rem; }
+  details[open] summary { margin-bottom: 12px; }
+  details .scroll { overflow-x: auto; }
+  pre { background: #2d3436; color: #dfe6e9; padding: 16px; border-radius: 8px;
+        overflow-x: auto; font-size: 0.8rem; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <h1>QC threshold calibration — {{ r.sequencing_type }}</h1>
+  <p class="subtitle">
+    Generated {{ r.generated }} · ar-guid <code>{{ r.ar_guid }}</code> ·
+    k = {{ r.settings.k }} · min_samples = {{ r.settings.min_samples }}
+  </p>
+
+  <div class="cards">
+    <div class="card"><div class="label">Datasets</div><div class="value">{{ r.datasets | length }}</div></div>
+    <div class="card"><div class="label">Sequencing groups</div>
+      <div class="value">{{ r.datasets | sum(attribute='n_sequencing_groups') }}</div></div>
+    <div class="card"><div class="label">Metrics</div><div class="value">{{ r.metrics | length }}</div></div>
+    <div class="card"><div class="label">Relative tiers</div><div class="value">{{ r.relative | length }}</div></div>
+  </div>
+
+  {% set error_warnings = r.warnings | selectattr('severity', 'equalto', 'error') | list %}
+  {% set caution_warnings = r.warnings | selectattr('severity', 'equalto', 'warning') | list %}
+  {% if error_warnings %}
+  <div class="banner">
+    <strong>Metric coverage problems</strong>
+    <ul>{% for warning in error_warnings %}<li>{{ warning.message }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+  {% if caution_warnings %}
+  <div class="banner warning">
+    <strong>Calibration notes</strong>
+    <ul>{% for warning in caution_warnings %}<li>{{ warning.message }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+
+  <h2>Recommended fixed thresholds</h2>
+  <p class="blurb">
+    Candidates are the worst per-dataset percentile tails — descriptions of where the data sits, <strong>not decisions</strong>.
+    A percentile cannot know whether a line contradicts the lab's intent, or whether a metric
+    tracks ancestry and chemistry rather than sample quality. Read the flag rates below against what is shipped
+    today, and decide as a team.
+  </p>
+  <div class="scroll">
+  <table>
+    <tr>
+      <th>Metric</th><th>Dir</th><th>Unit</th>
+      <th>Current fail</th><th>Current warn</th>
+      <th>Candidate fail</th><th>Candidate warn</th>
+      <th>Values</th><th>Groups</th><th>Datasets</th><th>Dropped</th>
+    </tr>
+    {% for key, m in r.metrics.items() %}
+    <tr>
+      <td class="metric">{{ key }}</td>
+      <td>{{ m.direction }}</td>
+      <td>{{ m.unit }}</td>
+      <td class="num">{{ m.current.fail | default(none) | num(m.unit) }}</td>
+      <td class="num">{{ m.current.warn | default(none) | num(m.unit) }}</td>
+      <td class="num">{% if m.candidate %}{{ m.candidate.fail | num(m.unit) }}{% else %}—{% endif %}</td>
+      <td class="num">{% if m.candidate %}{{ m.candidate.warn | num(m.unit) }}{% else %}—{% endif %}</td>
+      <td class="num">{{ m.n_values }}</td>
+      <td class="num">{{ m.n_groups_with_values }}</td>
+      <td class="num">{{ m.n_datasets }}</td>
+      <td class="num">{{ m.n_dropped }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+
+  <h2>Dataset-relative (MAD) tiers</h2>
+  <p class="blurb">
+    A relative tier ships only <code>direction</code>, <code>k</code> and <code>min_samples</code> — production
+    recomputes median and MAD from whatever sequencing groups are in each run, so the per-dataset thresholds below
+    are illustrative of today's data and will move as datasets grow. That movement is what churn measures.
+    Growth churn is a forecast; merge churn is a stress test, which is why its bar is looser. Note the tension: a
+    metric earns a relative tier precisely because its normal level <em>shifts between datasets</em>, and the merge
+    simulation punishes exactly that property — read a high figure as "how much would pooling two projects disturb
+    this", not as a defect count. A <span class="verdict REJECT">REJECT</span> below is therefore a live question for the team, not a tool verdict:
+    it may mean the bar is wrong for this class of metric, not that the tier is.
+  </p>
+
+  {% for key, rel in r.relative.items() %}
+  <h3>{{ key }} <span class="verdict {{ rel.verdict }}">{{ rel.verdict }}</span></h3>
+  {% if rel.reason %}
+  <p class="blurb">{{ rel.reason }}.
+    {% if rel.max_merge_churn > rel.bars.max_merge_churn and rel.max_growth_churn <= rel.bars.max_growth_churn %}
+    The merge bar is the one being missed here, not growth — see the tension noted above before treating this as
+    a reason to drop the tier.
+    {% endif %}
+  </p>
+  {% endif %}
+  <table>
+    <tr><th>Measure</th><th>Observed</th><th>Bar</th><th>Coverage</th></tr>
+    <tr><td>Peak warn rate</td>
+      <td class="num {% if rel.max_warn_rate > rel.bars.max_warn_rate %}over{% endif %}">
+        {{ rel.max_warn_rate | pct }}</td>
+      <td class="num">{{ rel.bars.max_warn_rate | pct }}</td>
+      <td class="coverage">{{ rel.n_datasets_evaluated }} of {{ rel.n_datasets }} dataset(s)
+        {%- if rel.n_datasets_skipped %} ({{ rel.n_datasets_skipped }} skipped — see per-dataset table){% endif %}</td></tr>
+    <tr><td>Peak growth churn</td>
+      <td class="num {% if rel.max_growth_churn > rel.bars.max_growth_churn %}over{% endif %}">
+        {{ rel.max_growth_churn | pct }}</td>
+      <td class="num">{{ rel.bars.max_growth_churn | pct }}</td>
+      <td class="coverage">{{ rel.n_growth_evaluated }} of {{ rel.n_datasets }} dataset(s) large enough to simulate a
+        60% before-slice</td></tr>
+    <tr><td>Peak merge churn</td>
+      <td class="num {% if rel.max_merge_churn > rel.bars.max_merge_churn %}over{% endif %}">
+        {{ rel.max_merge_churn | pct }}</td>
+      <td class="num">{{ rel.bars.max_merge_churn | pct }}</td>
+      <td class="coverage">{{ rel.merge_pairs_simulated }} ordered pair(s) across
+        {{ rel.n_merge_datasets_evaluated }} usable dataset(s)</td></tr>
+  </table>
+  <div class="scroll">
+  <table>
+    <tr><th>Dataset</th><th>Values</th><th>Groups</th><th>Median</th><th>MAD</th>
+        <th>Threshold</th><th>Warned</th><th>Warn rate</th><th>Skipped</th></tr>
+    {% for d in rel.datasets %}
+    <tr>
+      <td>{{ d.dataset }}</td>
+      <td class="num">{{ d.n_values }}</td>
+      <td class="num">{{ d.n_groups_with_values }}</td>
+      <td class="num">{{ d.median | stat }}</td>
+      <td class="num">{{ d.mad | stat }}</td>
+      <td class="num">{{ d.threshold | stat }}</td>
+      <td class="num">{% if d.skipped %}—{% else %}{{ d.n_warn }}{% endif %}</td>
+      <td class="num">{% if d.skipped %}—{% else %}{{ d.warn_rate | pct }}{% endif %}</td>
+      <td class="skip">{{ d.skipped or '' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  {% if r.metrics.values() | selectattr('relative') | list | length %}
+  <p class="blurb muted">A relative tier is configured for this sequencing type, but no dataset had data to evaluate it against.</p>
+  {% else %}
+  <p class="blurb muted">No metric is configured with <code>relative = true</code> for this sequencing type.</p>
+  {% endif %}
+  {% endfor %}
+
+  <h2>Evidence</h2>
+
+  <details>
+    <summary>Metric presence</summary>
+    <p class="blurb">Which general-stats section carried each metric, per dataset. MISSING means the key is absent
+    or renamed in that dataset — a metric absent everywhere is a key that checks nothing. Two datasets showing
+    different sections here is itself the finding: a MultiQC key rename or a tool landing in a different
+    general-stats section in some datasets but not others.</p>
+    <div class="scroll">
+    <table>
+      <tr><th>Metric</th>{% for name in dataset_names %}<th>{{ name }}</th>{% endfor %}</tr>
+      {% for key, m in r.metrics.items() %}
+      <tr>
+        <td class="metric">{{ key }}</td>
+        {% for name in dataset_names %}
+        <td>{% if name in m.missing_from %}<span class="over">MISSING</span>
+            {% else %}{{ m.sections_by_dataset[name] | join(', ') }}{% endif %}</td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+  </details>
+
+  <details>
+    <summary>Percentile distributions</summary>
+    {% for key, m in r.metrics.items() %}
+    <h3>{{ key }} <span class="muted">({{ m.direction }}, {{ m.unit }})</span></h3>
+    <div class="scroll">
+    <table>
+      <tr><th>Dataset</th>{% for label in percentile_labels %}<th>{{ label }}</th>{% endfor %}</tr>
+      {% for name, pcts in m.percentiles.items() %}
+      <tr><td>{{ name }}</td>
+        {% for label in percentile_labels %}<td class="num">{{ pcts[label] | num(m.unit) }}</td>{% endfor %}
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+    {% endfor %}
+  </details>
+
+  <details>
+    <summary>Flag rates</summary>
+    <p class="blurb">Warn excludes sequencing groups already failing, matching production, which evaluates fail
+    before warn and records one flag per metric at the worst tier.</p>
+    {% for key, m in r.metrics.items() %}
+    <h3>{{ key }}</h3>
+    <div class="scroll">
+    <table>
+      <tr><th>Dataset</th><th>Current fail</th><th>Current warn</th><th>Candidate fail</th><th>Candidate warn</th></tr>
+      {% for name in m.flag_rates.candidate %}
+      <tr>
+        <td>{{ name }}</td>
+        <td class="num">{{ m.flag_rates.current.get(name, {}).get('fail') | pct }}</td>
+        <td class="num">{{ m.flag_rates.current.get(name, {}).get('warn') | pct }}</td>
+        <td class="num">{{ m.flag_rates.candidate[name].fail | pct }}</td>
+        <td class="num">{{ m.flag_rates.candidate[name].warn | pct }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+    {% endfor %}
+  </details>
+
+  <details>
+    <summary>Churn detail</summary>
+    {% for key, rel in r.relative.items() %}
+    <h3>{{ key }} — growth</h3>
+    <p class="blurb">A 60% before-slice re-scored against the whole dataset's threshold, run on the leading slice and
+    on a seeded shuffle. The verdict uses the worse of the two, because whether MultiQC key order tracks sequencing
+    batches is plausible but nowhere guaranteed. {{ rel.n_growth_evaluated }} of {{ rel.n_datasets }} dataset(s) were
+    large enough for a before-slice to clear <code>min_samples</code>; the rest are absent from the table below.</p>
+    <div class="scroll">
+    <table>
+      <tr><th>Dataset</th><th>Before n</th><th>Ordered flips</th><th>Ordered churn</th>
+          <th>Shuffled flips</th><th>Shuffled churn</th><th>Worse</th><th>Note</th></tr>
+      {% for g in rel.growth %}
+      <tr>
+        <td>{{ g.dataset }}</td>
+        <td class="num">{{ (g.ordered or g.shuffled).n_initial }}</td>
+        <td class="num">{% if g.ordered %}{{ g.ordered.flips }}{% else %}—{% endif %}</td>
+        <td class="num">{% if g.ordered %}{{ g.ordered.flip_rate | pct }}{% else %}—{% endif %}</td>
+        <td class="num">{% if g.shuffled %}{{ g.shuffled.flips }}{% else %}—{% endif %}</td>
+        <td class="num">{% if g.shuffled %}{{ g.shuffled.flip_rate | pct }}{% else %}—{% endif %}</td>
+        <td class="num">{{ g.worse | pct }}</td>
+        <td>{% if g.ordering_sensitive %}<span class="over">ORDERING-SENSITIVE</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+    <h3>{{ key }} — merge</h3>
+    <p class="blurb">Worst {{ rel.merge_worst | length }} of {{ rel.merge_pairs_simulated }} ordered pairs, across
+    {{ rel.n_merge_datasets_evaluated }} usable dataset(s). Both directions of every pair run, because a merge
+    disturbs both projects' flag sets by different amounts.</p>
+    <div class="scroll">
+    <table>
+      <tr><th>Dataset</th><th>Merged with</th><th>n</th><th>Flagged before</th>
+          <th>Flagged after</th><th>Flips</th><th>Churn</th></tr>
+      {% for m in rel.merge_worst %}
+      <tr>
+        <td>{{ m.dataset }}</td><td>{{ m.merged_with }}</td>
+        <td class="num">{{ m.n_initial }}</td><td class="num">{{ m.flagged_before }}</td>
+        <td class="num">{{ m.flagged_after }}</td><td class="num">{{ m.flips }}</td>
+        <td class="num">{{ m.flip_rate | pct }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+    {% endfor %}
+  </details>
+
+  <details>
+    <summary>Provenance</summary>
+    <div class="scroll">
+    <table>
+      <tr><th>Dataset</th><th>Analysis ID</th><th>Completed</th><th>Groups</th><th>MultiQC</th><th>Report</th></tr>
+      {% for d in r.datasets %}
+      <tr>
+        <td>{{ d.dataset }}</td><td class="num">{{ d.analysis_id }}</td><td>{{ d.timestamp }}</td>
+        <td class="num">{{ d.n_sequencing_groups }}</td><td>{{ d.multiqc_version }}</td>
+        <td><code>{{ d.uri }}</code></td>
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+    {% if r.skipped_datasets %}
+    <h3>Datasets not included</h3>
+    <table>
+      <tr><th>Dataset</th><th>Reason</th></tr>
+      {% for d in r.skipped_datasets %}
+      <tr><td>{{ d.dataset }}</td><td class="skip">{{ d.reason }}</td></tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+  </details>
+
+  <h2>Config block</h2>
+  <p class="blurb">The candidate thresholds as a <code>qc_thresholds</code> block. Diff this against
+  <code>config_template.toml</code> before pasting — that file carries comments and judgement no generator
+  reproduces, and the diff is the cheapest guard against silently rewriting a production gate.</p>
+  <pre>{{ r.config_snippet }}</pre>
+
+</div>
+</body>
+</html>

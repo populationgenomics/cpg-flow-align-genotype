@@ -7,6 +7,7 @@ testing_scripts/testing_data/*_multiqc*.json).
 """
 
 import json
+from datetime import datetime, timezone
 
 import pytest
 
@@ -225,7 +226,7 @@ def test_robust_threshold_zero_mad_returns_none():
 
 # A tight ZERO_CVG cohort (~0.02) with one relative outlier (0.08) and one absolute
 # failure (0.15). direction=max; absolute fail gate at >0.10.
-_REL_CFG = {'ZERO_CVG_TARGETS_PCT': {'direction': 'max', 'k': 3.5, 'min_cohort': 5}}
+_REL_CFG = {'ZERO_CVG_TARGETS_PCT': {'direction': 'max', 'k': 3.5, 'min_samples': 5}}
 _REL_SECTIONS = {
     'picard': {
         'S1': {'ZERO_CVG_TARGETS_PCT': 0.020},
@@ -234,7 +235,7 @@ _REL_SECTIONS = {
         'S4': {'ZERO_CVG_TARGETS_PCT': 0.022},
         'S5': {'ZERO_CVG_TARGETS_PCT': 0.020},
         'S6': {'ZERO_CVG_TARGETS_PCT': 0.023},
-        'OUT': {'ZERO_CVG_TARGETS_PCT': 0.080},   # relative outlier (< 0.10 fail gate) -> warn
+        'OUT': {'ZERO_CVG_TARGETS_PCT': 0.080},  # relative outlier (< 0.10 fail gate) -> warn
         'FAILS': {'ZERO_CVG_TARGETS_PCT': 0.150},  # absolute fail (> 0.10)
     },
 }
@@ -251,10 +252,41 @@ def test_relative_flags_warn_only_outlier(tmp_path, patch_config):
     assert 'S1' not in result['qc_flags']
 
 
-def test_relative_skipped_below_min_cohort(tmp_path, patch_config):
-    patch_config('exome', {'relative': {'ZERO_CVG_TARGETS_PCT': {'direction': 'max', 'k': 3.5, 'min_cohort': 100}}})
+def test_relative_skipped_below_min_samples(tmp_path, patch_config):
+    patch_config('exome', {'relative': {'ZERO_CVG_TARGETS_PCT': {'direction': 'max', 'k': 3.5, 'min_samples': 100}}})
     result = _run(_write_json(tmp_path, _REL_SECTIONS), tmp_path / 'out.json')
-    assert result['qc_flags'] == {}  # cohort of 8 < min_cohort 100 -> no relative flags
+    assert result['qc_flags'] == {}  # 8 values < min_samples 100 -> no relative flags
+
+
+def test_relative_uses_min_samples_key(patch_config):
+    """The config key is `min_samples`; a run of 3 must be skipped by a bar of 4.
+
+    (10, 11) is a tight pair and 50 is a clear outlier under the k=3.5 MAD rule, so
+    if `min_samples` were ignored (falling back to the old default of 0) CPG2 would
+    get flagged. It must not be: the run has 3 samples, below the min_samples bar of 4.
+    """
+    patch_config(
+        'genome',
+        {
+            'relative': {
+                'reads_duplicated_percent': {'direction': 'max', 'k': 3.5, 'min_samples': 4},
+            },
+        },
+    )
+    sections = {
+        'samtools': {
+            'CPG0': {'reads_duplicated_percent': 10.0},
+            'CPG1': {'reads_duplicated_percent': 11.0},
+            'CPG2': {'reads_duplicated_percent': 50.0},
+        },
+    }
+    flags = check_multiqc.relative_flags(
+        sections,
+        'genome',
+        datetime(2026, 1, 1, tzinfo=timezone.utc),
+        already_flagged={},
+    )
+    assert flags == []
 
 
 def test_relative_skipped_on_zero_mad(tmp_path, patch_config):
@@ -275,6 +307,111 @@ def test_absolute_fail_takes_precedence_over_relative(tmp_path, patch_config):
     assert fails[0]['method'] == 'absolute'
     # OUT (0.08) is still a relative warn.
     assert _flags_by_metric(result, 'OUT')['ZERO_CVG_TARGETS_PCT']['method'] == 'relative'
+
+
+def test_relative_flags_logs_non_numeric_drop_count(tmp_path, patch_config, caplog):
+    # A cohort where one value is a non-numeric placeholder: the drop should be
+    # surfaced, since it affects whether the resulting MAD threshold can be trusted.
+    patch_config('exome', {'relative': {'ZERO_CVG_TARGETS_PCT': {'direction': 'max', 'k': 3.5, 'min_samples': 3}}})
+    sections = {
+        'picard': {
+            'S1': {'ZERO_CVG_TARGETS_PCT': 0.02},
+            'S2': {'ZERO_CVG_TARGETS_PCT': 0.021},
+            'S3': {'ZERO_CVG_TARGETS_PCT': '?'},
+        },
+    }
+    with caplog.at_level('WARNING'):
+        _run(_write_json(tmp_path, sections), tmp_path / 'out.json')
+    assert any('1 non-numeric values dropped' in r.message and 'cohort of 3' in r.message for r in caplog.records)
+
+
+# --- section shape normalisation ---------------------------------------------
+
+
+def test_normalise_sections_dict_shape_passes_through():
+    raw = {'picard': {'S1': {'MEDIAN_COVERAGE': 30}}, 'samtools': {'S1': {'error_rate': 0.01}}}
+    assert check_multiqc.normalise_sections(raw) == raw
+
+
+def test_normalise_sections_list_shape_gets_positional_names():
+    raw = [{'S1': {'FREEMIX': 0.01}}, {'S1': {'MEDIAN_COVERAGE': 30}}]
+    assert check_multiqc.normalise_sections(raw) == {
+        'section_0': {'S1': {'FREEMIX': 0.01}},
+        'section_1': {'S1': {'MEDIAN_COVERAGE': 30}},
+    }
+
+
+def test_normalise_sections_drops_non_dict_members():
+    assert check_multiqc.normalise_sections([{'S1': {'a': 1}}, None, 'junk']) == {'section_0': {'S1': {'a': 1}}}
+    assert check_multiqc.normalise_sections({'picard': {'S1': {'a': 1}}, 'broken': None}) == {
+        'picard': {'S1': {'a': 1}},
+    }
+
+
+def test_normalise_sections_drops_non_dict_sample_value():
+    # A section can type-check fine while one of its samples doesn't - that must
+    # not blow up the triple-nested loops downstream (gather_metric_values etc).
+    raw = {'picard': {'S1': {'a': 1}, 'S2': None}}
+    assert check_multiqc.normalise_sections(raw) == {'picard': {'S1': {'a': 1}}}
+
+
+def test_normalise_sections_logs_dropped_members(caplog):
+    with caplog.at_level('WARNING'):
+        check_multiqc.normalise_sections({'picard': {'S1': {'a': 1}, 'S2': None}, 'broken': None})
+    messages = [r.message for r in caplog.records]
+    assert any("'broken'" in m and 'section' in m for m in messages)  # section-level drop
+    assert any("'S2'" in m and 'sample' in m for m in messages)  # sample-level drop
+
+
+def test_normalise_sections_unexpected_type_is_empty():
+    assert check_multiqc.normalise_sections(None) == {}
+    assert check_multiqc.normalise_sections('nonsense') == {}
+
+
+def test_run_handles_list_shaped_general_stats(tmp_path, patch_config):
+    """A MultiQC v1.14 report stores general stats as a list; it must not crash."""
+    patch_config('genome', GENOME_THRESHOLDS)
+    path = _write_json(tmp_path, [{'CPG1|S1': {'MEDIAN_COVERAGE': 5}}])
+    result = _run(path, tmp_path / 'out.json')
+    flag = _flags_by_metric(result, 'CPG1')['MEDIAN_COVERAGE']
+    assert flag['severity'] == 'fail'
+    # Pins the contract documented on normalise_sections: v1.14 list members get
+    # positional names, which are not comparable to v1.33's tool-derived names.
+    assert flag['section'] == 'section_0'
+
+
+def test_run_raises_when_general_stats_absent(tmp_path, patch_config):
+    """A report with no general stats must fail loudly, not silently check nothing."""
+    patch_config('genome', GENOME_THRESHOLDS)
+    path = tmp_path / 'multiqc_data.json'
+    path.write_text(json.dumps({'report_saved_raw_data': {}}))
+    # Match the absent/malformed wording specifically - 'report_general_stats_data'
+    # alone appears in the present-but-empty message too, so it wouldn't pin the branch.
+    with pytest.raises(ValueError, match='could not read'):
+        _run(str(path), tmp_path / 'out.json')
+
+
+def test_run_raises_when_general_stats_present_but_empty(tmp_path, patch_config):
+    """A report that parsed fine but legitimately has zero modules is a different
+    failure mode to an unreadable one, and should say so."""
+    patch_config('genome', GENOME_THRESHOLDS)
+    path = tmp_path / 'multiqc_data.json'
+    path.write_text(json.dumps({'report_general_stats_data': {}}))
+    with pytest.raises(ValueError, match='empty'):
+        _run(str(path), tmp_path / 'out.json')
+
+
+# --- gather_metric_values ------------------------------------------------------
+
+
+def test_gather_metric_values_returns_entries_and_drop_count():
+    sections = {
+        'picard': {'S1': {'MEDIAN_COVERAGE': 30}, 'S2': {'MEDIAN_COVERAGE': '?'}},
+        'samtools': {'S1': {'MEDIAN_COVERAGE': '28.5'}, 'S3': {'other': 1}},
+    }
+    entries, n_dropped = check_multiqc.gather_metric_values(sections, 'MEDIAN_COVERAGE')
+    assert sorted(entries) == [('picard', 'S1', 30.0), ('samtools', 'S1', 28.5)]
+    assert n_dropped == 1
 
 
 if __name__ == '__main__':
