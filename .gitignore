@@ -169,8 +169,3 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
-
-# Local QC calibration working data. These hold MultiQC reports and manifests whose
-# names identify real datasets, so they must never be committed.
-testing_scripts/
-calibration/
