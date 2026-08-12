@@ -2492,11 +2492,17 @@ production gate. Section order matches the committed file so the diff reads as a
 rather than a rewrite.
 """
 
+import textwrap
+
 from align_genotype.qc_calibration.settings import CalibrationSettings
 from align_genotype.qc_calibration.thresholds import Candidate
 
 # (severity, direction) in the order config_template.toml writes them.
 _SECTIONS: tuple[tuple[str, str], ...] = (('fail', 'min'), ('fail', 'max'), ('warn', 'min'), ('warn', 'max'))
+
+# The project line limit is 120; a comment carries a two-character '# ' prefix that
+# textwrap does not count, so wrap the text itself two characters shorter.
+COMMENT_WIDTH = 118
 
 
 def _fmt(value: float) -> str:
@@ -2513,6 +2519,16 @@ def _fmt(value: float) -> str:
     return repr(value)
 
 
+def _comment(basis: str) -> list[str]:
+    """Wrap a candidate's evidence into '# '-prefixed lines, or nothing if it is empty.
+
+    The committed config carries a rationale above every threshold. A pasted number with
+    no stated evidence is exactly what this exercise exists to move away from, so the
+    basis travels with the value rather than living only in the HTML report.
+    """
+    return [f'# {line}' for line in textwrap.wrap(basis, width=COMMENT_WIDTH)] if basis else []
+
+
 def render(settings: CalibrationSettings, candidates: dict[str, Candidate]) -> str:
     """The config block for every metric that produced a candidate."""
     lines: list[str] = []
@@ -2527,13 +2543,16 @@ def render(settings: CalibrationSettings, candidates: dict[str, Candidate]) -> s
         if not entries:
             continue
         lines += ['', f'[qc_thresholds.{settings.seq_type}.{severity}.{direction}]']
-        lines += [f'"{key}" = {_fmt(threshold)}' for key, threshold in entries]
+        for key, threshold in entries:
+            lines += _comment(candidates[key].basis)
+            lines.append(f'"{key}" = {_fmt(threshold)}')
 
     for metric in settings.relative_metrics:
         if metric.key not in candidates:
             continue
         lines += [
             '',
+            *_comment(candidates[metric.key].basis),
             f'[qc_thresholds.{settings.seq_type}.relative.{metric.key}]',
             f'direction = "{metric.direction}"',
             f'k = {_fmt(settings.k)}',
