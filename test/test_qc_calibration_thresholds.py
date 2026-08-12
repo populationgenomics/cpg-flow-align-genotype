@@ -35,7 +35,9 @@ def test_max_metric_seeds_from_the_highest_per_dataset_tails():
 def test_x_and_percent_units_round_to_whole_numbers():
     metric = settings_mod.MetricSpec(key='COV', direction='min', unit='x')
     candidate = thresholds_mod.candidate({'ds': metric_values([10.4, 20.0, 30.0])}, metric)
-    assert isinstance(candidate.fail, int)
+    # `type(...) is int` rather than `isinstance`: a leaked `np.int64` would pass
+    # `isinstance(..., int)` on some platforms, which is exactly what this guards against.
+    assert type(candidate.fail) is int
 
 
 def test_frac_unit_keeps_two_decimal_places():
@@ -43,7 +45,10 @@ def test_frac_unit_keeps_two_decimal_places():
     metric = settings_mod.MetricSpec(key='PCT_20X', direction='min', unit='frac')
     candidate = thresholds_mod.candidate({'ds': metric_values([0.9012, 0.95, 0.97])}, metric)
     assert candidate.fail == pytest.approx(0.9, abs=0.01)
-    assert isinstance(candidate.fail, float)
+    # `type(...) is float` rather than `isinstance`: `np.float64` subclasses `float`, so
+    # `isinstance` would pass even if the `float(value)` cast that prevents a leaked
+    # numpy scalar were deleted.
+    assert type(candidate.fail) is float
 
 
 def test_a_relative_metric_gets_no_absolute_warn():

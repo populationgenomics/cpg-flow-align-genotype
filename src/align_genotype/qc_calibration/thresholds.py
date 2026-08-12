@@ -83,11 +83,11 @@ def candidate(by_dataset: dict[str, MetricValues], metric: MetricSpec) -> Candid
 
     n_with_data = sum(1 for v in by_dataset.values() if v.array.size)
     plural = '' if n_with_data == 1 else 's'
-    basis = f'worst per-dataset p{pcts["fail"]}={fail_raw:.4g} across {n_with_data} dataset{plural}'
+    basis = f'Worst per-dataset p{pcts["fail"]}={fail_raw:.4g} across {n_with_data} dataset{plural}'
 
     warn: float | None = None
     if metric.relative:
-        basis += '; warn tier is dataset-relative, so no absolute warn is proposed'
+        basis += '; warn tier is dataset-relative, so no absolute warn is proposed.'
     else:
         warn_raw = _tail(by_dataset, metric, pcts['warn'])
         # Unreachable: `_tail` walks the same per-dataset arrays at a different
@@ -96,7 +96,7 @@ def candidate(by_dataset: dict[str, MetricValues], metric: MetricSpec) -> Candid
         if warn_raw is None:
             raise AssertionError('a dataset with fail-percentile data must also have warn-percentile data')
         warn = _round_for_unit(warn_raw, metric.unit)
-        basis += f', warn p{pcts["warn"]}={warn_raw:.4g}'
+        basis += f', warn p{pcts["warn"]}={warn_raw:.4g}.'
 
     return Candidate(
         metric=metric.key,
