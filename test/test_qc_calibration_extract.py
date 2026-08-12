@@ -124,13 +124,23 @@ def test_a_document_that_is_not_an_object_is_an_error():
 
 
 def test_no_usable_general_stats_is_an_error():
-    """Refusing beats reporting a clean extraction on a report we could not read."""
-    with pytest.raises(extract_mod.ExtractError, match='no usable report_general_stats_data'):
+    """The key being absent/malformed - we couldn't read the report - is one distinct failure.
+
+    Refusing beats reporting a clean extraction on a report we could not read. This must
+    not share wording with the "present but empty" case below: the two point an operator
+    at different fixes (chase the file/credentials, versus exclude the dataset).
+    """
+    with pytest.raises(extract_mod.ExtractError, match=r'dataset-a: no usable report_general_stats_data.*gs://bucket'):
         extract_mod.extract(document(None), SETTINGS, **PROVENANCE)
 
 
 def test_empty_general_stats_is_an_error_naming_the_dataset_and_uri():
-    with pytest.raises(extract_mod.ExtractError, match=r'dataset-a.*gs://bucket'):
+    """The key being present but genuinely holding zero modules is the other distinct failure.
+
+    Mirrors `check_multiqc.load_sections`'s two-branch split; this message must not match
+    the "no usable" one above, or a future regression that re-merges the two would pass.
+    """
+    with pytest.raises(extract_mod.ExtractError, match=r'dataset-a.*present but empty.*gs://bucket'):
         extract_mod.extract(document({}), SETTINGS, **PROVENANCE)
 
 
@@ -140,6 +150,13 @@ def test_missing_config_version_is_recorded_as_unknown():
         SETTINGS,
         **PROVENANCE,
     )
+    assert result.multiqc_version == 'unknown'
+
+
+def test_explicit_null_config_version_is_recorded_as_unknown():
+    """`str(None)` reads 'None', which is worse than not printing a version at all."""
+    doc = document({'picard_1': {'CPG1': {'MEDIAN_COVERAGE': 30.0}}}, version=None)
+    result = extract_mod.extract(doc, SETTINGS, **PROVENANCE)
     assert result.multiqc_version == 'unknown'
 
 

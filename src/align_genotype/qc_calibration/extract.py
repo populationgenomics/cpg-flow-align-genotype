@@ -36,9 +36,19 @@ def extract(
     if not isinstance(document, dict):
         raise ExtractError(f'{dataset}: report is a {type(document).__name__}, not an object, in {uri}')
 
-    version = str(document.get('config_version', 'unknown'))
-    sections = check_multiqc.normalise_sections(document.get('report_general_stats_data'))
+    version = str(document.get('config_version') or 'unknown')
+    raw = document.get('report_general_stats_data')
+    sections = check_multiqc.normalise_sections(raw)
     if not sections:
+        # Mirrors `check_multiqc.load_sections`: the key being absent/malformed (we
+        # couldn't read the report) is a different failure, pointing at a different fix,
+        # than the key being present but genuinely holding zero modules (the report
+        # parsed fine and there's just nothing in it).
+        if isinstance(raw, (dict, list)) and len(raw) == 0:
+            raise ExtractError(
+                f'{dataset}: report_general_stats_data is present but empty (multiqc {version}) in {uri}; '
+                f'the report legitimately contains zero QC modules, so there is nothing to extract',
+            )
         raise ExtractError(f'{dataset}: no usable report_general_stats_data (multiqc {version}) in {uri}')
 
     metrics: dict[str, MetricValues] = {}
