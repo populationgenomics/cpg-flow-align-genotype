@@ -7,7 +7,17 @@ stage name into analysis meta, so the stage filter runs server-side and the outp
 picks the JSON of the two.
 
 The query function is injected so the selection logic is testable with a fake, leaving
-only the four-line adapter untested.
+only the small adapter untested.
+
+An analysis with an unrankable `timestampCompleted` is skipped with a per-row warning,
+not aggregated into a summary the way the old cohort-wide discovery did. That aggregation
+existed because the old module swept every project in Metamist, where dozens of scattered
+warnings genuinely needed collecting into one line. This module is called once per
+dataset in the operator's own `input_cohorts`, so the worst case is one warning per
+dataset in a run the operator deliberately assembled - legible on its own in a driver
+log - and reintroducing aggregation would mean either module-level mutable state or an
+accumulator threaded through the stage layer, neither of which is worth it for a rare
+condition at this scale.
 """
 
 import functools
@@ -114,5 +124,12 @@ def cached_latest_cram_multiqc(dataset: str, seq_type: str) -> MultiqcReport | N
     `expected_outputs` keys the per-dataset output path on the analysis ID and is called
     repeatedly during DAG assembly, so without this each call would be a GraphQL round
     trip.
+
+    A `None` result (no report yet for this dataset/seq_type) is cached too, for the life
+    of the process - safe for one-shot DAG assembly, where a dataset with no report at
+    first lookup has no report for the rest of that assembly. Anything longer-lived that
+    reuses this function (a service, a long-running loop) would need an explicit
+    invalidation strategy, since a report completing after the first lookup would
+    otherwise never be seen.
     """
     return latest_cram_multiqc(dataset, seq_type)
