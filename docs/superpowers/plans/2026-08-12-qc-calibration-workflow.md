@@ -895,6 +895,31 @@ def test_save_refuses_a_non_finite_value(tmp_path):
         values_mod.save(broken, tmp_path / 'values.json')
 
 
+def test_load_rejects_a_boolean_count(tmp_path):
+    """`int(True)` is 1 with no exception, so a bool must be rejected explicitly."""
+    path = tmp_path / 'values.json'
+    values_mod.save(make_values(), path)
+    payload = json.loads(path.read_text())
+    payload['analysis_id'] = True
+    path.write_text(json.dumps(payload))
+    with pytest.raises(values_mod.ValuesError, match='analysis_id'):
+        values_mod.load(path)
+
+
+def test_load_rejects_a_boolean_metric_value(tmp_path):
+    path = tmp_path / 'values.json'
+    values_mod.save(make_values(), path)
+    payload = json.loads(path.read_text())
+    payload['metrics']['MEDIAN_COVERAGE']['entries'][0][2] = True
+    path.write_text(json.dumps(payload))
+    with pytest.raises(values_mod.ValuesError):
+        values_mod.load(path)
+
+
+def test_dataset_values_metric_returns_the_stored_metric_when_present():
+    assert make_values().metric('MEDIAN_COVERAGE').n_values == 3
+
+
 def test_load_names_the_file_when_the_shape_is_wrong(tmp_path):
     path = tmp_path / 'values.json'
     path.write_text('{"dataset": "a"}')
@@ -948,6 +973,24 @@ Entry = tuple[str, str, float]
 
 class ValuesError(RuntimeError):
     """A values file could not be read, or holds something that must never be written."""
+
+
+def _require_int(field: str, value: Any) -> int:
+    """Reject a bool before `int()` silently turns it into 0 or 1.
+
+    `bool` subclasses `int`, so `isinstance(True, int)` is True and `int(True)` is 1 with
+    no exception - the same trap `settings.py` guards against. The `TypeError` raised here
+    is caught by `load`'s except clause and rewrapped with the file path.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f'{field} must be an integer, got {value!r}')
+    return value
+
+
+def _require_number(field: str, value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f'{field} must be a number, got {value!r}')
+    return float(value)
 
 
 @dataclass(frozen=True)
@@ -1054,17 +1097,20 @@ def load(path: str | Path) -> DatasetValues:
         return DatasetValues(
             dataset=raw['dataset'],
             seq_type=raw['seq_type'],
-            analysis_id=int(raw['analysis_id']),
+            analysis_id=_require_int('analysis_id', raw['analysis_id']),
             timestamp=raw['timestamp'],
             uri=raw['uri'],
             multiqc_version=raw['multiqc_version'],
             generated=raw['generated'],
-            n_sequencing_groups=int(raw['n_sequencing_groups']),
+            n_sequencing_groups=_require_int('n_sequencing_groups', raw['n_sequencing_groups']),
             section_sizes=dict(raw['section_sizes']),
             metrics={
                 key: MetricValues(
-                    entries=tuple((section, sg, float(value)) for section, sg, value in body['entries']),
-                    n_dropped=int(body['n_dropped']),
+                    entries=tuple(
+                        (section, sg, _require_number(f'{key} value', value))
+                        for section, sg, value in body['entries']
+                    ),
+                    n_dropped=_require_int(f'{key} n_dropped', body['n_dropped']),
                 )
                 for key, body in raw['metrics'].items()
             },
@@ -1079,7 +1125,7 @@ def load(path: str | Path) -> DatasetValues:
 
 Run: `uv run python -m pytest test/test_qc_calibration_values.py -v`
 
-Expected: PASS, 10 tests.
+Expected: PASS, 15 tests.
 
 - [ ] **Step 5: Commit**
 
