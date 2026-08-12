@@ -183,7 +183,11 @@ Create `test/test_qc_calibration_settings.py`:
 
 import pytest
 
+from cpg_utils import config as cpg_config
+
 from align_genotype.qc_calibration import settings as settings_mod
+
+_MISSING = object()
 
 METRICS = {
     'MEDIAN_COVERAGE': {'direction': 'min', 'unit': 'x'},
@@ -196,12 +200,15 @@ def patch_config(monkeypatch):
     """Wire config_retrieve to an in-memory nested dict."""
 
     def _apply(tree: dict) -> None:
-        def config_retrieve(keys, default=None):  # noqa: ANN202
+        def config_retrieve(keys, default=_MISSING):  # noqa: ANN202
             node = tree
             for key in keys:
                 if not isinstance(node, dict) or key not in node:
-                    if default is None and keys[:1] == ['workflow']:
-                        raise KeyError(keys)
+                    # The real config_retrieve raises when a key is missing and no
+                    # default was passed. `load()` relies on that for
+                    # workflow.sequencing_type, so the fake has to do it too.
+                    if default is _MISSING:
+                        raise cpg_config.ConfigError(f'missing config key: {list(keys)}')
                     return default
                 node = node[key]
             return node
@@ -311,8 +318,49 @@ def test_current_thresholds_reshapes_production_config(patch_config):
             },
         },
     )
-    monkeypatched = settings_mod.current_thresholds('genome')
-    assert monkeypatched == {'MEDIAN_COVERAGE': {'fail': 15, 'warn': 25}, 'FREEMIX': {'fail': 0.04}}
+    assert settings_mod.current_thresholds('genome') == {
+        'MEDIAN_COVERAGE': {'fail': 15, 'warn': 25},
+        'FREEMIX': {'fail': 0.04},
+    }
+
+
+def test_enabled_rejects_a_quoted_boolean(patch_config):
+    """The highest-consequence setting in the module: a truthy string would turn every
+    production run into a job-per-dataset calibration run."""
+    patch_config({'workflow': {'sequencing_type': 'genome'}, 'qc_calibration': {'enabled': 'false'}})
+    with pytest.raises(settings_mod.SettingsError, match='must be true or false'):
+        settings_mod.enabled()
+
+
+def test_load_rejects_a_non_numeric_k(patch_config):
+    patch_config(
+        {
+            'workflow': {'sequencing_type': 'genome'},
+            'qc_calibration': {'k': 'abc', 'genome': {'metrics': METRICS}},
+        },
+    )
+    with pytest.raises(settings_mod.SettingsError, match='qc_calibration.k'):
+        settings_mod.load()
+
+
+def test_load_rejects_a_boolean_min_samples(patch_config):
+    """`int(True)` is 1, which would silently enable relative tiers on tiny datasets."""
+    patch_config(
+        {
+            'workflow': {'sequencing_type': 'genome'},
+            'qc_calibration': {'min_samples': True, 'genome': {'metrics': METRICS}},
+        },
+    )
+    with pytest.raises(settings_mod.SettingsError, match='must be an integer'):
+        settings_mod.load()
+
+
+def test_load_without_a_sequencing_type_raises(patch_config):
+    """No usable config at all is a different problem from a bad [qc_calibration] block,
+    so cpg-utils' own error is left to propagate rather than rewrapped."""
+    patch_config({'qc_calibration': {'genome': {'metrics': METRICS}}})
+    with pytest.raises(cpg_config.ConfigError):
+        settings_mod.load()
 ```
 
 `current_thresholds` delegates to `check_multiqc.load_thresholds`, which calls `config.config_retrieve` on the `check_multiqc` module object — so that test needs the patch applied there too. Add to the fixture, after the `settings_mod.config` line:
@@ -350,7 +398,7 @@ from align_genotype.scripts import check_multiqc
 DIRECTIONS = ('min', 'max')
 UNITS = ('x', 'frac', '%')
 
-_METRIC_KEYS = {'direction', 'unit', 'relative'}
+_METRIC_KEYS = frozenset({'direction', 'unit', 'relative'})
 
 
 class SettingsError(ValueError):
@@ -431,14 +479,44 @@ def parse_metric(key: str, raw: Any) -> MetricSpec:
     return MetricSpec(key=key, direction=direction, unit=unit, relative=relative)
 
 
+def _require_bool(key: str, value: Any) -> bool:
+    """Reject anything that is not already a boolean rather than coercing it.
+
+    `bool('false')` is True. For `enabled` in particular that typo would turn every
+    ordinary production run into a job-per-dataset calibration run.
+    """
+    if not isinstance(value, bool):
+        raise SettingsError(f'qc_calibration.{key} must be true or false, got {value!r}')
+    return value
+
+
+def _require_number(key: str, value: Any) -> float:
+    """Reject a non-numeric setting with a message naming the key.
+
+    `bool` subclasses `int`, so it is excluded explicitly. A bare `float()` here would
+    raise `ValueError: could not convert string to float: 'abc'`, which never mentions
+    which setting was wrong.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise SettingsError(f'qc_calibration.{key} must be a number, got {value!r}')
+    return float(value)
+
+
+def _require_int(key: str, value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise SettingsError(f'qc_calibration.{key} must be an integer, got {value!r}')
+    return value
+
+
 def enabled() -> bool:
     """Whether the calibration stages should queue any jobs at all.
 
     Defaults to False so that the stages sit inert in the DAG of an ordinary production
     run. They carry no `required_stages` dependency, so without this they would queue a
-    job per dataset and register Metamist analyses on every invocation.
+    job per dataset and register Metamist analyses on every invocation. Validated rather
+    than coerced - see `_require_bool`.
     """
-    return bool(config.config_retrieve(['qc_calibration', 'enabled'], False))
+    return _require_bool('enabled', config.config_retrieve(['qc_calibration', 'enabled'], False))
 
 
 def load() -> CalibrationSettings:
@@ -453,12 +531,18 @@ def load() -> CalibrationSettings:
     return CalibrationSettings(
         seq_type=seq_type,
         metrics=tuple(parse_metric(key, value) for key, value in raw_metrics.items()),
-        k=float(config.config_retrieve(['qc_calibration', 'k'], 3.5)),
-        min_samples=int(config.config_retrieve(['qc_calibration', 'min_samples'], 50)),
+        k=_require_number('k', config.config_retrieve(['qc_calibration', 'k'], 3.5)),
+        min_samples=_require_int('min_samples', config.config_retrieve(['qc_calibration', 'min_samples'], 50)),
         bars=Bars(
-            max_warn_rate=float(config.config_retrieve(['qc_calibration', 'max_warn_rate'], 0.10)),
-            max_growth_churn=float(config.config_retrieve(['qc_calibration', 'max_growth_churn'], 0.02)),
-            max_merge_churn=float(config.config_retrieve(['qc_calibration', 'max_merge_churn'], 0.05)),
+            max_warn_rate=_require_number(
+                'max_warn_rate', config.config_retrieve(['qc_calibration', 'max_warn_rate'], 0.10)
+            ),
+            max_growth_churn=_require_number(
+                'max_growth_churn', config.config_retrieve(['qc_calibration', 'max_growth_churn'], 0.02)
+            ),
+            max_merge_churn=_require_number(
+                'max_merge_churn', config.config_retrieve(['qc_calibration', 'max_merge_churn'], 0.05)
+            ),
         ),
     )
 
@@ -477,7 +561,7 @@ def current_thresholds(seq_type: str) -> dict[str, dict[str, float]]:
 
 Run: `uv run pytest test/test_qc_calibration_settings.py -v`
 
-Expected: PASS, 13 tests.
+Expected: PASS, 18 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -4693,6 +4777,15 @@ queues a job.
 - **`test/` is not a package.** `test_qc_calibration_render.py` imports fixtures from
   `test.test_qc_calibration_summary`. If that import fails, add an empty
   `test/__init__.py` in the same commit, or inline the two helpers.
+- **Validate config values, never coerce them.** Every setting read from TOML goes
+  through `settings._require_bool` / `_require_number` / `_require_int`. `bool('false')`
+  is `True` and `int(True)` is `1`, and a bare `float()` raises a `ValueError` that never
+  names the offending key. This applies to any new setting added in a later task.
+- **The test lists in this plan are not exhaustive against their own code blocks.** Task 2
+  shipped two branches (`parse_metric`'s unknown-key check, `CalibrationSettings.metric`'s
+  `KeyError`) that the plan's own test list never exercised. When implementing, check each
+  branch of the code you are given and add the missing test rather than transcribing the
+  list as-is.
 - **MAD fixtures need at least three points.** With two, the modified z-score is always
   exactly `±0.6745` (MAD equals half the range), so nothing can ever be flagged at any
   `k` this codebase uses, and a test built on two points passes whatever the code does.
