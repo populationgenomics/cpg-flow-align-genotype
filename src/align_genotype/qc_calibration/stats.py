@@ -1,9 +1,6 @@
-"""Numeric analysis over cached values - percentiles, flag rates, cohort-growth churn.
+"""Numeric analysis over extracted values - percentiles, flag rates, dataset-growth churn.
 
-No I/O and no config: everything here is a pure function of arrays already in memory,
-which is what lets the flagrates/mad tuning loop run in under a second. An operator
-iterating on candidate thresholds is the primary use, and that loop has to be fast
-enough to stay interactive.
+No I/O and no config: everything here is a pure function of arrays already in memory.
 """
 
 from dataclasses import dataclass
@@ -14,9 +11,9 @@ from align_genotype.scripts import check_multiqc
 
 PERCENTILES: tuple[int, ...] = (1, 5, 10, 25, 50, 75, 90, 95, 99)
 
-# A healthy cohort should sit near 0% fail and single-digit % warn. Beyond these, the
-# candidate threshold gets flagged for a second look - it is advice, not a rejection:
-# "healthy cohort" is the operator's judgement, not a computable property.
+# A healthy dataset should sit near 0% fail and single-digit % warn. Beyond these, a
+# candidate threshold is marked for a second look - advice, not a rejection: "healthy
+# dataset" is a human judgement, not a computable property.
 FAIL_RATE_LIMIT = 0.02
 WARN_RATE_LIMIT = 0.10
 
@@ -59,7 +56,7 @@ def flag_rates(
 
 
 def needs_review(fail_rate: float, warn_rate: float) -> bool:
-    """Whether a candidate threshold's flag rate is outside the healthy-cohort guardrail.
+    """Whether a candidate threshold's flag rate is outside the healthy-dataset guardrail.
 
     NaN (an absent metric) is not "needs review" - there is nothing to look at.
     """
@@ -70,7 +67,7 @@ def needs_review(fail_rate: float, warn_rate: float) -> bool:
 
 @dataclass(frozen=True)
 class ChurnResult:
-    """How a cohort-relative threshold moved, and who changed status because of it."""
+    """How a dataset-relative threshold moved, and who changed status because of it."""
 
     threshold_before: float
     threshold_after: float
@@ -85,15 +82,15 @@ class ChurnResult:
 
 
 def churn(initial: np.ndarray, grown: np.ndarray, direction: str, k: float) -> ChurnResult | None:
-    """Re-score the *initial* samples against the *grown* cohort's threshold.
+    """Re-score the *initial* values against the *grown* set's threshold.
 
-    `flips` counts samples whose flag status changes purely because the cohort grew -
-    each one would be a spurious "updated" flag in the database, which is the cost that
-    decides whether a cohort-relative tier is safe to adopt. Returns None when either
-    cohort has a degenerate (zero) MAD, since no threshold exists to compare.
+    `flips` counts values whose flag status changes purely because the dataset grew -
+    each one a spurious "updated" flag in the database, which is the cost that decides
+    whether a dataset-relative tier is safe to adopt. Returns None when either set has a
+    degenerate (zero) MAD, since no threshold exists to compare.
 
-    Thresholds are rounded to 4 dp exactly as production does, so the simulation
-    measures the churn operators would actually see rather than sub-0.0001 jitter.
+    Thresholds are rounded to 4 dp exactly as production does, so the simulation measures
+    the churn operators would actually see rather than sub-0.0001 jitter.
     """
     before_threshold = check_multiqc.robust_threshold(list(initial), direction, k)
     after_threshold = check_multiqc.robust_threshold(list(grown), direction, k)

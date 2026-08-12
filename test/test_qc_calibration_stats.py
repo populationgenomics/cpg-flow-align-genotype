@@ -73,7 +73,7 @@ def test_flag_rates_of_empty_is_nan():
     assert np.isnan(fail_rate) and np.isnan(warn_rate)
 
 
-def test_needs_review_uses_the_healthy_cohort_guardrail():
+def test_needs_review_uses_the_healthy_dataset_guardrail():
     assert stats.needs_review(0.0, 0.04) is False
     assert stats.needs_review(0.05, 0.04) is True  # too many fails
     assert stats.needs_review(0.0, 0.30) is True  # too many warns
@@ -103,12 +103,12 @@ INITIAL = np.array([1.0, 2.0, 3.0, 4.0, 20.0])
 GROWN = np.concatenate([INITIAL, np.array([18.0, 19.0, 20.0, 21.0, 22.0])])
 
 
-def test_churn_measures_flips_caused_purely_by_cohort_growth():
+def test_churn_measures_flips_caused_purely_by_dataset_growth():
     result = stats.churn(INITIAL, GROWN, 'max', 3.5)
     assert result.threshold_before == pytest.approx(8.189, abs=0.001)
     assert result.threshold_after == pytest.approx(34.067, abs=0.001)
-    assert result.flagged_before == 1  # 20 is an outlier in the small cohort
-    assert result.flagged_after == 0  # once the cohort includes similar values, it isn't
+    assert result.flagged_before == 1  # 20 is an outlier in the small dataset
+    assert result.flagged_after == 0  # once the dataset includes similar values, it isn't
     assert result.flips == 1
     assert result.flip_rate == pytest.approx(0.2)
 
@@ -124,7 +124,7 @@ def test_churn_returns_none_on_degenerate_mad():
     assert stats.churn(identical, identical, 'max', 3.5) is None
 
 
-def test_churn_returns_none_when_either_cohort_is_degenerate():
+def test_churn_returns_none_when_either_dataset_is_degenerate():
     identical = np.array([5.0] * 10)
     varied = np.array([1.0, 2.0, 3.0, 4.0, 20.0])
     assert stats.churn(identical, varied, 'max', 3.5) is None
@@ -135,7 +135,7 @@ def test_churn_of_empty_initial_is_none():
     assert stats.churn(np.array([]), GROWN, 'max', 3.5) is None
 
 
-def test_churn_zero_flips_when_cohort_is_unchanged():
+def test_churn_zero_flips_when_dataset_is_unchanged():
     result = stats.churn(INITIAL, INITIAL, 'max', 3.5)
     assert result.flips == 0
     assert result.flip_rate == 0.0
