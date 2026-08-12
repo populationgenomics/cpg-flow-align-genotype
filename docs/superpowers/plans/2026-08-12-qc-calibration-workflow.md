@@ -4745,7 +4745,12 @@ covering, in this order:
    `enabled` belongs only in the calibration run's config — set in a shared config, every
    production run gains a job per dataset. State that one run covers one sequencing type,
    so calibrating both means two invocations.
-3. **What it writes.** The three paths, and what each is for.
+3. **What it writes.** The three paths, and what each is for. Say explicitly that the
+   `qc_thresholds` block is **merge-carefully, not paste-over-the-top**: the generated
+   block carries per-threshold evidence but cannot reproduce the committed file's
+   domain prose (which Picard tool a metric comes from, the lab's framing of an "ideal
+   ask"), so a wholesale paste trades one kind of documentation for another. Diff, then
+   merge.
 4. **How to read the report.** The judgement, which is the part no number supplies:
    - Aim for a healthy dataset flagging roughly 0% fail and single-digit % warn. `fail`
      means "do not analyse without a decision"; `warn` means "a human should look, and
