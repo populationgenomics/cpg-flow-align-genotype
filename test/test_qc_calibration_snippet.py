@@ -234,4 +234,53 @@ def test_relative_table_carries_its_metrics_basis():
     lines = body.splitlines()
     header_idx = lines.index('[qc_thresholds.genome.relative.reads_duplicated_percent]')
     assert lines[header_idx + 1] == '# ...'
-    assert lines[header_idx + 2] == 'direction = "max"'
+    assert lines[header_idx + 2] == 'direction = "max"  # bad = high'
+
+
+def test_relative_table_annotates_each_key_like_the_committed_config():
+    """A wholesale paste must not replace the committed file's per-key algorithm notes with nothing."""
+    body = snippet_mod.render(SETTINGS, CANDIDATES)
+    lines = body.splitlines()
+    header_idx = lines.index('[qc_thresholds.genome.relative.reads_duplicated_percent]')
+    kv_lines = lines[header_idx + 2 : header_idx + 5]
+    assert kv_lines == [
+        'direction = "max"  # bad = high',
+        'k = 3.5            # standard Iglewicz-Hoaglin outlier threshold',
+        'min_samples = 50   # below this, MAD is too noisy; skip relative flagging',
+    ]
+    # Aligned in a column, matching config_template.toml's style.
+    comment_columns = {line.index('#') for line in kv_lines}
+    assert len(comment_columns) == 1
+
+
+def test_relative_direction_gloss_derives_from_min():
+    """A `min` relative metric gets `bad = low`, not the `max` table's `bad = high`."""
+    settings = settings_mod.CalibrationSettings(
+        seq_type='genome',
+        metrics=(settings_mod.MetricSpec(key='PCT_20X', direction='min', unit='frac', relative=True),),
+    )
+    candidates = {'PCT_20X': Candidate('PCT_20X', fail=0.75, warn=None, basis='')}
+    body = snippet_mod.render(settings, candidates)
+    assert 'direction = "min"  # bad = low' in body
+
+
+def test_fmt_error_names_the_offending_metric_and_severity():
+    """Debugging a `_fmt` failure means bisecting `candidates` by hand without a named field."""
+    candidates = {'FREEMIX': Candidate('FREEMIX', fail=True, warn=None, basis='')}
+    settings = settings_mod.CalibrationSettings(
+        seq_type='genome',
+        metrics=(settings_mod.MetricSpec(key='FREEMIX', direction='max', unit='frac'),),
+    )
+    with pytest.raises(TypeError, match=r'qc_thresholds\.genome\.fail\.max\.FREEMIX'):
+        snippet_mod.render(settings, candidates)
+
+
+def test_fmt_error_for_a_relative_key_names_the_relative_table():
+    settings = settings_mod.CalibrationSettings(
+        seq_type='genome',
+        metrics=(settings_mod.MetricSpec(key='reads_duplicated_percent', direction='max', unit='%', relative=True),),
+        k=True,  # type: ignore[arg-type]  # deliberately wrong, to trigger the guard
+    )
+    candidates = {'reads_duplicated_percent': Candidate('reads_duplicated_percent', fail=38, warn=None, basis='')}
+    with pytest.raises(TypeError, match=r'qc_thresholds\.genome\.relative\.reads_duplicated_percent\.k'):
+        snippet_mod.render(settings, candidates)
