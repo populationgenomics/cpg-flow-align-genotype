@@ -9,15 +9,12 @@ picks the JSON of the two.
 The query function is injected so the selection logic is testable with a fake, leaving
 only the small adapter untested.
 
-An analysis with an unrankable `timestampCompleted` is skipped with a per-row warning,
-not aggregated into a summary the way the old cohort-wide discovery did. That aggregation
-existed because the old module swept every project in Metamist, where dozens of scattered
-warnings genuinely needed collecting into one line. This module is called once per
-dataset in the operator's own `input_cohorts`, so the worst case is one warning per
-dataset in a run the operator deliberately assembled - legible on its own in a driver
-log - and reintroducing aggregation would mean either module-level mutable state or an
-accumulator threaded through the stage layer, neither of which is worth it for a rare
-condition at this scale.
+An analysis with an unrankable `timestampCompleted` is skipped with a per-row warning
+rather than being collected into one summary line. That is deliberate: this is called
+once per dataset in the operator's own `input_cohorts`, so the worst case is one warning
+per dataset in a run they deliberately assembled, which is legible on its own in a driver
+log. Aggregating would need either module-level mutable state or an accumulator threaded
+through the stage layer, and neither is worth it for a rare condition at this scale.
 """
 
 import functools

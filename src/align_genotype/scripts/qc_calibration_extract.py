@@ -26,6 +26,9 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 @click.option('--uri', required=True, help='The report URI, recorded for provenance.')
 @click.option('--output', 'output_path', required=True, help='Where to write the values file.')
 def main(
+    # Keyword-only: click always supplies these by name, and six positional parameters
+    # would trip ruff's PLR0917.
+    *,
     dataset: str,
     multiqc_json_path: str,
     analysis_id: int,

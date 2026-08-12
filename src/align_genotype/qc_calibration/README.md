@@ -1,374 +1,237 @@
-# `qc_calibrate` - deriving QC thresholds from real cohorts
+# QC threshold calibration
 
-This package turns a set of dataset-level MultiQC reports into the
-`[qc_thresholds.<seq_type>...]` block in
-[`config_template.toml`](../config_template.toml). Run it when you are onboarding a new
-capture kit or sequencing protocol, or refreshing thresholds after the data has moved.
+## What this is
 
-It replaces a set of hand-edited local scripts. The point of formalising it was not
-speed - it was that the *judgement* behind a threshold used to live only in the head of
-whoever ran the scripts. The commands produce numbers; this README carries the judgement.
-Read the whole "Choosing thresholds" and "When to adopt a cohort-relative tier" sections
-before you sign anything off.
+Two CPG Flow stages that turn every dataset's latest CramMultiQC report into candidate
+`fail`/`warn` thresholds and dataset-relative (MAD) tier evidence, rendered as an HTML
+dashboard in the analysis dataset's web bucket. Run it when onboarding a new capture kit
+or sequencing protocol, or when refreshing thresholds after the data underlying them has
+moved.
 
-Every command is `uv run qc_calibrate <cmd>`; each one's options are in `--help` and are
-not repeated here.
+- `QcCalibrationDatasetMetrics` (`qc_calibration_stages.py`) - a `DatasetStage`. One job
+  per dataset: localises that dataset's latest CramMultiQC report and distils every
+  configured metric to a small values file
+  (`jobs/qc_calibration.py::extract_dataset_metrics`,
+  `scripts/qc_calibration_extract.py`).
+- `QcCalibrationReport` (`qc_calibration_stages.py`) - a `MultiCohortStage`, `forced=True`.
+  One job: reads every dataset's values file and writes `calibration.json` and
+  `calibration.html` (`jobs/qc_calibration.py::calibration_report`,
+  `scripts/qc_calibration_report.py`).
 
-## The three artifacts
+Both stages are dependency-free - neither declares `required_stages` on a production
+stage - so adding them to `run_workflow.py`'s `STAGES` list never pulls alignment or
+genotyping work into a calibration run, and never adds a calibration job to a production
+one.
 
-Everything lives in a `calibration/` working directory, which is **gitignored**
-(see the entry at the end of [`.gitignore`](../../../.gitignore)). Keep it that way:
-
-| Artifact | Written by | What it is |
-|---|---|---|
-| `manifest.<seq_type>.toml` | `discover` (hand-edited after) | Which datasets, and which MultiQC report per dataset (`uri`, `analysis_id`, `timestamp`). The durable record of what a calibration was derived from, so it stays reproducible after Metamist moves on. |
-| `values.<seq_type>.json` | `collect` | The value cache: every metric's finite values per cohort, plus provenance (sample count, MultiQC version, general-stats shape, dropped-value count). Small. Everything after `collect` reads only this. |
-| `spec.<seq_type>.toml` | you (seeded by `suggest`) | The calibration spec: what to gate, in which direction, at what value, and why. Thresholds live here rather than in Python constants - editing constants in place was the pain point in the old workflow. |
-
-**None of these may ever be committed.** Manifest cohort labels and spec `rationale` text
-name real CPG datasets. `emit.render` checks the rationale independently before printing
-anything, and refuses to emit a block whose rationale names a cohort in the cache - but
-that guard only covers the emitted block, not the artifacts themselves. The `docs/`
-directory in this repo is untracked for the same reason.
-
-## The workflow
+## How to run it
 
 ```bash
-# 1. Which datasets and reports. Metamist query; writes a manifest you then review.
-uv run qc_calibrate discover --seq-type genome --output calibration/manifest.genome.toml
-
-# 2. The only slow step. Parses every report once, surveys it, distils it to the cache.
-uv run qc_calibrate collect --spec calibration/spec.genome.toml \
-                            --manifest calibration/manifest.genome.toml
-
-# 3. Where the data actually sits: p1..p99 per metric, per cohort.
-uv run qc_calibrate distributions --spec calibration/spec.genome.toml
-
-# 4. A first draft of fail/warn from the distribution tails, written back as unreviewed.
-uv run qc_calibrate suggest --spec calibration/spec.genome.toml
-
-# 5. What those candidates would flag, per cohort. Iterate here: edit the spec, re-run.
-uv run qc_calibrate flagrates --spec calibration/spec.genome.toml
-
-# 6. Only for a metric with a [metrics.<KEY>.relative] block: warn rate and churn.
-uv run qc_calibrate mad --spec calibration/spec.genome.toml
-
-# 7. The block to diff and paste into config_template.toml. Refuses if anything is unreviewed.
-uv run qc_calibrate emit-config --spec calibration/spec.genome.toml \
-                                --manifest calibration/manifest.genome.toml
-
-# 8. Optional end-to-end proof: the real check_multiqc, on one real report, under this spec.
-uv run qc_calibrate dryrun --spec calibration/spec.genome.toml \
-                           --manifest calibration/manifest.genome.toml \
-                           --cohort <label> --output-dir calibration/dryrun
+analysis-runner --skip-repo-checkout \
+    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:<version> \
+    --config src/align_genotype/config_template.toml \
+    --config <calibration-run-config.toml> \
+    --dataset <analysis-dataset> \
+    --description 'QC threshold calibration' \
+    --access-level full \
+    --output-dir OUTPUT_DIR \
+    run_workflow
 ```
 
-Review the manifest before step 2. Dropping a bad cohort, pinning an older analysis or
-substituting a local file are all normal, and `collect` is the step that costs you ten
-minutes.
+The calibration-run config needs:
 
-**`collect` is the only slow command.** It parses reports of tens to ~500 MB, one at a
-time. Everything after it reads the cache and returns in under a second - that is what
-makes the `flagrates` loop practical: change a number in the spec, re-run, look, change
-it again. If you find yourself waiting, you are re-collecting when you didn't need to.
+- `qc_calibration.enabled = true`
+- `workflow.sequencing_type` - `'genome'` or `'exome'`
+- `workflow.input_cohorts` - which datasets the run covers
+- `workflow.only_stages = ['QcCalibrationDatasetMetrics', 'QcCalibrationReport']` - both
+  stage names are required. `only_stages` marks every unlisted stage skipped, so naming
+  just the report stage would make the extract stage check for outputs rather than
+  produce them.
 
-`emit-config` prints; it never edits `config_template.toml`. That file carries comments,
-ordering and judgement no generator reproduces, and the paste-after-diff step is the
-cheapest guard against a calibration run quietly rewriting a production gate. The emitted
-block is ordered to match the committed one so the diff reads as a change, not a rewrite.
+`enabled` belongs **only** in a calibration run's config, never in a config a production
+run also loads. The two stages sit in the production `STAGES` list with no dependency on
+anything else, so a truthy flag in a shared config would give every ordinary production
+invocation a job per dataset (and register a Metamist analysis) for no reason.
 
-## Writing a spec
+One run covers one sequencing type - both stages read a single
+`workflow.sequencing_type` - so calibrating genome and exome thresholds means two
+separate invocations.
 
-```toml
-seq_type = "genome"
-cache = "calibration/values.genome.json"
+### Dry-run first
 
-# A plain absolute gate. direction = 'min' means higher is better, so a value *below*
-# the threshold is flagged; 'max' is the mirror. unit is 'x', '%' or 'frac' and only
-# affects how values are rounded and displayed.
-[metrics.MEDIAN_COVERAGE]
-direction = "min"
-unit = "x"
-gated = true
-fail = 15
-warn = 25
-reviewed = true
-rationale = "Primary depth gate. 30x is the usual ask; fail below 15x catches the genuinely under-sequenced tail."
+Add `--dry_run` to the `run_workflow` invocation and read the printed DAG before
+committing real compute. Four things are worth checking, because none of them can be
+verified without a live Metamist and a real multicohort:
 
-# Warn-only is legitimate: a metric can define just one tier.
-[metrics.reads_properly_paired_percent]
-direction = "min"
-unit = "%"
-gated = true
-warn = 92
-reviewed = true
-rationale = "Correlated with reads_mapped_percent, so an extra human-look signal rather than a second hard gate."
+1. **Discovery returns rows at all.** The Metamist `meta` filter is a flat mapping
+   (`{'stage': 'CramMultiQC', 'sequencing_type': <type>}`), matching
+   `scripts/build_vntyper_index.py`, the one other place in this repo that filters
+   analyses on `meta`. `meta` is an opaque `JSON` scalar in the schema with no typed
+   filter object, so nothing validates the convention offline - the unit tests use a fake
+   query function. If the filter is wrong it returns nothing, and that reads as "no
+   dataset has a report" rather than as a query bug.
+2. **Only the two calibration stages queue**, and no alignment or genotyping stage is
+   pulled in alongside them.
+3. **Datasets without a CramMultiQC report are simply absent** from the DAG rather than
+   erroring.
+4. **A production config queues neither stage.** Run the same command with your ordinary
+   config, which does not set `qc_calibration.enabled`, and confirm both stages are inert.
 
-# A cohort-relative warn tier. The absolute fail gate stays; there is no absolute warn.
-[metrics.reads_duplicated_percent]
-direction = "max"
-unit = "%"
-gated = true
-fail = 40
-reviewed = true
-rationale = "Duplication is strongly library-prep dependent on WGS, so the warn tier is cohort-relative."
-[metrics.reads_duplicated_percent.relative]
-k = 3.5          # Iglewicz-Hoaglin outlier line; 3.5 is the standard
-min_cohort = 50  # below this MAD is too noisy - production skips relative flagging
+Run at `--access-level test` first. The invocation above uses `full` because the report
+is written to the analysis dataset's main and web buckets.
 
-# A rejected candidate, kept on the record. Surveyed and profiled, never enforced.
-[metrics.PCT_SELECTED_BASES]
-direction = "min"
-unit = "frac"
-gated = false
-reviewed = true
-rationale = "Evaluated for a cohort-relative warn tier and rejected: cohort-dependent spread, churn up to 24.5%."
-```
+## What it writes
 
-Metric keys and cohort labels are written as unquoted TOML table headers, so both must be
-bare keys - letters, digits, underscore, hyphen. Anything else is rejected on load rather
-than silently mangled on write.
+| Path | Stage | What it is |
+|---|---|---|
+| `dataset.prefix()/qc_calibration/<seq_type>/values.<analysis_id>.json` | `QcCalibrationDatasetMetrics` | One dataset's extracted metric values, keyed on the CramMultiQC analysis ID so a new report produces a new path and re-extraction happens exactly when the underlying data changed. |
+| `analysis_dataset.prefix()/qc_calibration/<seq_type>/calibration.json` | `QcCalibrationReport` | The full cross-dataset result: percentiles, flag rates, candidate thresholds, relative-tier evaluation, warnings. Everything the HTML shows, in one structure. |
+| `analysis_dataset.web_prefix()/qc_calibration/<seq_type>/calibration.html` | `QcCalibrationReport` | The dashboard, registered as a `web` Metamist analysis. |
 
-### The four rules the loader enforces
+The `qc_thresholds` block this feeds lives in `config_template.toml`, one directory up.
+Treat what the report proposes as **merge-carefully, not paste-over-the-top**. The
+candidates carry per-threshold statistical evidence, but they cannot reproduce the
+committed file's domain prose - which Picard tool a metric comes from
+(`CollectWgsMetrics` vs `CollectHsMetrics`), the lab's framing of an "ideal ask" for a
+given coverage or breadth figure. The committed thresholds' comments also record what
+they were calibrated against - genome against 10 real WGS datasets, exome against two
+real WES datasets of 647 and 522 sequencing groups - and a wholesale paste erases that
+provenance along with the domain prose. Pasting a generated block over the top trades one
+kind of documentation for another, not an upgrade. Diff the candidate against what's
+already there, then merge by hand.
 
-1. **A gated metric needs at least one tier** (`fail`, `warn` or `relative`). A gated
-   metric with no threshold is a gate that checks nothing - the exact failure mode this
-   whole package exists to prevent.
-2. **A `relative` block requires an absolute `fail` behind it.** Cohort-relative flagging
-   is warn-only by construction: it finds outliers *within* a cohort, so a uniformly
-   terrible cohort produces no flags at all. Without a hard absolute floor there is
-   nothing to catch that.
-3. **A `relative` block forbids an absolute `warn`.** The relative tier *is* the warn
-   tier. Both would double-flag the same samples and disagree about which threshold was
-   breached.
-4. **An un-gated metric carries no thresholds.** `gated = false` means surveyed and
-   profiled for the record, not enforced. A threshold sitting on an un-gated metric reads
-   as active and isn't - so the loader makes you say which you meant.
+## How to read the report
 
-### Keep your rejects
+The judgement is the part no number in the report supplies.
 
-Leave a rejected candidate in the spec as `gated = false` with a rationale saying what you
-measured and why you said no. It costs nothing (un-gated metrics are still surveyed and
-still appear in `distributions`), and it stops the next operator re-litigating a decision
-from scratch eighteen months from now. The three worth having on the record for exome are
-`PCT_SELECTED_BASES`, `PCT_OFF_BAIT` and - the reason the survey is fatal -
-`PCT_PF_READS_ALIGNED`.
-
-## Metric keys differ by sequencing type
-
-The candidate metric list is *not* shared between exome and genome, because the Picard
-module differs. This is a spec parameter, not a constant, for exactly that reason.
-
-- **Exome** - Picard `CollectHsMetrics`: `MEAN_TARGET_COVERAGE`,
-  `PCT_TARGET_BASES_20X` / `PCT_TARGET_BASES_50X`, `FOLD_80_BASE_PENALTY`,
-  `ZERO_CVG_TARGETS_PCT`, `PCT_SELECTED_BASES`, `PCT_OFF_BAIT`, `AT_DROPOUT` /
-  `GC_DROPOUT`.
-- **Genome** - Picard `CollectWgsMetrics`: `MEDIAN_COVERAGE`, `MEAN_COVERAGE`,
-  `SD_COVERAGE` / `MAD_COVERAGE`, `PCT_1X` ... `PCT_100X` (breadth), `PCT_EXC_*`,
-  `HET_SNP_SENSITIVITY`, `GENOME_TERRITORY`. There are **no** `*_TARGET_*`, `FOLD_80` or
-  `ZERO_CVG` keys - don't copy an exome spec across.
-- **Shared, via samtools**: `reads_mapped_percent`, `reads_duplicated_percent`,
-  `reads_properly_paired_percent`, `reads_MQ0_percent`, `error_rate`.
-- **Contamination, via verifybamid**: `FREEMIX`.
-
-### The `PCT_PF_READS_ALIGNED` incident
-
-`PCT_PF_READS_ALIGNED` is **not** in `report_general_stats_data`. MultiQC only writes it
-to `report_saved_raw_data`, which the production check never reads, so it can never be
-gated. The old genome reads-mapped gate was configured on it and therefore checked
-nothing at all, for as long as it existed. Use samtools `reads_mapped_percent` instead.
-
-That is why a gated metric missing from *any* cohort is a hard error in `collect` rather
-than a warning: the cache is written but marked `complete = false`, `require_usable`
-rejects it, and nothing downstream will run. A warning here would scroll past, and the
-result of it scrolling past is a gate that silently protects nothing. The survey is not
-optional.
-
-## Choosing thresholds
-
-`suggest` seeds `fail` from the worst per-cohort p1 (`min` metrics) or p99 (`max`
-metrics), and `warn` from p5 / p95. Those are starting points, not answers. What follows
-is what a percentile cannot supply.
-
-- **Aim for a healthy cohort flagging roughly 0% fail and single-digit % warn.** `fail`
+- Aim for a healthy dataset flagging roughly 0% fail and single-digit % warn. `fail`
   means "do not analyse without a decision"; `warn` means "a human should look, and
-  usually proceeds with a note". `flagrates` marks a cohort with `*` and the metric with
-  `[REVIEW]` when the fail rate exceeds `FAIL_RATE_LIMIT` (2%) or the warn rate exceeds
-  `WARN_RATE_LIMIT` (10%) - a prompt to look, not a rejection. Whether a cohort is
-  healthy is your call; it is not a computable property.
-- **Preserve the lab's intent for hard gates unless the data clearly contradicts it.** You
-  can tighten `warn` freely - it costs a human a look. Moving a `fail` line changes what
-  gets analysed at all.
-- **The bar for overriding the lab is real evidence of harm.** Genome
-  `reads_duplicated_percent` `fail` was *relaxed* from 25 to 40 because 25 would have
-  hard-failed roughly a quarter to a third of legitimately higher-duplication library
-  preps. That is the standard: a specific measured number of good samples the lab's line
-  would have thrown away.
-- **Don't hard-fail on metrics that track ancestry, biology or chemistry.** `error_rate`
-  and `HET_SNP_SENSITIVITY` vary for reasons that are not sample quality. Warn on them,
-  or go cohort-relative, or leave them un-gated - but a `fail` on them will fire on
+  usually proceeds with a note".
+- Preserve the lab's intent for hard gates unless the data clearly contradicts it.
+  Tighten `warn` freely - it only costs a human a look. Moving `fail` changes what gets
+  analysed at all.
+- The bar for overriding the lab is a specific measured count of good sequencing groups
+  their line would have discarded, not a general sense that the line looks tight.
+- Don't hard-fail on metrics that track ancestry, biology or chemistry rather than
+  sample quality. `error_rate` and `HET_SNP_SENSITIVITY` vary for reasons that have
+  nothing to do with sample quality; a `fail` on a metric like that fires on
   populations, not problems.
-- **`suggest` cannot decide anything, and the interlock says so.** Everything it writes
-  lands `reviewed = false`, and `emit-config` refuses to emit while any gated metric is
-  unreviewed, naming all of them at once. **That gate is only worth something if you
-  actually check the number before flipping the flag.** Read it against `flagrates`,
-  against the distribution, and against what the lab asked for. Flipping `reviewed = true`
-  to make the tool stop complaining converts the one structural guard between a raw
-  percentile and production config into a formality.
+- Candidates are percentile tails, nothing more. Read them against the flag-rate tables
+  and against what the lab actually asked for - never on their own.
+- **Peak figures carry their own denominators.** The report states how many datasets
+  each peak (warn rate, growth churn, merge churn) was computed over, because the
+  filters differ per simulation: skipped datasets drop out of the warn-rate peak, growth
+  additionally drops any dataset whose before-slice would itself be too small to
+  threshold, and merge needs at least two usable datasets to produce a pair at all. A
+  reader who sees only "peak merge churn 64.7%" cannot tell whether that describes one
+  bad pair among ninety or the general case, so always read the count next to the
+  percentage.
 
-`suggest` refreshes `rationale` only when it is empty or still carries its own
-`Seeded: ` marker, so prose you write yourself survives a re-run. Write prose - it is
-pasted verbatim into the committed config as the per-metric comment. Never put a cohort
-label in it.
-
-## When to adopt a cohort-relative tier
-
-A cohort-relative (MAD / modified z-score) warn tier is right for a metric whose *normal
-level* genuinely shifts by cohort or protocol - bimodal or wide-ranging medians across
-your cohort set. Genome duplication rate is the canonical case: cohort medians span
-roughly 7% to 18% depending on library prep, so any fixed warn line either floods the
-high-duplication cohorts or never fires on the low-duplication ones. Don't reach for it
-just because a fixed line is awkward to pick.
+## When to adopt a dataset-relative tier
 
 Two conditions, both required:
 
-1. **The spread is genuinely cohort- or protocol-dependent** - look at the per-cohort
-   medians in `distributions`, not at your intuition.
-2. **The flag set stays stable as the cohort grows.** This is the important half. A
-   relative threshold moves when the cohort's median moves, and every sample that changes
-   flag status because of that is a spurious "updated" flag in the database, caused by
-   nothing but cohort composition. A tier that churns is worse than no tier at all.
+1. The spread is genuinely dataset- or protocol-dependent - look at the per-dataset
+   medians the report shows, not at intuition about what "should" vary.
+2. The flag set stays stable as the dataset grows.
 
-The advisory bar in `relative.py` is three constants: `MAX_WARN_RATE = 0.10` (peak
-per-cohort warn rate), `MAX_GROWTH_CHURN = 0.02` and `MAX_MERGE_CHURN = 0.05`. Clearing
-all three prints `RECOMMEND`; missing any prints `REJECT` naming which bar and by how
-much. It is advice for you to sign off, not an automatic gate, and `mad` never changes
-the spec.
+Such a tier ships only `direction`, `k` and `min_samples` into
+`qc_thresholds.<seq_type>.relative.<metric>` - production recomputes the actual
+threshold from that run's own median and MAD every time it runs. The per-dataset
+thresholds shown in the report are illustrative of the data you calibrated against; they
+are not what gets shipped, and they will move.
 
-`mad` runs two simulations, and they are judged against **separate bars** because they
-model different things. **Cohort growth** — a 60% before-slice of each cohort, re-scored
-against the threshold the full cohort produces — is a *forecast*: samples get added to a
-project over time, and that is what a shipped tier actually faces. **Cohort merge** —
-each cohort re-scored against the threshold it gets once a second cohort joins it — is a
-*stress test*: nothing schedules two projects into one run. So growth is held to the
-strict 2% and merge to a looser 5%.
+The report simulates two different things and judges each against its own bar.
+**Growth** - a dataset's leading slice re-scored against the threshold the whole dataset
+produces - is a forecast: datasets accrete sequencing groups over time, and that's what
+a shipped tier actually faces in production. **Merge** - two datasets pooled into one
+run - is a stress test: nothing schedules two projects into one run, but it asks the
+harsher question. Name the tension plainly: a metric earns a relative tier *because* its
+normal level shifts between datasets, and the merge simulation punishes exactly that
+property. A high merge figure may be intrinsic to the whole class of metric relative
+tiers exist for, not evidence that one metric's tier is broken.
 
-The merge bar is looser, not absent. A metric churning a quarter of its flag set on a
-merge is unstable however you frame the scenario, and dropping merge from the verdict
-entirely would have admitted the two exome metrics recorded as rejected below.
+## Expect REJECT on both shipped tiers
 
-Both bars are **conservative defaults you may revisit with evidence**, not values derived
-from a shipped decision. Read the record below before treating either as settled.
+Run over the full dataset set, this tool currently reports:
 
-The merge simulation runs every *ordered* pair — `n*(n-1)`, so 90 at ten cohorts, not 45
-— because a merge disturbs both projects' flag sets and the two directions measure
-differently. Note the structural tension: a metric earns a relative tier precisely
-because its normal level shifts between cohorts, and the merge simulation punishes
-exactly that property. A high merge figure may be intrinsic to the whole class of metric
-relative tiers exist for, rather than evidence that one metric is broken.
+| tier | growth churn | merge churn |
+|---|---|---|
+| exome `ZERO_CVG_TARGETS_PCT` | ~1.0% | ~51.1% |
+| genome `reads_duplicated_percent` | ~8.6% | ~64.7% |
 
-The growth simulation is run twice per cohort, on the leading 60% and on a
-seeded-shuffled 60%, and the verdict uses the **worse** of the two. That is not paranoia,
-and the ordered reading is not noise: across ten real WGS cohorts, four show the leading
-60% and trailing 40% of the report differing in median duplication by 2.6 to 9.5
-percentage points — one goes 14.8% to 24.4%. Samples later in a MultiQC report have
-systematically higher duplication, which is what batch-ordered sequencing looks like. So
-the leading slice is a genuine forecast of batch growth, and an `ORDERING-SENSITIVE`
-marker means the ordered and shuffled readings disagree about whether that cohort clears
-the bar — treat it as the batch-growth reading being the one that matters, not as an
-artifact to discount.
+Both tiers were adopted on a hand-picked subset, not the full set the figures above come
+from. That gap is a **live QC question for the team to settle** - are these tiers
+churnier than intended, or is gating on a cross-project merge the wrong test for this
+class of metric - and not a tool failure or a sign the bars themselves are miscalibrated.
 
-### The record so far
+## Metric keys differ by sequencing type
 
-- **Adopted**: exome `ZERO_CVG_TARGETS_PCT` (kit-dependent zero-coverage rate) and genome
-  `reads_duplicated_percent` (library-prep dependent, cohort medians 7.2-18.0%). Both
-  keep their absolute `fail` gate. Warn rates are comfortable: exome 0-8.2% per cohort,
-  genome 0-4.2%.
-- **Rejected**: exome `PCT_SELECTED_BASES` and `PCT_OFF_BAIT` - cohort-dependent spread
-  and churn up to 24.5% of the flag set. Left un-gated, with the rejection recorded in
-  the spec.
+Genome gates Picard `CollectWgsMetrics` output; exome gates Picard `CollectHsMetrics`
+output, and the two lists are disjoint where the capture matters. Shared via samtools:
+`reads_mapped_percent` (both sequencing types) and `reads_duplicated_percent` (both;
+dataset-relative on genome). `reads_properly_paired_percent` is samtools-derived too but
+is currently configured for genome only - exome simply has no properly-paired gate
+today, not for a capture-kit reason. Contamination via verifybamid: `FREEMIX` (both).
+Read the shipped `[qc_calibration.<seq_type>.metrics]` tables in `config_template.toml`
+for the exact, current list rather than trusting a list to stay in sync with it - don't
+copy an exome metric list onto a genome run, or vice versa.
 
-**Read this before trusting either adoption.** Both tiers were adopted on a hand-picked
-subset — growth measured on 3 of 10 cohorts (leading slice only, no shuffle), merge on 2
-ordered pairs — which gave ~1% growth and ~2.1% merge. Run over the full cohort set, this
-tool reports:
+One trap worth naming: `PCT_PF_READS_ALIGNED` is not in `report_general_stats_data` -
+MultiQC writes it only to `report_saved_raw_data`, which the production check never
+reads, so a metric configured under that key can never be gated. Use samtools
+`reads_mapped_percent` instead.
 
-| tier | growth churn | merge churn | verdict |
-|---|---|---|---|
-| exome `ZERO_CVG_TARGETS_PCT` | 1.0% | 51.1% | `REJECT` (merge only) |
-| genome `reads_duplicated_percent` | 8.6% | 64.7% | `REJECT` (both bars) |
+## What the report will tell you loudly
 
-On the same three cohorts the original analysis used, this tool reproduces its 1.1% /
-0.0% / 0.0% exactly — so the arithmetic agrees and the gap is sampling, not a defect. The
-8.6% comes from a cohort the manual analysis never examined, and it is the batch-ordering
-effect described above rather than an artifact.
+Two checks worth knowing about, both catching the same class of defect - a gate that
+looks configured and checks nothing:
 
-So `mad` will print `REJECT` for both currently-shipped tiers. That is a **live QC
-question** — are these tiers churnier than intended, or is gating on a cross-project
-merge the wrong test for this class of metric? — and not evidence that the bars are
-miscalibrated. Whichever way it resolves, record the reasoning in the metric's
-`rationale`.
+- A metric absent from every dataset in the run.
+- A warn tier that `fail` can never let fire - `warn <= fail` for a `min` metric,
+  mirrored for a `max` one, because production evaluates `fail` before `warn` and
+  records only the worst tier breached.
 
-## Memory
+Both checks run against the *shipped* `config_template.toml` thresholds as well as
+against this run's candidates, and catching either defect in the shipped thresholds
+already running in production is reported as a live production defect, not filed
+alongside routine candidate-review notes.
 
-`collect` is the only command that touches the large reports. It parses one at a time and
-releases it (with an explicit `gc.collect()` between cohorts) precisely so a ten-cohort
-set of ~500 MB files fits in an ordinary machine. Everything else in the package works
-from the cache.
+## Local iteration
 
-If you find yourself wanting several reports in memory at once, you want the cache
-instead - that is what it is for. `dryrun` also loads one full report, by design, since
-its whole purpose is to run the production check against real data; it reports peak RSS
-so you can answer "will this fit in a 4 GB job?".
+Both job scripts are `python -m` runnable directly, so a downloaded set of values files
+can be re-reported with a different `k` or metric list without re-parsing any MultiQC
+report:
+
+```bash
+python -m align_genotype.scripts.qc_calibration_report \
+    --values a.json --values b.json \
+    --output-json out.json --output-html out.html
+```
+
+`--values` and `--skipped-dataset` are repeatable. The report reads
+`workflow.sequencing_type` and `qc_calibration.<seq_type>.metrics`/`k`/`min_samples` the
+same way the Hail Batch job does, through `cpg_utils.config` - point `CPG_CONFIG_PATH`
+at a local copy of `config_template.toml` (plus any override) before running.
+
+`scripts/qc_calibration_extract.py` is runnable the same way, against a downloaded
+MultiQC report - see its `--help` for the full option list - which is the quickest way
+to check what a new MultiQC version actually surfaces.
 
 ## Troubleshooting
 
-**"Cache is incomplete: a gated metric was missing from at least one cohort"**
-`collect` found a gated metric absent from a cohort's general stats, so it marked the
-cache `complete = false` and nothing will run on it. Read the survey's `MISSING GATED
-METRICS` block: either the key is wrong for this `seq_type` (see "Metric keys differ"),
-or that cohort genuinely lacks the metric and belongs out of the manifest, or the metric
-should be `gated = false`. Fix one of those, then re-run `collect`.
+**A metric shows `MISSING` in the presence matrix**
+That metric key is absent from that dataset's general-stats sections entirely - usually
+a MultiQC key rename between versions, or the key belongs to the other sequencing type.
+Check the exact key against the shipped `[qc_calibration.<seq_type>.metrics]` list.
 
-**"Cache is missing [...] - it was collected for a different metric list"**
-You added a metric to the spec after collecting. Narrowing the spec's metric list is free
-(a subset of the cache is fine); adding one means the reports have to be parsed again.
-Re-run `collect`.
+**A dataset appears under "Datasets not included"**
+`QcCalibrationDatasetMetrics` found no completed CramMultiQC report for that dataset at
+this sequencing type. Check that CramMultiQC has actually run for that dataset at that
+sequencing type.
 
-**`emit-config` refuses: "unreviewed gated metric(s) [...]"**
-Working as intended. Check each named metric's numbers against `flagrates` (and `mad`, if
-it has a relative tier), then set `reviewed = true` on it in the spec. Don't flip them all
-to silence the error - see "Choosing thresholds".
-
-**`emit-config` refuses: "rationale names cohort ..."**
-A `rationale` contains a cohort label, and the emitted block is pasted into a file that is
-committed and pushed publicly. Rewrite it in aggregate terms - "cohort medians 7-18% across
-10 cohorts" - and re-run.
-
-**A cohort you expected is missing from the manifest after `discover`**
-`discover` keeps only projects whose Metamist `meta.is_seqr` is true and whose name
-contains none of `test`, `training`, `seqr` (substring, not token - so a name containing
-any of those anywhere is dropped). Then it needs a *completed* `qc` analysis whose
-`meta.sequencing_type` matches `--seq-type`, which has an `output`, and whose
-`timestampCompleted` is a usable string; the newest such analysis wins, and skips are
-logged at WARNING/INFO. Labels that aren't bare TOML keys are dropped too. If none of
-that explains it, add the cohort to the manifest by hand - the manifest is meant to be
-edited, and `uri` is anything `cpg_utils.to_path` accepts, including a local file.
-
-**A metric shows as `MISSING` in the survey's presence matrix**
-Usually a MultiQC key rename between versions. The survey's missing-metrics block dumps
-every key present in each general-stats section of the affected cohorts for exactly this
-- find the new name there and update the spec. Note the distinction: an empty presence
-cell means the key is absent or renamed, while a metric that *is* present but whose value
-list is empty means the key exists and every value was unusable (Picard's `'?'`
-placeholder, typically - the survey's per-metric dropped counts will show it). Those need
-different fixes.
-
-**A cohort in the `UNREADABLE COHORTS` block**
-Different problem: the report didn't parse at all, so that cohort is absent from every
-table above. Check the URI, the file and your credentials, then re-run. One bad cohort
-doesn't discard the reports already parsed, but the run still exits non-zero.
-
-**`mad` prints "There are no metrics with a `[metrics.<KEY>.relative]` block"**
-Not an error. A relative tier is a candidate you propose, not something the tool finds.
-Add a `relative` block (with an absolute `fail` behind it) and re-run.
+**A metric is present but its value list is empty**
+A different problem from `MISSING`: the key exists in the report, but every value for it
+was unusable. Picard writes `'?'` when coverage is effectively zero, and extraction
+drops and counts those rather than raising. Check the dropped-value count next to the
+metric - a key that's structurally absent needs a different fix (a rename, or the wrong
+sequencing type) than one that's present but full of placeholders.
