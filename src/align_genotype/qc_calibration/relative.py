@@ -1,120 +1,58 @@
-"""Cohort-relative (MAD) evaluation, driven through the production code path.
+"""Dataset-relative (MAD) tier evaluation.
 
 Some metrics have no defensible fixed warn line because their normal level shifts by
-cohort or protocol - duplication rate on whole genomes is the canonical case, where
-cohort medians span roughly 7% to 18% depending on library prep. A fixed warn line
-either floods the high-duplication cohorts or never fires on the low-duplication ones,
-so the warn tier is derived per-run from the cohort's own median and MAD (an
-Iglewicz-Hoaglin modified z-score line) with an absolute `fail` gate behind it.
+dataset or protocol - duplication rate on whole genomes is the canonical case. A fixed
+warn line either floods the high-duplication datasets or never fires on the low ones, so
+the warn tier is derived per run from that run's own median and MAD (an Iglewicz-Hoaglin
+modified z-score line) with an absolute `fail` gate behind it.
 
-This module answers two questions about a candidate relative tier:
+Nothing here re-implements the modified z-score. Thresholds come from
+`check_multiqc.robust_threshold` - production's own function - and a warn is counted by
+breaching the same 4-dp-rounded threshold `_relative_flags_for_metric` compares against.
 
-1. How many samples would it warn on, per cohort?
-2. Does the flag set stay stable as the cohort grows?
-
-The second question is the one that decides adoption. Every flip - a sample that stops
-being flagged purely because the cohort's median moved - is a spurious "updated" flag in
-the database, so a relative tier that churns is worse than no relative tier at all. Two
-scenarios are simulated - one cohort growing (under both plausible readings of the
-cache's value order, the worse deciding) and two cohorts merging - and each is judged
-against its own bar, because one is a forecast and the other a stress test.
-
-There is deliberately no modified z-score implementation here. Warn counts come from
-calling ``check_multiqc.relative_flags`` for real, against a throwaway config file, and
-churn comes from ``stats.churn``, which calls ``check_multiqc.robust_threshold``
-directly. The manual workflow this replaces had a MAD prototype plus a second script
-that verified the prototype against production; keeping both invites exactly the
-divergence the verification existed to catch. Routing through the genuine config ->
-``load_thresholds`` -> ``relative_flags`` path also proves, incidentally, that the config
-shape being emitted is loadable.
+This module answers two questions about a candidate tier: how many values it would warn
+on per dataset, and whether the flag set stays stable as the dataset changes. The second
+decides adoption. Every flip is a value that stops or starts being flagged purely because
+the dataset's median moved, which is a spurious "updated" flag in the database, so a tier
+that churns is worse than no tier at all.
 """
 
 import itertools
-import logging
-import os
-import tempfile
-from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from pathlib import Path
 
 import numpy as np
 
-from cpg_utils import config
-
-from align_genotype.qc_calibration import stats, tomlio
-from align_genotype.qc_calibration.cache import ValueCache
-from align_genotype.qc_calibration.spec import MetricSpec, RelativeSpec
+from align_genotype.qc_calibration import stats
+from align_genotype.qc_calibration.settings import Bars, CalibrationSettings, MetricSpec
+from align_genotype.qc_calibration.values import MetricValues
 from align_genotype.scripts import check_multiqc
 
-# The adoption bar. Advisory throughout: `verdict` is a recommendation for an operator to
-# sign off, not an automatic gate.
-MAX_WARN_RATE = 0.10
-
-# Growth and merge churn are judged separately because they model different things.
-#
-# Growth churn is a forecast: samples get added to a project over time, which is exactly
-# what a shipped relative tier faces. Merge churn - two whole projects pooled into one
-# run - is a stress test, not a prediction of anything scheduled. That distinction is why
-# the merge bar is the looser of the two.
-#
-# Both numbers are conservative defaults, not calibrations, and an operator may revisit
-# either with evidence. In particular they do NOT admit the two tiers currently shipped:
-#
-#   metric                            growth   merge    verdict
-#   exome ZERO_CVG_TARGETS_PCT          1.0%   51.11%   REJECT
-#   genome reads_duplicated_percent     8.61%  64.71%   REJECT
-#
-# Both were adopted on a hand-picked subset - three cohorts for growth, two ordered pairs
-# for merge - which measured ~1% growth and ~2.1% merge. This module reproduces those
-# figures exactly on that same subset; the full cohort set simply says something else. So
-# the tool reports REJECT for both, and the gap between that and the shipped decision is
-# a live QC question about those tiers, not evidence that these constants are wrong.
-MAX_GROWTH_CHURN = 0.02
-MAX_MERGE_CHURN = 0.05
-
-# The "before" slice for homogeneous growth: 60% of a cohort, scored against the
-# threshold the full cohort produces.
+# The "before" slice for growth: 60% of a dataset, scored against the threshold the whole
+# dataset produces.
 _GROWTH_FRACTION = 0.6
 
-# Which 60%, though, changes the answer. `cache.series` inherits its order from MultiQC's
-# JSON key order, and the same 50 values differing only in order have been measured at
-# 16.7% churn (leading slice) versus 0.0% (shuffled slice) - a REJECT and a RECOMMEND for
-# one metric. The leading slice models real batch growth *if* report order tracks
-# sequencing batches, which is plausible for sequentially-assigned CPG IDs but is
-# nowhere guaranteed; the shuffled slice models an arbitrary smaller cohort. Neither
-# interpretation is safe to assume, so both are simulated and the verdict uses the worse.
-# The shuffle is seeded so an evaluation re-run is reproducible.
+# Which 60% changes the answer. Entry order is inherited from MultiQC's JSON key order,
+# and the same 50 values differing only in order have measured 16.7% churn on the leading
+# slice against 0.0% on a shuffled one - a REJECT and a RECOMMEND for one metric. The
+# leading slice models real batch growth *if* report order tracks sequencing batches,
+# which is plausible for sequentially-assigned CPG IDs but nowhere guaranteed; the
+# shuffled slice models an arbitrary smaller dataset. Neither is safe to assume, so both
+# are simulated and the verdict takes the worse. Seeded so a re-run is reproducible.
 _SHUFFLE_SEED = 0
-
-# `relative_flags` stamps every flag with a date. A warn *rate* doesn't depend on it, so
-# it's fixed rather than `now()` - an evaluation re-run must be reproducible.
-_FIXED_DATE = datetime(2000, 1, 1, tzinfo=timezone.utc)
-
-# Section name for the synthetic MultiQC-shaped cohort handed to `relative_flags`.
-_SECTION = 'calibration'
 
 
 @dataclass(frozen=True)
-class CohortMad:
-    """One cohort's median, MAD and the warn count the production path produced.
+class DatasetMad:
+    """One dataset's median, MAD, derived threshold and warn count.
 
-    `threshold` is None exactly when `skipped` is set - a cohort below `min_cohort`, one
-    with a degenerate (zero) MAD, or one the cache holds no values for, has no relative
+    `threshold` is None exactly when `skipped` is set - a dataset below `min_samples`, one
+    with a degenerate (zero) MAD, or one with no values for this metric has no relative
     line and therefore no warn count.
-
-    `n_values` and `n_samples` are both reported because they can differ. `n_values` is
-    what the threshold is actually computed over, matching production; `n_samples` is
-    what the cohort survey counted. A metric appearing in two MultiQC sections (v1.33 can
-    carry both `picard_1` and `picard_4` in the Picard namespace) contributes one value
-    per section per sample, so `n_values > n_samples`. Surfacing both makes that
-    duplication visible instead of silent - see `warn_rate`.
     """
 
-    label: str
+    dataset: str
     n_values: int
-    n_samples: int
+    n_groups_with_values: int
     median: float
     mad_raw: float
     threshold: float | None
@@ -123,36 +61,30 @@ class CohortMad:
 
     @property
     def warn_rate(self) -> float:
-        """Warned *values* over total values - deliberately not a per-sample rate.
+        """Warned *values* over total values - deliberately not a per-group rate.
 
         The threshold is derived per value, exactly as production derives it, so this is
-        the rate consistent with the threshold shown next to it. Under *uniform*
-        cross-section duplication it also equals the per-sample rate (both numerator and
-        denominator scale together). Under *partial* duplication it overstates it: 26
-        samples with 2 outliers present in both sections report 4/28 = 14.3% where the
-        true per-sample rate is 2/26 = 7.7% - enough to cross `MAX_WARN_RATE` and flip
-        the verdict. `n_values != n_samples` is the signal that this is in play; a true
-        per-sample rate is not computable here, since the cache stores values without
-        sample identity.
+        the rate consistent with the threshold shown beside it. Where a metric appears in
+        two MultiQC sections it overstates the per-sequencing-group rate; `duplicated` is
+        the signal that this is in play, and the values file carries the identity needed
+        to say by how much.
         """
         return self.n_warn / self.n_values if self.n_values else 0.0
 
     @property
     def duplicated(self) -> bool:
-        """Whether this cohort carries more values than samples (see `warn_rate`)."""
-        return self.n_values > self.n_samples
+        return self.n_values > self.n_groups_with_values
 
 
 @dataclass(frozen=True)
-class HomogeneousChurn:
-    """One cohort's growth simulation under both before-slice orderings.
+class GrowthChurn:
+    """One dataset's growth simulation under both before-slice orderings.
 
-    Both slices are the same size and are scored against the same full-cohort threshold;
-    only which samples they contain differs. Either can be None when that slice has a
-    degenerate MAD. See `_SHUFFLE_SEED` for why both are run.
+    Both slices are the same size and are scored against the same whole-dataset
+    threshold; only which values they contain differs.
     """
 
-    label: str
+    dataset: str
     ordered: stats.ChurnResult | None
     shuffled: stats.ChurnResult | None
 
@@ -162,88 +94,70 @@ class HomogeneousChurn:
         rates = [r.flip_rate for r in (self.ordered, self.shuffled) if r is not None]
         return max(rates) if rates else 0.0
 
-    @property
-    def ordering_sensitive(self) -> bool:
-        """Whether the orderings disagree on whether this cohort clears `MAX_GROWTH_CHURN`.
+    def ordering_sensitive(self, bar: float) -> bool:
+        """Whether the two orderings disagree about clearing `bar`.
 
         Diagnostic only. When true, the churn number depends on an assumption about
-        MultiQC's key order that the operator should be told about rather than have
-        silently resolved for them.
+        MultiQC key order that a reader should be told about rather than have silently
+        resolved for them.
         """
         rates = [r.flip_rate for r in (self.ordered, self.shuffled) if r is not None]
-        return any(r > MAX_GROWTH_CHURN for r in rates) and any(r <= MAX_GROWTH_CHURN for r in rates)
+        return any(r > bar for r in rates) and any(r <= bar for r in rates)
 
 
 @dataclass(frozen=True)
 class MadEvaluation:
-    """A candidate relative tier's per-cohort numbers, churn simulations and verdict."""
+    """A candidate relative tier's per-dataset numbers, churn simulations and verdict."""
 
     metric: str
     direction: str
-    cohorts: tuple[CohortMad, ...]
-    homogeneous: tuple[HomogeneousChurn, ...]
-    heterogeneous: tuple[tuple[str, str, stats.ChurnResult], ...]
+    bars: Bars
+    datasets: tuple[DatasetMad, ...]
+    growth: tuple[GrowthChurn, ...]
+    merge: tuple[tuple[str, str, stats.ChurnResult], ...]
 
     @property
     def max_warn_rate(self) -> float:
-        """Peak warn rate across cohorts, ignoring skipped ones.
-
-        The skip filter is defensive rather than load-bearing: a skipped cohort has
-        `n_warn == 0` and therefore `warn_rate == 0.0`, and adding zeros to `max()`
-        cannot change the result. It is here so that relaxing that invariant later -
-        recording a would-be count for a cohort production skips, say - can't silently
-        start feeding a rate production would never produce into the adoption bar.
-        """
-        rates = [c.warn_rate for c in self.cohorts if c.skipped is None]
+        """Peak warn rate across datasets, ignoring skipped ones."""
+        rates = [d.warn_rate for d in self.datasets if d.skipped is None]
         return max(rates) if rates else 0.0
 
     @property
     def max_growth_churn(self) -> float:
-        """Peak flip rate from same-cohort growth; judged against `MAX_GROWTH_CHURN`."""
-        rates = [h.flip_rate for h in self.homogeneous]
+        rates = [g.flip_rate for g in self.growth]
         return max(rates) if rates else 0.0
 
     @property
     def max_merge_churn(self) -> float:
-        """Peak flip rate from cross-cohort merges; judged against `MAX_MERGE_CHURN`."""
-        rates = [r.flip_rate for _, _, r in self.heterogeneous]
+        rates = [r.flip_rate for _, _, r in self.merge]
         return max(rates) if rates else 0.0
 
     @property
-    def max_churn(self) -> float:
-        """Headline peak flip rate across both simulations.
-
-        A single summary number for display. It is deliberately *not* what the verdict
-        judges - growth and merge churn have different bars (see `MAX_GROWTH_CHURN`), so
-        comparing this against either one would mislabel which simulation was at fault.
-        """
-        return max(self.max_growth_churn, self.max_merge_churn)
-
-    @property
     def ordering_sensitive(self) -> tuple[str, ...]:
-        """Cohorts whose churn verdict depends on the before-slice ordering."""
-        return tuple(h.label for h in self.homogeneous if h.ordering_sensitive)
+        return tuple(g.dataset for g in self.growth if g.ordering_sensitive(self.bars.max_growth_churn))
 
     @property
     def verdict_reason(self) -> str:
-        """Why this tier misses the adoption bar, or '' when it clears it.
+        """Why this tier misses the bar, or '' when it clears every one.
 
-        Each simulation is named against its own bar. An operator seeing only a conflated
-        "peak churn" figure can't tell whether to re-scope the cohort set or reconsider
-        the metric, and the two have different answers.
+        Each simulation is named against its own bar. A reader given only a conflated
+        "peak churn" cannot tell whether to re-scope the dataset set or reconsider the
+        metric, and those have different answers.
         """
         reasons = []
-        if self.max_warn_rate > MAX_WARN_RATE:
-            reasons.append(f'peak warn rate {self.max_warn_rate:.1%} exceeds {MAX_WARN_RATE:.0%}')
+        if self.max_warn_rate > self.bars.max_warn_rate:
+            reasons.append(f'peak warn rate {self.max_warn_rate:.1%} exceeds {self.bars.max_warn_rate:.0%}')
         # Churn to 2 dp, warn rate to 1: churn values sit close to their bars, and
         # "2.0% exceeds 2%" reads as a contradiction where "2.01% exceeds 2%" does not.
-        if self.max_growth_churn > MAX_GROWTH_CHURN:
+        if self.max_growth_churn > self.bars.max_growth_churn:
             reasons.append(
-                f'peak same-cohort growth churn {self.max_growth_churn:.2%} exceeds {MAX_GROWTH_CHURN:.0%}',
+                f'peak dataset-growth churn {self.max_growth_churn:.2%} '
+                f'exceeds {self.bars.max_growth_churn:.0%}',
             )
-        if self.max_merge_churn > MAX_MERGE_CHURN:
+        if self.max_merge_churn > self.bars.max_merge_churn:
             reasons.append(
-                f'peak cross-cohort merge churn {self.max_merge_churn:.2%} exceeds {MAX_MERGE_CHURN:.0%}',
+                f'peak cross-dataset merge churn {self.max_merge_churn:.2%} '
+                f'exceeds {self.bars.max_merge_churn:.0%}',
             )
         return '; '.join(reasons)
 
@@ -252,211 +166,94 @@ class MadEvaluation:
         return 'REJECT' if self.verdict_reason else 'RECOMMEND'
 
 
-@contextmanager
-def _production_config(seq_type: str, metric: MetricSpec, relative: RelativeSpec) -> Iterator[None]:
-    """Point cpg-utils at a throwaway config carrying just this metric's relative spec.
-
-    Written as a real file and installed with `set_config_paths` rather than
-    monkeypatching `config_retrieve`, so the numbers come from the genuine config ->
-    `load_thresholds` -> `relative_flags` path. `set_config_paths` only validates that
-    the files exist, end in `.toml` and parse, so no other keys are needed.
-
-    `get_config_paths` *raises* when nothing has ever been set, so a cold start is
-    treated as "no previous paths" and restored to that.
-    """
-    tomlio.require_bare_key(seq_type, 'sequencing type')
-    tomlio.require_bare_key(metric.key, 'metric key')
-    try:
-        # Copied because `get_config_paths` hands back the module-level list itself.
-        # `set_config_paths` rebinds rather than mutating, so nothing currently writes
-        # through the alias - the copy just keeps that a local detail.
-        previous = list(config.get_config_paths())
-    except config.ConfigError:
-        previous = []
-    text = '\n'.join(
-        [
-            '[workflow]',
-            tomlio.fmt_kv('sequencing_type', seq_type),
-            '',
-            f'[qc_thresholds.{seq_type}.relative.{metric.key}]',
-            tomlio.fmt_kv('direction', metric.direction),
-            tomlio.fmt_kv('k', relative.k),
-            tomlio.fmt_kv('min_cohort', relative.min_cohort),
-            '',
-        ],
-    )
-    with tempfile.TemporaryDirectory(prefix='qc-calibration-') as tmpdir:
-        path = Path(tmpdir) / 'relative.toml'
-        path.write_text(text)
-        config.set_config_paths([str(path)])
-        try:
-            yield
-        finally:
-            # Always attempted: leaking a deleted temp path into global state would break
-            # every later `config_retrieve` in the process, including an operator's
-            # subsequent commands in the same CLI invocation.
-            _restore_config_paths(previous)
-
-
-def _restore_config_paths(previous: list[str]) -> None:
-    """Put the previous config paths back, without letting that failure win.
-
-    `set_config_paths` re-validates: it opens and parses every path. Under
-    analysis-runner those are `gs://` paths, so a failure here is not hypothetical - a
-    transient GCS or credential error on the restore would replace whatever the caller
-    was actually doing with a `ValueError` naming the wrong problem, and would do so
-    *after* the evaluation had already succeeded. A failed restore is logged and the
-    current paths left in place instead; the caller's own exception, or result, survives.
-    """
-    try:
-        config.set_config_paths(previous)
-    except ValueError as exc:
-        logging.warning(f'Could not restore previous config paths {previous}, leaving as-is - {exc}')
-        return
-    if not previous:
-        # `set_config_paths([])` writes an empty CPG_CONFIG_PATH, turning "absent" into
-        # "present but empty". Identical to cpg-utils, but visible to any subprocess that
-        # tests for the key, so restore the absence exactly.
-        os.environ.pop('CPG_CONFIG_PATH', None)
-
-
-def _warn_count(values: np.ndarray, metric: MetricSpec, seq_type: str) -> int:
-    """Warn flags production would raise on `values`, via `check_multiqc.relative_flags`.
-
-    The cohort is reshaped into the ``{section: {sample: {metric: value}}}`` form
-    `relative_flags` consumes. Sample names are positional (`S0`, `S1`, ...): the count
-    is all that's wanted, and a synthetic name can't be mistaken for a real sample ID.
-    `already_flagged` is empty because an absolute fail gate suppressing a relative warn
-    would understate the tier's warn rate, which is the number being calibrated.
-    """
-    sections = {_SECTION: {f'S{i}': {metric.key: float(v)} for i, v in enumerate(values)}}
-    return len(check_multiqc.relative_flags(sections, seq_type, _FIXED_DATE, already_flagged={}))
-
-
-def _evaluate_cohort(
-    label: str,
-    values: np.ndarray,
-    n_samples: int,
+def _evaluate_dataset(
+    dataset: str,
+    metric_values: MetricValues,
     metric: MetricSpec,
-    relative: RelativeSpec,
-    seq_type: str,
-) -> CohortMad:
-    """One cohort's relative numbers, mirroring the skips `relative_flags` makes.
-
-    The reported `threshold` is `robust_threshold`'s value rounded to 4 dp - the same
-    rounding, on the same number, that `relative_flags` applies before comparing. The
-    displayed threshold therefore always explains the displayed count.
-    """
+    min_samples: int,
+    k: float,
+) -> DatasetMad:
+    """One dataset's relative numbers, mirroring the skips production makes."""
+    values = metric_values.array
     n_values = int(values.size)
+    counts = {'n_values': n_values, 'n_groups_with_values': metric_values.n_groups_with_values}
     if n_values == 0:
-        # Distinguished from "too small": the cache holds nothing for this metric here,
-        # which is a collection problem, not a cohort-size one. Reporting it as
-        # `cohort 0 < min_cohort 50` would send an operator to the wrong place.
-        return CohortMad(
-            label,
-            0,
-            n_samples,
-            float('nan'),
-            float('nan'),
-            None,
-            0,
-            f'metric {metric.key!r} has no values in this cohort',
+        # Distinguished from "too small": nothing was extracted for this metric here,
+        # which is a collection problem, not a size one. Reporting it as
+        # "0 values < min_samples 50" would send a reader to the wrong place.
+        return DatasetMad(
+            dataset, **counts, median=float('nan'), mad_raw=float('nan'),
+            threshold=None, n_warn=0,
+            skipped=f'metric {metric.key!r} has no values in this dataset',
         )
     median = float(np.median(values))
     mad_raw = float(np.median(np.abs(values - median)))
-    if n_values < relative.min_cohort:
-        return CohortMad(
-            label,
-            n_values,
-            n_samples,
-            median,
-            mad_raw,
-            None,
-            0,
-            f'cohort {n_values} < min_cohort {relative.min_cohort}',
+    if n_values < min_samples:
+        return DatasetMad(
+            dataset, **counts, median=median, mad_raw=mad_raw, threshold=None, n_warn=0,
+            skipped=f'{n_values} values < min_samples {min_samples}',
         )
-    threshold = check_multiqc.robust_threshold(list(values), metric.direction, relative.k)
+    threshold = check_multiqc.robust_threshold(list(values), metric.direction, k)
     if threshold is None:
-        return CohortMad(
-            label,
-            n_values,
-            n_samples,
-            median,
-            mad_raw,
-            None,
-            0,
-            'zero MAD (degenerate cohort); MAD gives no usable line here, use the absolute gate',
+        return DatasetMad(
+            dataset, **counts, median=median, mad_raw=mad_raw, threshold=None, n_warn=0,
+            skipped='zero MAD (degenerate dataset); use the absolute gate here',
         )
-    return CohortMad(
-        label,
-        n_values,
-        n_samples,
-        median,
-        mad_raw,
-        round(threshold, 4),
-        _warn_count(values, metric, seq_type),
-        None,
+    # Production rounds before comparing, so the displayed threshold always explains the
+    # displayed count.
+    threshold = round(threshold, 4)
+    return DatasetMad(
+        dataset, **counts, median=median, mad_raw=mad_raw, threshold=threshold,
+        n_warn=int(stats.breach(values, threshold, metric.direction).sum()),
+        skipped=None,
     )
 
 
-def _homogeneous_churn(
+def _growth_churn(
     usable: dict[str, np.ndarray],
     direction: str,
     k: float,
-    min_cohort: int,
-) -> tuple[HomogeneousChurn, ...]:
-    """Each cohort's 60% before-slice re-scored against the whole cohort's threshold.
+    min_samples: int,
+) -> tuple[GrowthChurn, ...]:
+    """Each dataset's 60% before-slice re-scored against the whole dataset's threshold.
 
-    Run twice per cohort - leading slice and seeded-shuffled slice - because the answer
-    depends on which 60% is chosen (see `_SHUFFLE_SEED`).
-
-    A before-slice below `min_cohort` is not simulated at all. Production would have
-    skipped a cohort that size outright and emitted no flags, so deriving a threshold
-    from it and counting flips against it measures churn against a state that cannot
-    occur. With the shipped `min_cohort = 50` this excludes every cohort of 50-83
-    samples, whose 60% slice lands at 30-49.
+    A before-slice below `min_samples` is not simulated: production would have skipped a
+    dataset that size outright and emitted no flags, so deriving a threshold from it and
+    counting flips measures churn against a state that cannot occur.
     """
     results = []
-    for label, values in usable.items():
+    for dataset, values in usable.items():
         size = int(values.size * _GROWTH_FRACTION)
-        if size < min_cohort:
+        if size < min_samples:
             continue
         shuffled = np.random.default_rng(_SHUFFLE_SEED).permutation(values)
         results.append(
-            HomogeneousChurn(
-                label=label,
+            GrowthChurn(
+                dataset=dataset,
                 ordered=stats.churn(values[:size], values, direction, k),
                 shuffled=stats.churn(shuffled[:size], values, direction, k),
             ),
         )
-    # An entry where both orderings were degenerate carries no measurement, so it is
-    # dropped exactly as a single degenerate result was before.
-    return tuple(h for h in results if h.ordered is not None or h.shuffled is not None)
+    # An entry where both orderings were degenerate carries no measurement.
+    return tuple(g for g in results if g.ordered is not None or g.shuffled is not None)
 
 
-def _heterogeneous_churn(
+def _merge_churn(
     usable: dict[str, np.ndarray],
     direction: str,
     k: float,
 ) -> tuple[tuple[str, str, stats.ChurnResult], ...]:
-    """Each cohort re-scored against the threshold it gets once another one joins it.
+    """Each dataset re-scored against the threshold it gets once another joins it.
 
-    An entry `(a, b, result)` is *a's* flag set after b merges in. A merge churns both
-    projects' flag sets, and by different amounts, so both directions of every pair are
-    simulated - `n*(n-1)` entries, not `n*(n-1)/2`. Simulating one direction per pair
-    would leave the headline figure depending on cache insertion order, which is the same
-    hazard `_SHUFFLE_SEED` guards against in the growth simulation. Measured effect on the
-    real WGS set: peak merge churn 59.09% one-directional, 64.71% both. `max_merge_churn`
-    takes the peak, so the worse direction is what reaches the verdict.
+    An entry `(a, b, result)` is *a's* flag set after b merges in. A merge disturbs both
+    projects' flag sets by different amounts, so both directions of every pair run -
+    `n*(n-1)` entries, not `n*(n-1)/2`. One direction per pair would leave the headline
+    figure depending on insertion order, the same hazard `_SHUFFLE_SEED` guards against.
 
-    The harsher of the two simulations by construction, and there is a structural tension
-    worth naming: a metric earns a relative tier precisely *because* its normal level
-    shifts between cohorts, and a merge punishes exactly that property. A high merge
-    figure may therefore be intrinsic to the whole class of metric relative tiers exist
-    for, rather than evidence that this particular metric is unstable. Read it as "how
-    much would pooling two projects disturb this", not as a defect count.
-
-    Cohorts are never self-paired.
+    The harsher simulation by construction, and there is a tension worth naming: a metric
+    earns a relative tier precisely *because* its normal level shifts between datasets,
+    and a merge punishes exactly that. Read a high figure as "how much would pooling two
+    projects disturb this", not as a defect count.
     """
     results = []
     for (label_a, values_a), (label_b, values_b) in itertools.permutations(usable.items(), 2):
@@ -466,34 +263,33 @@ def _heterogeneous_churn(
     return tuple(results)
 
 
-def evaluate(cache: ValueCache, metric: MetricSpec, seq_type: str) -> MadEvaluation:
-    """Evaluate `metric`'s cohort-relative warn tier across every cohort in `cache`.
-
-    Per-cohort warn counts are computed inside a single throwaway-config block - one
-    temp config for the whole metric, since the spec written into it doesn't vary by
-    cohort. Churn is computed outside it: `stats.churn` calls `robust_threshold`
-    directly and needs no config at all.
-    """
-    relative = metric.relative
-    if relative is None:
+def evaluate(
+    by_dataset: dict[str, MetricValues],
+    metric: MetricSpec,
+    settings: CalibrationSettings,
+) -> MadEvaluation:
+    """Evaluate `metric`'s dataset-relative warn tier across every dataset supplied."""
+    if not metric.relative:
         raise ValueError(
             f'metric {metric.key!r} has no configured relative tier to evaluate; '
-            f'add a [metrics.{metric.key}.relative] block to the calibration spec.',
+            f'set relative = true on [qc_calibration.{settings.seq_type}.metrics.{metric.key}]',
         )
-    series = {label: cache.series(label, metric.key) for label in cache.labels}
-    n_samples = {c.label: c.n_samples for c in cache.cohorts}
-    with _production_config(seq_type, metric, relative):
-        cohorts = tuple(
-            _evaluate_cohort(label, values, n_samples[label], metric, relative, seq_type)
-            for label, values in series.items()
-        )
-    # Cohorts production would skip outright can't churn, so they're excluded rather
+    datasets = tuple(
+        _evaluate_dataset(name, metric_values, metric, settings.min_samples, settings.k)
+        for name, metric_values in by_dataset.items()
+    )
+    # Datasets production would skip outright cannot churn, so they are excluded rather
     # than contributing a misleading zero flip rate.
-    usable = {label: values for label, values in series.items() if values.size >= relative.min_cohort}
+    usable = {
+        name: metric_values.array
+        for name, metric_values in by_dataset.items()
+        if metric_values.array.size >= settings.min_samples
+    }
     return MadEvaluation(
         metric=metric.key,
         direction=metric.direction,
-        cohorts=cohorts,
-        homogeneous=_homogeneous_churn(usable, metric.direction, relative.k, relative.min_cohort),
-        heterogeneous=_heterogeneous_churn(usable, metric.direction, relative.k),
+        bars=settings.bars,
+        datasets=datasets,
+        growth=_growth_churn(usable, metric.direction, settings.k, settings.min_samples),
+        merge=_merge_churn(usable, metric.direction, settings.k),
     )
