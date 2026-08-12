@@ -21,6 +21,7 @@
   .card .value { font-size: 1.7rem; font-weight: 700; margin-top: 4px; }
   .banner { border-radius: 8px; padding: 14px 18px; margin-bottom: 16px; line-height: 1.5;
             background: #fdecea; color: #a4271b; border: 1px solid #f5c2bd; font-size: 0.88rem; }
+  .banner.warning { background: #fff8e6; color: #8a6100; border: 1px solid #f2d49b; }
   .banner ul { margin: 8px 0 0 20px; }
   table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px;
           overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); font-size: 0.85rem;
@@ -63,10 +64,18 @@
     <div class="card"><div class="label">Relative tiers</div><div class="value">{{ r.relative | length }}</div></div>
   </div>
 
-  {% if r.warnings %}
+  {% set error_warnings = r.warnings | selectattr('severity', 'equalto', 'error') | list %}
+  {% set caution_warnings = r.warnings | selectattr('severity', 'equalto', 'warning') | list %}
+  {% if error_warnings %}
   <div class="banner">
     <strong>Metric coverage problems</strong>
-    <ul>{% for warning in r.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
+    <ul>{% for warning in error_warnings %}<li>{{ warning.message }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+  {% if caution_warnings %}
+  <div class="banner warning">
+    <strong>Calibration notes</strong>
+    <ul>{% for warning in caution_warnings %}<li>{{ warning.message }}</li>{% endfor %}</ul>
   </div>
   {% endif %}
 

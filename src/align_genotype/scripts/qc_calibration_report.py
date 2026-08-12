@@ -8,9 +8,10 @@ MultiQC report:
     python -m align_genotype.scripts.qc_calibration_report \\
         --values a.json --values b.json --output-json out.json --output-html out.html
 
-A metric absent from every dataset is logged at ERROR and banners the report, but does
-not fail the job: Hail only copies `write_output` targets on success, so failing here
-would destroy the page that explains the problem.
+A metric absent from every dataset, or a shipped `qc_thresholds` warn tier that is inert,
+is logged at ERROR and banners the report, but neither fails the job: Hail only copies
+`write_output` targets on success, so failing here would destroy the page that explains
+the problem.
 """
 
 import json
@@ -56,9 +57,10 @@ def main(value_paths: tuple[str, ...], skipped: tuple[str, ...], output_json: st
         f.write(render.render(built))
 
     for warning in built['warnings']:
-        # 'checks nothing' marks the PCT_PF_READS_ALIGNED class: a key that gates nothing
-        # at all, as opposed to one merely absent from some datasets.
-        logging.error(warning) if 'checks nothing' in warning else logging.warning(warning)
+        if warning['severity'] == 'error':
+            logging.error(warning['message'])
+        else:
+            logging.warning(warning['message'])
     for key, evaluation in built['relative'].items():
         logging.info(f'{key}: {evaluation["verdict"]} {evaluation["reason"]}')
     logging.info(f'Wrote {output_json} and {output_html}')

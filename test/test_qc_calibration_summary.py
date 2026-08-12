@@ -110,12 +110,12 @@ def test_records_where_each_metric_was_found(built):
 
 
 def test_a_metric_missing_everywhere_produces_a_loud_warning(built):
-    assert any('every dataset' in w for w in built['warnings'])
-    assert any('ABSENT' in w for w in built['warnings'])
+    assert any('every dataset' in w['message'] for w in built['warnings'])
+    assert any('ABSENT' in w['message'] for w in built['warnings'])
 
 
 def test_a_metric_present_everywhere_produces_no_warning(built):
-    assert not any('MEDIAN_COVERAGE' in w for w in built['warnings'])
+    assert not any('MEDIAN_COVERAGE' in w['message'] for w in built['warnings'])
 
 
 def test_evaluates_only_the_relative_metrics(built):
@@ -154,7 +154,7 @@ def test_no_datasets_at_all_still_builds(built):  # noqa: ARG001
     )
     assert empty['datasets'] == []
     assert empty['metrics']['MEDIAN_COVERAGE']['candidate'] is None
-    assert any('every dataset' in w for w in empty['warnings'])
+    assert any('every dataset' in w['message'] for w in empty['warnings'])
 
 
 # --- Tests added beyond the plan's list ------------------------------------------------
@@ -234,10 +234,11 @@ def test_metric_missing_from_some_datasets_produces_a_narrower_warning():
         ar_guid='x',
     )
     assert built['metrics']['MEDIAN_COVERAGE']['missing_from'] == ['ds-q']
-    narrow = [w for w in built['warnings'] if 'MEDIAN_COVERAGE' in w]
+    narrow = [w for w in built['warnings'] if 'MEDIAN_COVERAGE' in w['message']]
     assert len(narrow) == 1
-    assert 'ds-q' in narrow[0]
-    assert 'every dataset' not in narrow[0]
+    assert 'ds-q' in narrow[0]['message']
+    assert 'every dataset' not in narrow[0]['message']
+    assert narrow[0]['severity'] == 'warning'
 
 
 def test_relative_dataset_with_no_values_reports_none_for_median_and_mad():
@@ -425,10 +426,11 @@ def test_candidate_warn_tier_equal_to_fail_produces_an_inert_warning():
     )
     candidate = built['metrics']['MEDIAN_COVERAGE']['candidate']
     assert candidate['fail'] == candidate['warn'] == 26
-    inert = [w for w in built['warnings'] if 'unreachable' in w and 'MEDIAN_COVERAGE' in w]
+    inert = [w for w in built['warnings'] if 'unreachable' in w['message'] and 'MEDIAN_COVERAGE' in w['message']]
     assert len(inert) == 1
-    assert 'candidate' in inert[0]
-    assert 'checks nothing' not in inert[0]  # exclusive to the absent-everywhere warning
+    assert 'candidate' in inert[0]['message']
+    assert 'checks nothing' not in inert[0]['message']  # exclusive to the absent-everywhere warning
+    assert inert[0]['severity'] == 'warning'  # a proposal issue, nothing is broken yet
 
 
 def test_candidate_warn_at_or_past_fail_for_a_max_metric_produces_an_inert_warning():
@@ -462,16 +464,17 @@ def test_candidate_warn_at_or_past_fail_for_a_max_metric_produces_an_inert_warni
     )
     candidate = built['metrics']['FREEMIX']['candidate']
     assert candidate['fail'] == candidate['warn'] == 30
-    inert = [w for w in built['warnings'] if 'unreachable' in w and 'FREEMIX' in w]
+    inert = [w for w in built['warnings'] if 'unreachable' in w['message'] and 'FREEMIX' in w['message']]
     assert len(inert) == 1
-    assert 'candidate' in inert[0]
+    assert 'candidate' in inert[0]['message']
+    assert inert[0]['severity'] == 'warning'  # a proposal issue, nothing is broken yet
 
 
 def test_correctly_ordered_tiers_produce_no_inert_warning(built):
     """MEDIAN_COVERAGE's candidate in the shared fixture has a real gap between fail and warn."""
     candidate = built['metrics']['MEDIAN_COVERAGE']['candidate']
     assert candidate['fail'] != candidate['warn']
-    assert not any('unreachable' in w for w in built['warnings'])
+    assert not any('unreachable' in w['message'] for w in built['warnings'])
 
 
 def test_inert_current_tier_produces_the_shipped_config_variant_of_the_warning():
@@ -486,8 +489,82 @@ def test_inert_current_tier_produces_the_shipped_config_variant_of_the_warning()
     )
     # The candidate for this fixture is fail=11, warn=15 (a real gap) - only the shipped pair
     # is inert, so exactly one warning should fire, and it must be the shipped-config variant.
-    inert = [w for w in built['warnings'] if 'unreachable' in w and 'MEDIAN_COVERAGE' in w]
+    inert = [w for w in built['warnings'] if 'unreachable' in w['message'] and 'MEDIAN_COVERAGE' in w['message']]
     assert len(inert) == 1
-    assert 'shipped' in inert[0]
-    assert 'config_template.toml' in inert[0]
-    assert 'checks nothing' not in inert[0]
+    assert 'shipped' in inert[0]['message']
+    assert 'config_template.toml' in inert[0]['message']
+    assert 'checks nothing' not in inert[0]['message']
+    assert inert[0]['severity'] == 'error'  # a live production defect, not just a proposal
+
+
+def test_every_warning_is_a_severity_and_message_dict(built):
+    """`warnings` carries structured findings, not prose - every entry must have both keys."""
+    assert built['warnings']
+    for w in built['warnings']:
+        assert set(w) == {'severity', 'message'}
+        assert w['severity'] in ('error', 'warning')
+        assert isinstance(w['message'], str)
+
+
+def test_each_of_the_four_warning_kinds_gets_the_severity_the_report_routes_on():
+    """The severity mapping the report script routes on, exercised once per kind.
+
+    1. Absent from every dataset -> error (checks nothing at all).
+    2. Shipped tier inert -> error (a live production defect).
+    3. Absent from some datasets -> warning (narrower, informational).
+    4. Candidate tier inert -> warning (a proposal issue, nothing is broken yet).
+    """
+    # 1. ABSENT is configured but has zero entries in every dataset built() ever sees here.
+    absent_everywhere = summary_mod.build(
+        [dataset_values('ds-only', [30, 32, 34, 36, 38, 10], [10, 10.5, 11, 11.5, 12, 12.5])],
+        SETTINGS,
+        current=CURRENT,
+        skipped_datasets=[],
+        generated='2026-08-12T00:00:00',
+        ar_guid='x',
+    )
+    kind_1 = next(w for w in absent_everywhere['warnings'] if 'ABSENT' in w['message'])
+    assert kind_1['severity'] == 'error'
+
+    # 2. Shipped fail == shipped warn: a live production defect.
+    shipped_inert = summary_mod.build(
+        [dataset_values('ds-only', [30, 32, 34, 36, 38, 10], [10, 10.5, 11, 11.5, 12, 12.5])],
+        SETTINGS,
+        current={'MEDIAN_COVERAGE': {'fail': 27, 'warn': 27}},
+        skipped_datasets=[],
+        generated='2026-08-12T00:00:00',
+        ar_guid='x',
+    )
+    kind_2 = next(
+        w for w in shipped_inert['warnings'] if 'shipped' in w['message'] and 'MEDIAN_COVERAGE' in w['message']
+    )
+    assert kind_2['severity'] == 'error'
+
+    # 3. MEDIAN_COVERAGE present in ds-p, absent in ds-q: narrower than absent everywhere.
+    missing_some = summary_mod.build(
+        [
+            dataset_values('ds-p', [30, 32, 34, 36, 38, 10], [10, 10.5, 11, 11.5, 12, 12.5]),
+            dataset_values('ds-q', [], [12, 12.5, 13]),
+        ],
+        SETTINGS,
+        current=CURRENT,
+        skipped_datasets=[],
+        generated='2026-08-12T00:00:00',
+        ar_guid='x',
+    )
+    kind_3 = next(w for w in missing_some['warnings'] if 'MEDIAN_COVERAGE' in w['message'] and 'ds-q' in w['message'])
+    assert kind_3['severity'] == 'warning'
+
+    # 4. A two-point 'x'-unit dataset rounds p1 and p5 onto the same integer: candidate fail == warn.
+    candidate_inert = summary_mod.build(
+        [dataset_values('ds-only', [26.0, 30.0], [10, 11])],
+        SETTINGS,
+        current={},
+        skipped_datasets=[],
+        generated='2026-08-12T00:00:00',
+        ar_guid='x',
+    )
+    kind_4 = next(
+        w for w in candidate_inert['warnings'] if 'candidate' in w['message'] and 'MEDIAN_COVERAGE' in w['message']
+    )
+    assert kind_4['severity'] == 'warning'

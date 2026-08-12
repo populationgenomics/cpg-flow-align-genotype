@@ -271,6 +271,7 @@ def test_report_succeeds_even_when_a_metric_is_missing_everywhere(tmp_path, patc
     assert result.exit_code == 0, result.output
     assert out_html.exists()
     assert 'checks nothing' in caplog.text
+    assert any(record.levelno >= logging.ERROR for record in caplog.records)
 
 
 def test_report_warns_if_metric_missing_from_some_datasets(tmp_path, patch_config, monkeypatch, caplog):  # noqa: ARG001
@@ -318,5 +319,58 @@ def test_report_warns_if_metric_missing_from_some_datasets(tmp_path, patch_confi
     assert 'dup_pct was absent from 1 dataset(s): ds-b' in caplog.text
     assert 'checks nothing' not in caplog.text
     assert not any(record.levelno >= logging.ERROR for record in caplog.records)
+
+
+def test_report_logs_error_when_the_shipped_warn_tier_is_inert(tmp_path, monkeypatch, caplog):
+    """A shipped `warn <= fail` pair (for a `min` metric) is a live production defect and must
+    reach ERROR, not WARNING.
+
+    Before this fix, `qc_calibration_report.main` routed severity by sniffing 'checks
+    nothing' in the warning text, a substring exclusive to the absent-everywhere finding.
+    A shipped-inert-tier finding - arguably the most urgent thing this report can surface,
+    since it describes a threshold pair already running in production - would therefore log
+    at WARNING, indistinguishable from a metric merely absent from some datasets.
+    """
+    from align_genotype.scripts import (  # noqa: PLC0415
+        check_multiqc,
+        qc_calibration_report,
+    )
+
+    inert_config = {
+        'workflow': {'sequencing_type': 'genome'},
+        'qc_calibration': {
+            'genome': {'metrics': {'MEDIAN_COVERAGE': {'direction': 'min', 'unit': 'x'}}},
+        },
+        'qc_thresholds': {
+            'genome': {'fail': {'min': {'MEDIAN_COVERAGE': 27}}, 'warn': {'min': {'MEDIAN_COVERAGE': 27}}},
+        },
+    }
+
+    def config_retrieve(keys, default=None):  # noqa: ANN202
+        node = inert_config
+        for key in keys:
+            if not isinstance(node, dict) or key not in node:
+                return default
+            node = node[key]
+        return node
+
+    monkeypatch.setattr(settings_mod.config, 'config_retrieve', config_retrieve)
+    monkeypatch.setattr(check_multiqc.config, 'config_retrieve', config_retrieve)
+    monkeypatch.setattr(qc_calibration_report.config, 'try_get_ar_guid', lambda: 'x')
+
+    a = _write_values(tmp_path, 'ds-a', [30, 32, 34, 36, 38, 10], [10, 10.5, 11, 11.5, 12, 12.5])
+
+    with caplog.at_level(logging.WARNING):
+        result = CliRunner().invoke(
+            qc_calibration_report.main,
+            [
+                '--values', str(a),
+                '--output-json', str(tmp_path / 'calibration.json'),
+                '--output-html', str(tmp_path / 'calibration.html'),
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert 'shipped' in caplog.text
+    assert any(record.levelno >= logging.ERROR for record in caplog.records)
 
 

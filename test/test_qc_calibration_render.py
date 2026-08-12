@@ -120,6 +120,40 @@ def test_banners_a_metric_absent_from_every_dataset(html: str) -> None:
     assert 'checks nothing' in html
 
 
+def test_error_severity_warning_renders_prominently_and_warning_severity_does_not() -> None:
+    """The two severities must be visually distinct: the error banner keeps the existing
+    prominent red `.banner` styling, while a plain `warning` finding renders in the calmer
+    `.banner.warning` variant instead."""
+    built = summary_mod.build(
+        [
+            # ABSENT is configured but has zero entries in every dataset -> severity 'error'.
+            dataset_values('ds-p', [30, 32, 34, 36, 38, 10], [10, 10.5, 11, 11.5, 12, 12.5]),
+            # dup_pct is entirely absent from ds-q -> severity 'warning' (narrower).
+            dataset_values('ds-q', [], [12, 12.5, 13]),
+        ],
+        SETTINGS,
+        current={},
+        skipped_datasets=[],
+        generated='2026-08-12T00:00:00',
+        ar_guid='x',
+    )
+    severities = {w['severity'] for w in built['warnings']}
+    assert severities == {'error', 'warning'}  # sanity: this fixture exercises both
+
+    rendered = render_mod.render(built)
+    assert '<div class="banner">' in rendered
+    assert '<div class="banner warning">' in rendered
+
+    # The error-only finding (absent everywhere) sits inside the plain `.banner` div, not the
+    # `.banner.warning` one; the mirrored narrower finding sits inside `.banner.warning`.
+    plain_banner = rendered.split('<div class="banner">', 1)[1].split('</div>', 1)[0]
+    warning_banner = rendered.split('<div class="banner warning">', 1)[1].split('</div>', 1)[0]
+    assert 'checks nothing' in plain_banner
+    assert 'checks nothing' not in warning_banner
+    assert 'MEDIAN_COVERAGE' in warning_banner
+    assert 'ds-q' in warning_banner
+
+
 def test_includes_the_pasteable_config_block(html: str) -> None:
     assert '[qc_thresholds.genome.fail.min]' in html
 

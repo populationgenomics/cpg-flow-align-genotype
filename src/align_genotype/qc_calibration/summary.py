@@ -146,7 +146,7 @@ def build(
 ) -> dict[str, Any]:
     """Assemble the calibration result from every dataset's extracted values."""
     by_name: dict[str, DatasetValues] = {v.dataset: v for v in values}
-    warnings: list[str] = []
+    warnings: list[dict[str, str]] = []
 
     metrics: dict[str, Any] = {}
     for metric in settings.metrics:
@@ -183,32 +183,56 @@ def build(
         }
 
         # A metric absent everywhere is the PCT_PF_READS_ALIGNED class of bug: a key that
-        # checks nothing at all. Absent from some datasets is a narrower question.
+        # checks nothing at all - severity 'error'. Absent from some datasets is a narrower,
+        # informational question - severity 'warning'.
         if not with_data:
             warnings.append(
-                f'{metric.key} was absent from every dataset - the key checks nothing. '
-                f'Either it is misspelled for this sequencing type, or MultiQC writes it '
-                f'only to report_saved_raw_data, which the production check never reads.',
+                {
+                    'severity': 'error',
+                    'message': (
+                        f'{metric.key} was absent from every dataset - the key checks nothing. '
+                        f'Either it is misspelled for this sequencing type, or MultiQC writes it '
+                        f'only to report_saved_raw_data, which the production check never reads.'
+                    ),
+                },
             )
         elif missing_from:
-            warnings.append(f'{metric.key} was absent from {len(missing_from)} dataset(s): {", ".join(missing_from)}')
+            warnings.append(
+                {
+                    'severity': 'warning',
+                    'message': (
+                        f'{metric.key} was absent from {len(missing_from)} dataset(s): {", ".join(missing_from)}'
+                    ),
+                },
+            )
 
         # A warn tier that can never fire is the same failure as an absent metric - a key
         # that looks configured and checks nothing - just found by comparing two numbers
         # instead of by absence. The shipped tiers get the same check: if config_template.toml
         # already carries an inert pair, that is a live production defect this report should
-        # surface, not something calibration merely warns about for its own proposal.
+        # surface - severity 'error' - not something calibration merely warns about for its
+        # own proposal, which stays severity 'warning'.
         if _inert_tier(metric.direction, candidate_tiers.get('fail'), candidate_tiers.get('warn')):
             warnings.append(
-                f'{metric.key}: the candidate warn tier ({candidate_tiers["warn"]}) is unreachable behind the '
-                f'fail tier ({candidate_tiers["fail"]}) - production evaluates fail before warn, so every '
-                f'value that would warn is recorded as a fail instead.',
+                {
+                    'severity': 'warning',
+                    'message': (
+                        f'{metric.key}: the candidate warn tier ({candidate_tiers["warn"]}) is unreachable behind '
+                        f'the fail tier ({candidate_tiers["fail"]}) - production evaluates fail before warn, so '
+                        f'every value that would warn is recorded as a fail instead.'
+                    ),
+                },
             )
         if _inert_tier(metric.direction, shipped.get('fail'), shipped.get('warn')):
             warnings.append(
-                f'{metric.key}: the shipped warn tier ({shipped["warn"]}) is unreachable behind the shipped '
-                f'fail tier ({shipped["fail"]}) in config_template.toml - production evaluates fail before warn, '
-                f'so every value that would warn is recorded as a fail instead.',
+                {
+                    'severity': 'error',
+                    'message': (
+                        f'{metric.key}: the shipped warn tier ({shipped["warn"]}) is unreachable behind the shipped '
+                        f'fail tier ({shipped["fail"]}) in config_template.toml - production evaluates fail before '
+                        f'warn, so every value that would warn is recorded as a fail instead.'
+                    ),
+                },
             )
 
     relative_blocks: dict[str, Any] = {}
