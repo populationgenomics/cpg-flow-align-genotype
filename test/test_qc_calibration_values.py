@@ -42,7 +42,7 @@ def test_metric_values_counts_values_and_sequencing_groups_separately():
         n_dropped=0,
     )
     assert metric.n_values == 3
-    assert metric.n_sequencing_groups == 2
+    assert metric.n_groups_with_values == 2
     assert metric.duplicated is True
     assert metric.sections == ('picard_1', 'picard_4')
 
@@ -55,7 +55,7 @@ def test_empty_metric_values_gives_an_empty_array():
     metric = values_mod.MetricValues(entries=(), n_dropped=0)
     assert metric.array.size == 0
     assert metric.n_values == 0
-    assert metric.n_sequencing_groups == 0
+    assert metric.n_groups_with_values == 0
     assert metric.sections == ()
     assert metric.duplicated is False
 
@@ -165,4 +165,45 @@ def test_load_rejects_a_boolean_metric_value(tmp_path):
     path = tmp_path / 'values.json'
     path.write_text(json.dumps(payload))
     with pytest.raises(values_mod.ValuesError, match='number'):
+        values_mod.load(path)
+
+
+def _minimal_payload(entries: list) -> dict:
+    return {
+        'dataset': 'a',
+        'seq_type': 'genome',
+        'analysis_id': 1,
+        'timestamp': 't',
+        'uri': 'u',
+        'multiqc_version': 'v',
+        'generated': 'g',
+        'n_sequencing_groups': 1,
+        'section_sizes': {},
+        'metrics': {'X': {'n_dropped': 0, 'entries': entries}},
+    }
+
+
+def test_load_rejects_a_nan_metric_value(tmp_path):
+    """`save` refuses to write a NaN; `load` must refuse to read one, or the invariant
+    that `array` and `n_values` agree only holds for files this module wrote itself."""
+    path = tmp_path / 'values.json'
+    # json.dumps emits the bare token `NaN`, which json.load parses back to float('nan') -
+    # this is how a hand-edited or otherwise non-conforming file would carry one.
+    path.write_text(json.dumps(_minimal_payload([['s', 'CPG1', float('nan')]])))
+    with pytest.raises(values_mod.ValuesError, match='non-finite'):
+        values_mod.load(path)
+
+
+def test_load_rejects_an_infinite_metric_value(tmp_path):
+    path = tmp_path / 'values.json'
+    path.write_text(json.dumps(_minimal_payload([['s', 'CPG1', float('inf')]])))
+    with pytest.raises(values_mod.ValuesError, match='non-finite'):
+        values_mod.load(path)
+
+
+def test_load_error_names_both_the_metric_and_the_sequencing_group(tmp_path):
+    """Hundreds of entries share a metric key; the message must point at one entry."""
+    path = tmp_path / 'values.json'
+    path.write_text(json.dumps(_minimal_payload([['s', 'CPG7', float('nan')]])))
+    with pytest.raises(values_mod.ValuesError, match=r"metric 'X'.*'CPG7'"):
         values_mod.load(path)

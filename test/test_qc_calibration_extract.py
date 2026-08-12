@@ -69,7 +69,7 @@ def test_one_group_in_two_sections_yields_two_values_and_one_group():
         },
     )
     metric = extract_mod.extract(doc, SETTINGS, **PROVENANCE).metric('MEDIAN_COVERAGE')
-    assert (metric.n_values, metric.n_sequencing_groups) == (2, 1)
+    assert (metric.n_values, metric.n_groups_with_values) == (2, 1)
 
 
 def test_picard_question_mark_placeholder_is_dropped_and_counted():

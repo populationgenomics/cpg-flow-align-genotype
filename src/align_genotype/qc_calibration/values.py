@@ -47,6 +47,21 @@ def _require_number(value: Any, what: str) -> float:
     return float(value)
 
 
+def _require_finite_number(value: Any, what: str) -> float:
+    """Reject a bool (see `_require_int`) or a non-finite float, then cast to float.
+
+    `MetricValues.array` filters non-finite values but `n_values` counts every entry, so
+    a NaN that got past `load` would make `len(metric.array) != metric.n_values` - and
+    downstream rate calculations divide by `n_values`. `save` already refuses to write a
+    non-finite value; `load` must refuse to read one too, or the invariant only holds
+    half the time.
+    """
+    number = _require_number(value, what)
+    if not math.isfinite(number):
+        raise ValueError(f'{what} is non-finite: {value!r}')
+    return number
+
+
 @dataclass(frozen=True)
 class MetricValues:
     """One metric's usable values in one dataset, plus how many were unusable."""
@@ -71,7 +86,15 @@ class MetricValues:
         return len(self.entries)
 
     @property
-    def n_sequencing_groups(self) -> int:
+    def n_groups_with_values(self) -> int:
+        """Distinct sequencing groups carrying this metric - not the dataset total.
+
+        `DatasetValues.n_sequencing_groups` is the dataset's total group count; this is
+        the subset of those groups that have a value for *this* metric, which is fewer
+        whenever the metric is missing for some groups. Rates should divide by whichever
+        of the two the question actually asks about - the name is deliberately not
+        `n_sequencing_groups` so that choice can't be made by accident.
+        """
         return len({sg for _, sg, _ in self.entries})
 
     @property
@@ -81,7 +104,7 @@ class MetricValues:
     @property
     def duplicated(self) -> bool:
         """Whether this metric carries more values than sequencing groups."""
-        return self.n_values > self.n_sequencing_groups
+        return self.n_values > self.n_groups_with_values
 
 
 @dataclass(frozen=True)
@@ -163,7 +186,11 @@ def load(path: str | Path) -> DatasetValues:
             metrics={
                 key: MetricValues(
                     entries=tuple(
-                        (section, sg, _require_number(value, f'metric {key!r} entry value'))
+                        (
+                            section,
+                            sg,
+                            _require_finite_number(value, f'metric {key!r} sequencing group {sg!r} entry value'),
+                        )
                         for section, sg, value in body['entries']
                     ),
                     n_dropped=_require_int(body['n_dropped'], f'metric {key!r} n_dropped'),
