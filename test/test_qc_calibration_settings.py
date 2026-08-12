@@ -192,3 +192,35 @@ def test_current_thresholds_reshapes_production_config(patch_config):
         'MEDIAN_COVERAGE': {'fail': 15, 'warn': 25},
         'FREEMIX': {'fail': 0.04},
     }
+
+
+def test_config_template_ships_a_parseable_calibration_block():
+    """Every metric in the shipped template must pass validation, for both seq types."""
+    import sys  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415
+
+    if sys.version_info >= (3, 11):
+        import tomllib  # noqa: PLC0415
+    else:
+        import tomli as tomllib  # noqa: PLC0415
+
+    template = Path('src/align_genotype/config_template.toml')
+    parsed = tomllib.loads(template.read_text())
+    block = parsed['qc_calibration']
+
+    assert block['enabled'] is False, 'must ship disabled so production runs stay inert'
+    for seq_type in ('genome', 'exome'):
+        metrics = block[seq_type]['metrics']
+        assert metrics, f'no calibration metrics shipped for {seq_type}'
+        for key, raw in metrics.items():
+            settings_mod.parse_metric(key, raw)
+
+    # Every metric marked relative must have a shipped absolute fail gate behind it:
+    # relative flagging is warn-only, so without one a uniformly poor dataset is ungated.
+    for seq_type in ('genome', 'exome'):
+        fails = set(parsed['qc_thresholds'][seq_type].get('fail', {}).get('min', {})) | set(
+            parsed['qc_thresholds'][seq_type].get('fail', {}).get('max', {}),
+        )
+        for key, raw in block[seq_type]['metrics'].items():
+            if raw.get('relative'):
+                assert key in fails, f'{seq_type} {key} is relative but has no absolute fail gate'
