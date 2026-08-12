@@ -755,7 +755,7 @@ Then replace the remaining bare uses of "cohort" in the `qc_thresholds` comments
 
 Run: `uv run pytest test/test_qc_calibration_settings.py -v`
 
-Expected: PASS, 14 tests.
+Expected: PASS, 19 tests (the 18 from Task 2, plus this one).
 
 - [ ] **Step 6: Verify no scratch references remain**
 
