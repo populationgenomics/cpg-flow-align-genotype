@@ -286,10 +286,10 @@ def relative_flags(
 ) -> list[tuple[str, str, QcFlag]]:
     """Cohort-relative (MAD) warn-only flags for metrics in the `relative` config.
 
-    For each configured metric, gathers every sample's value across the current run
-    (the "cohort"), derives a robust median/MAD outlier threshold, and warns samples
-    beyond it. Relative flags are always ``severity='warn'`` / ``method='relative'``,
-    and are skipped when the cohort is smaller than ``min_samples`` or MAD is zero.
+    For each configured metric, gathers every value for that metric across the current
+    run, derives a robust median/MAD outlier threshold, and warns samples beyond it.
+    Relative flags are always ``severity='warn'`` / ``method='relative'``, and are
+    skipped when the run has fewer than ``min_samples`` values or MAD is zero.
     ``already_flagged`` maps sg_id -> {(section, metric)} flagged by the absolute pass;
     those are not double-flagged, so the absolute fail gate takes precedence.
 

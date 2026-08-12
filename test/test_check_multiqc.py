@@ -7,7 +7,7 @@ testing_scripts/testing_data/*_multiqc*.json).
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -280,7 +280,12 @@ def test_relative_uses_min_samples_key(patch_config):
             'CPG2': {'reads_duplicated_percent': 50.0},
         },
     }
-    flags = check_multiqc.relative_flags(sections, 'genome', datetime(2026, 1, 1), already_flagged={})  # noqa: DTZ001
+    flags = check_multiqc.relative_flags(
+        sections,
+        'genome',
+        datetime(2026, 1, 1, tzinfo=timezone.utc),
+        already_flagged={},
+    )
     assert flags == []
 
 
