@@ -151,13 +151,11 @@ class MadEvaluation:
         # "2.0% exceeds 2%" reads as a contradiction where "2.01% exceeds 2%" does not.
         if self.max_growth_churn > self.bars.max_growth_churn:
             reasons.append(
-                f'peak dataset-growth churn {self.max_growth_churn:.2%} '
-                f'exceeds {self.bars.max_growth_churn:.0%}',
+                f'peak dataset-growth churn {self.max_growth_churn:.2%} exceeds {self.bars.max_growth_churn:.0%}',
             )
         if self.max_merge_churn > self.bars.max_merge_churn:
             reasons.append(
-                f'peak cross-dataset merge churn {self.max_merge_churn:.2%} '
-                f'exceeds {self.bars.max_merge_churn:.0%}',
+                f'peak cross-dataset merge churn {self.max_merge_churn:.2%} exceeds {self.bars.max_merge_churn:.0%}',
             )
         return '; '.join(reasons)
 
@@ -182,28 +180,46 @@ def _evaluate_dataset(
         # which is a collection problem, not a size one. Reporting it as
         # "0 values < min_samples 50" would send a reader to the wrong place.
         return DatasetMad(
-            dataset, **counts, median=float('nan'), mad_raw=float('nan'),
-            threshold=None, n_warn=0,
+            dataset,
+            **counts,
+            median=float('nan'),
+            mad_raw=float('nan'),
+            threshold=None,
+            n_warn=0,
             skipped=f'metric {metric.key!r} has no values in this dataset',
         )
     median = float(np.median(values))
     mad_raw = float(np.median(np.abs(values - median)))
     if n_values < min_samples:
         return DatasetMad(
-            dataset, **counts, median=median, mad_raw=mad_raw, threshold=None, n_warn=0,
+            dataset,
+            **counts,
+            median=median,
+            mad_raw=mad_raw,
+            threshold=None,
+            n_warn=0,
             skipped=f'{n_values} values < min_samples {min_samples}',
         )
     threshold = check_multiqc.robust_threshold(list(values), metric.direction, k)
     if threshold is None:
         return DatasetMad(
-            dataset, **counts, median=median, mad_raw=mad_raw, threshold=None, n_warn=0,
+            dataset,
+            **counts,
+            median=median,
+            mad_raw=mad_raw,
+            threshold=None,
+            n_warn=0,
             skipped='zero MAD (degenerate dataset); use the absolute gate here',
         )
     # Production rounds before comparing, so the displayed threshold always explains the
     # displayed count.
     threshold = round(threshold, 4)
     return DatasetMad(
-        dataset, **counts, median=median, mad_raw=mad_raw, threshold=threshold,
+        dataset,
+        **counts,
+        median=median,
+        mad_raw=mad_raw,
+        threshold=threshold,
         n_warn=int(stats.breach(values, threshold, metric.direction).sum()),
         skipped=None,
     )
