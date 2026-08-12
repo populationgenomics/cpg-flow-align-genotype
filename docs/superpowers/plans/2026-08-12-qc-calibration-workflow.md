@@ -95,7 +95,7 @@ you are tempted to build later; use at least three points with a genuine outlier
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `uv run pytest test/test_check_multiqc.py::test_relative_uses_min_samples_key -v`
+Run: `uv run python -m pytest test/test_check_multiqc.py::test_relative_uses_min_samples_key -v`
 
 Expected: FAIL. Before the rename `min_samples` is ignored, `cfg.get('min_cohort', 0)`
 defaults the bar to `0`, so the three-value run is not skipped, `CPG2` (50.0) is flagged
@@ -149,7 +149,7 @@ Every remaining hit in `test/test_check_multiqc.py` must be changed to `min_samp
 
 - [ ] **Step 6: Run the full check_multiqc suite**
 
-Run: `uv run pytest test/test_check_multiqc.py -v`
+Run: `uv run python -m pytest test/test_check_multiqc.py -v`
 
 Expected: PASS, all tests.
 
@@ -371,7 +371,7 @@ def test_load_without_a_sequencing_type_raises(patch_config):
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `uv run pytest test/test_qc_calibration_settings.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_settings.py -v`
 
 Expected: FAIL — `ModuleNotFoundError: No module named 'align_genotype.qc_calibration.settings'`.
 
@@ -559,7 +559,7 @@ def current_thresholds(seq_type: str) -> dict[str, dict[str, float]]:
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `uv run pytest test/test_qc_calibration_settings.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_settings.py -v`
 
 Expected: PASS, 18 tests.
 
@@ -626,7 +626,7 @@ def test_config_template_ships_a_parseable_calibration_block():
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `uv run pytest test/test_qc_calibration_settings.py::test_config_template_ships_a_parseable_calibration_block -v`
+Run: `uv run python -m pytest test/test_qc_calibration_settings.py::test_config_template_ships_a_parseable_calibration_block -v`
 
 Expected: FAIL with `KeyError: 'qc_calibration'`.
 
@@ -763,7 +763,7 @@ Then replace the remaining bare uses of "cohort" in the `qc_thresholds` comments
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `uv run pytest test/test_qc_calibration_settings.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_settings.py -v`
 
 Expected: PASS, 19 tests (the 18 from Task 2, plus this one).
 
@@ -911,7 +911,7 @@ def test_load_names_the_file_when_the_json_is_malformed(tmp_path):
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `uv run pytest test/test_qc_calibration_values.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_values.py -v`
 
 Expected: FAIL — `ModuleNotFoundError: No module named 'align_genotype.qc_calibration.values'`.
 
@@ -1077,7 +1077,7 @@ def load(path: str | Path) -> DatasetValues:
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `uv run pytest test/test_qc_calibration_values.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_values.py -v`
 
 Expected: PASS, 10 tests.
 
@@ -1227,7 +1227,7 @@ def test_empty_general_stats_is_an_error_naming_the_dataset_and_uri():
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `uv run pytest test/test_qc_calibration_extract.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_extract.py -v`
 
 Expected: FAIL — `ModuleNotFoundError: No module named 'align_genotype.qc_calibration.extract'`.
 
@@ -1315,7 +1315,7 @@ def extract(
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `uv run pytest test/test_qc_calibration_extract.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_extract.py -v`
 
 Expected: PASS, 11 tests.
 
@@ -1344,7 +1344,7 @@ already pure functions over arrays. Only the wording is wrong.
 
 - [ ] **Step 1: Confirm the suite is green before touching anything**
 
-Run: `uv run pytest test/test_qc_calibration_stats.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_stats.py -v`
 
 Expected: PASS, 20 tests.
 
@@ -1396,7 +1396,7 @@ Change every hit to `dataset`. These are docstrings and comments only; no assert
 
 - [ ] **Step 4: Verify nothing broke**
 
-Run: `uv run pytest test/test_qc_calibration_stats.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_stats.py -v`
 
 Expected: PASS, 20 tests.
 
@@ -1461,7 +1461,7 @@ and the new `render.py` carries its own formatting filters.
 
 - [ ] **Step 4: Run the whole suite**
 
-Run: `uv run pytest -q`
+Run: `uv run python -m pytest -q`
 
 Expected: PASS. The remaining old tests (`spec`, `cache`, `tomlio`, `manifest`,
 `discovery`, `relative`, `stats`) still cover unchanged modules, alongside the new
@@ -1671,7 +1671,7 @@ def test_max_warn_rate_ignores_skipped_datasets():
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `uv run pytest test/test_qc_calibration_relative.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_relative.py -v`
 
 Expected: FAIL — `AttributeError` or `TypeError` on `relative_mod.evaluate`, whose current
 signature is `(cache, metric, seq_type)`.
@@ -2012,7 +2012,7 @@ Then delete the `_K[metric.key] = settings.k` line.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `uv run pytest test/test_qc_calibration_relative.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_relative.py -v`
 
 Expected: PASS, 15 tests.
 
@@ -2129,7 +2129,7 @@ def test_basis_names_the_percentiles_used():
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `uv run pytest test/test_qc_calibration_thresholds.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_thresholds.py -v`
 
 Expected: FAIL — `ModuleNotFoundError: No module named 'align_genotype.qc_calibration.thresholds'`.
 
@@ -2248,7 +2248,7 @@ def candidate(by_dataset: dict[str, MetricValues], metric: MetricSpec) -> Candid
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `uv run pytest test/test_qc_calibration_thresholds.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_thresholds.py -v`
 
 Expected: PASS, 8 tests.
 
@@ -2382,7 +2382,7 @@ def test_metric_keys_are_quoted_like_the_committed_config():
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `uv run pytest test/test_qc_calibration_snippet.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_snippet.py -v`
 
 Expected: FAIL — `ModuleNotFoundError: No module named 'align_genotype.qc_calibration.snippet'`.
 
@@ -2453,7 +2453,7 @@ def render(settings: CalibrationSettings, candidates: dict[str, Candidate]) -> s
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `uv run pytest test/test_qc_calibration_snippet.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_snippet.py -v`
 
 Expected: PASS, 8 tests.
 
@@ -2646,7 +2646,7 @@ def test_no_datasets_at_all_still_builds(built):  # noqa: ARG001
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `uv run pytest test/test_qc_calibration_summary.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_summary.py -v`
 
 Expected: FAIL — `ModuleNotFoundError: No module named 'align_genotype.qc_calibration.summary'`.
 
@@ -2867,7 +2867,7 @@ def build(
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `uv run pytest test/test_qc_calibration_summary.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_summary.py -v`
 
 Expected: PASS, 14 tests.
 
@@ -2990,7 +2990,7 @@ def test_escapes_html_in_dataset_names():
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `uv run pytest test/test_qc_calibration_render.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_render.py -v`
 
 Expected: FAIL — `ModuleNotFoundError: No module named 'align_genotype.qc_calibration.render'`.
 
@@ -3354,7 +3354,7 @@ Create `src/align_genotype/templates/qc_calibration_report.html.jinja`:
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `uv run pytest test/test_qc_calibration_render.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_render.py -v`
 
 Expected: PASS, 10 tests.
 
@@ -3526,7 +3526,7 @@ def test_a_null_project_returns_none():
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `uv run pytest test/test_qc_calibration_discovery.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_discovery.py -v`
 
 Expected: FAIL — `AttributeError: module ... has no attribute 'latest_cram_multiqc'`.
 
@@ -3649,7 +3649,7 @@ def cached_latest_cram_multiqc(dataset: str, seq_type: str) -> MultiqcReport | N
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `uv run pytest test/test_qc_calibration_discovery.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_discovery.py -v`
 
 Expected: PASS, 9 tests.
 
@@ -3777,7 +3777,7 @@ def test_extract_fails_loudly_on_an_unreadable_report(tmp_path, patch_config):  
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `uv run pytest test/test_qc_calibration_scripts.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_scripts.py -v`
 
 Expected: FAIL — `ImportError: cannot import name 'qc_calibration_extract'`.
 
@@ -3853,7 +3853,7 @@ if __name__ == '__main__':
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `uv run pytest test/test_qc_calibration_scripts.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_scripts.py -v`
 
 Expected: PASS, 2 tests.
 
@@ -3972,7 +3972,7 @@ def test_report_succeeds_even_when_a_metric_is_missing_everywhere(tmp_path, patc
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `uv run pytest test/test_qc_calibration_scripts.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_scripts.py -v`
 
 Expected: FAIL — `ImportError: cannot import name 'qc_calibration_report'`.
 
@@ -4053,7 +4053,7 @@ if __name__ == '__main__':
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `uv run pytest test/test_qc_calibration_scripts.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_scripts.py -v`
 
 Expected: PASS, 4 tests.
 
@@ -4300,7 +4300,7 @@ def test_calibration_stages_are_wired_into_the_entrypoint():
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `uv run pytest test/test_qc_calibration_stages.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_stages.py -v`
 
 Expected: FAIL — `ModuleNotFoundError: No module named 'align_genotype.qc_calibration_stages'`.
 
@@ -4522,7 +4522,7 @@ if __name__ == '__main__':
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `uv run pytest test/test_qc_calibration_stages.py -v`
+Run: `uv run python -m pytest test/test_qc_calibration_stages.py -v`
 
 Expected: PASS, 11 tests.
 
@@ -4600,7 +4600,7 @@ Expected exactly twelve files: `discovery`, `extract`, `relative`, `render`, `sc
 
 - [ ] **Step 5: Run the whole suite**
 
-Run: `uv run pytest -q`
+Run: `uv run python -m pytest -q`
 
 Expected: PASS, across those twelve plus `test_check_multiqc.py` and
 `test_sg_qc_report.py`.
@@ -4728,7 +4728,7 @@ concepts. Any hit meaning "the set of samples in one MultiQC report" is a miss �
 - [ ] **Step 4: Run everything**
 
 ```bash
-uv run pytest -q
+uv run python -m pytest -q
 uv run ruff check src/ test/
 uv run ruff format --check src/ test/
 ```
@@ -4809,6 +4809,9 @@ queues a job.
   `k` this codebase uses, and a test built on two points passes whatever the code does.
   Task 1's original test had this defect. Check any small relative/churn fixture against
   it.
+- **Use `uv run python -m pytest`, not `uv run pytest`.** Two agents independently hit a
+  stray homebrew `pytest` resolving ahead of the project venv on PATH; `python -m` always
+  picks the venv's own.
 - **Ruff is strict here.** `ANN`, `BLE`, `TCH`, `PLC0415` (lazy imports) and `DTZ` are
   all enabled. Use `datetime.now(tz=timezone.utc)`, mark deliberate function-local
   imports `# noqa: PLC0415`, and annotate every signature.
