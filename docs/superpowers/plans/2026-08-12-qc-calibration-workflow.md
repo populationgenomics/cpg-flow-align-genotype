@@ -843,7 +843,7 @@ def test_metric_values_counts_values_and_sequencing_groups_separately():
         n_dropped=0,
     )
     assert metric.n_values == 3
-    assert metric.n_sequencing_groups == 2
+    assert metric.n_groups_with_values == 2
     assert metric.duplicated is True
     assert metric.sections == ('picard_1', 'picard_4')
 
@@ -856,7 +856,7 @@ def test_empty_metric_values_gives_an_empty_array():
     metric = values_mod.MetricValues(entries=(), n_dropped=0)
     assert metric.array.size == 0
     assert metric.n_values == 0
-    assert metric.n_sequencing_groups == 0
+    assert metric.n_groups_with_values == 0
     assert metric.sections == ()
 
 
@@ -1017,7 +1017,13 @@ class MetricValues:
         return len(self.entries)
 
     @property
-    def n_sequencing_groups(self) -> int:
+    def n_groups_with_values(self) -> int:
+        """Distinct sequencing groups carrying this metric.
+
+        Deliberately not `n_sequencing_groups`: `DatasetValues` has a field of that name
+        meaning the dataset's *total*, and the two diverge whenever a metric is missing
+        for some groups. Picking the wrong one as a rate denominator is a silent bug.
+        """
         return len({sg for _, sg, _ in self.entries})
 
     @property
@@ -1027,7 +1033,7 @@ class MetricValues:
     @property
     def duplicated(self) -> bool:
         """Whether this metric carries more values than sequencing groups."""
-        return self.n_values > self.n_sequencing_groups
+        return self.n_values > self.n_groups_with_values
 
 
 @dataclass(frozen=True)
@@ -1084,6 +1090,18 @@ def save(values: DatasetValues, path: str | Path) -> None:
         f.write(text)
 
 
+def _require_finite(field: str, value: float) -> float:
+    """Reject a non-finite value on read, matching what `save` refuses to write.
+
+    Without this a hand-edited file loads cleanly and then has `len(array) != n_values`,
+    because `array` filters non-finite values while `n_values` counts them - and
+    downstream code divides by `n_values`.
+    """
+    if not math.isfinite(value):
+        raise ValueError(f'{field} is non-finite ({value!r})')
+    return value
+
+
 def load(path: str | Path) -> DatasetValues:
     """Read a values file written by `save`.
 
@@ -1107,7 +1125,14 @@ def load(path: str | Path) -> DatasetValues:
             metrics={
                 key: MetricValues(
                     entries=tuple(
-                        (section, sg, _require_number(f'{key} value', value))
+                        (
+                            section,
+                            sg,
+                            _require_finite(
+                                f'metric {key!r} sequencing group {sg!r}',
+                                _require_number(f'metric {key!r} sequencing group {sg!r}', value),
+                            ),
+                        )
                         for section, sg, value in body['entries']
                     ),
                     n_dropped=_require_int(f'{key} n_dropped', body['n_dropped']),
@@ -1223,7 +1248,7 @@ def test_one_group_in_two_sections_yields_two_values_and_one_group():
         },
     )
     metric = extract_mod.extract(doc, SETTINGS, **PROVENANCE).metric('MEDIAN_COVERAGE')
-    assert (metric.n_values, metric.n_sequencing_groups) == (2, 1)
+    assert (metric.n_values, metric.n_groups_with_values) == (2, 1)
 
 
 def test_picard_question_mark_placeholder_is_dropped_and_counted():
@@ -1638,7 +1663,7 @@ def test_warn_rate_is_per_value_and_duplication_is_flagged():
     }
     (dataset,) = relative_mod.evaluate(by_dataset, METRIC, settings()).datasets
     assert dataset.n_values == 6
-    assert dataset.n_sequencing_groups == 3
+    assert dataset.n_groups_with_values == 3
     assert dataset.duplicated is True
 
 
@@ -1781,7 +1806,7 @@ class DatasetMad:
 
     dataset: str
     n_values: int
-    n_sequencing_groups: int
+    n_groups_with_values: int
     median: float
     mad_raw: float
     threshold: float | None
@@ -1802,7 +1827,7 @@ class DatasetMad:
 
     @property
     def duplicated(self) -> bool:
-        return self.n_values > self.n_sequencing_groups
+        return self.n_values > self.n_groups_with_values
 
 
 @dataclass(frozen=True)
@@ -1899,7 +1924,7 @@ def _evaluate_dataset(dataset: str, metric_values: MetricValues, metric: MetricS
     """One dataset's relative numbers, mirroring the skips production makes."""
     values = metric_values.array
     n_values = int(values.size)
-    counts = {'n_values': n_values, 'n_sequencing_groups': metric_values.n_sequencing_groups}
+    counts = {'n_values': n_values, 'n_groups_with_values': metric_values.n_groups_with_values}
     if n_values == 0:
         # Distinguished from "too small": nothing was extracted for this metric here,
         # which is a collection problem, not a size one. Reporting it as
@@ -2611,7 +2636,7 @@ def test_records_run_level_provenance(built):
 def test_counts_sequencing_groups_and_values_separately(built):
     metric = built['metrics']['MEDIAN_COVERAGE']
     assert metric['n_values'] == 12
-    assert metric['n_sequencing_groups'] == 12
+    assert metric['n_groups_with_values'] == 12
     assert metric['n_datasets'] == 2
     assert metric['n_dropped'] == 2
 
@@ -2769,7 +2794,7 @@ def _relative_block(evaluation: relative.MadEvaluation) -> dict[str, Any]:
             {
                 'dataset': d.dataset,
                 'n_values': d.n_values,
-                'n_sequencing_groups': d.n_sequencing_groups,
+                'n_groups_with_values': d.n_groups_with_values,
                 'median': None if math.isnan(d.median) else d.median,
                 'mad': None if math.isnan(d.mad_raw) else d.mad_raw,
                 'threshold': d.threshold,
@@ -2834,7 +2859,7 @@ def build(
             'unit': metric.unit,
             'relative': metric.relative,
             'n_values': sum(mv.n_values for mv in per_dataset.values()),
-            'n_sequencing_groups': len({sg for mv in per_dataset.values() for _, sg, _ in mv.entries}),
+            'n_groups_with_values': len({sg for mv in per_dataset.values() for _, sg, _ in mv.entries}),
             'n_datasets': len(with_data),
             'n_dropped': sum(mv.n_dropped for mv in per_dataset.values()),
             'present_in': sorted({section for mv in per_dataset.values() for section in mv.sections}),
@@ -3195,7 +3220,7 @@ Create `src/align_genotype/templates/qc_calibration_report.html.jinja`:
       <td class="num">{% if m.candidate %}{{ m.candidate.fail | num(m.unit) }}{% else %}—{% endif %}</td>
       <td class="num">{% if m.candidate %}{{ m.candidate.warn | num(m.unit) }}{% else %}—{% endif %}</td>
       <td class="num">{{ m.n_values }}</td>
-      <td class="num">{{ m.n_sequencing_groups }}</td>
+      <td class="num">{{ m.n_groups_with_values }}</td>
       <td class="num">{{ m.n_datasets }}</td>
       <td class="num">{{ m.n_dropped }}</td>
     </tr>
@@ -3240,7 +3265,7 @@ Create `src/align_genotype/templates/qc_calibration_report.html.jinja`:
     <tr>
       <td>{{ d.dataset }}</td>
       <td class="num">{{ d.n_values }}</td>
-      <td class="num">{{ d.n_sequencing_groups }}</td>
+      <td class="num">{{ d.n_groups_with_values }}</td>
       <td class="num">{{ d.median | stat }}</td>
       <td class="num">{{ d.mad | stat }}</td>
       <td class="num">{{ d.threshold | stat }}</td>
@@ -4850,6 +4875,10 @@ queues a job.
 - **Resolve fixture paths from the package, not the working directory.** A test that
   does `Path('src/align_genotype/...')` passes from the repo root and fails under an IDE
   runner or `pytest <absolute-path>`. Use `Path(align_genotype.__file__).parent / ...`.
+- **`n_sequencing_groups` is the dataset total; `n_groups_with_values` is per metric.**
+  They diverge whenever a metric is missing for some groups. Rates over a metric use
+  `n_values` (matching production's per-value threshold) or `n_groups_with_values` -
+  never the dataset total.
 - **MAD fixtures need at least three points.** With two, the modified z-score is always
   exactly `±0.6745` (MAD equals half the range), so nothing can ever be flagged at any
   `k` this codebase uses, and a test built on two points passes whatever the code does.

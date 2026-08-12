@@ -338,13 +338,13 @@ settings            k, min_samples, max_warn_rate, max_growth_churn, max_merge_c
 datasets[]          dataset, analysis_id, timestamp, uri, n_sequencing_groups,
                     multiqc_version
 skipped_datasets[]  dataset, reason
-metrics{KEY}        direction, unit, n_values, n_sequencing_groups, n_datasets,
+metrics{KEY}        direction, unit, n_values, n_groups_with_values, n_datasets,
                     n_dropped, present_in[], missing_from[],
                     current{fail, warn}, candidate{fail, warn, basis},
                     flag_rates{current{dataset: [fail, warn]}, candidate{…}},
                     percentiles{dataset: {p1 … p99}}
 relative{KEY}       verdict, reason, max_warn_rate, max_growth_churn, max_merge_churn,
-                    datasets[]{n_values, n_sequencing_groups, median, mad, threshold,
+                    datasets[]{n_values, n_groups_with_values, median, mad, threshold,
                                n_warn, warn_rate, skipped},
                     growth[]{ordered, shuffled, worse, ordering_sensitive},
                     merge_worst[]
@@ -352,8 +352,11 @@ warnings[]
 config_snippet      the qc_thresholds TOML block, as a string
 ```
 
-`n_values` and `n_sequencing_groups` both appear, per metric and per dataset — correction
-4 made visible rather than caveated. `current` is read from the live
+`n_values` and `n_groups_with_values` both appear per metric — correction 4 made visible
+rather than caveated. The two are named differently on purpose: `n_sequencing_groups` on a
+dataset is that dataset's total, while `n_groups_with_values` counts only the groups
+carrying that metric, and they diverge whenever a metric is partially missing. A rate over
+a metric divides by `n_values` or `n_groups_with_values`, never by the dataset total. `current` is read from the live
 `[qc_thresholds.<seq_type>...]` config, so every candidate is presented against what is
 shipped today.
 
