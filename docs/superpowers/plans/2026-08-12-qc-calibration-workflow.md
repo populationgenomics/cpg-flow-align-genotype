@@ -761,6 +761,1315 @@ unsourced while the genome ones read as evidence-based, which is true of neither
 Then replace the remaining bare uses of "cohort" in the `qc_thresholds` comments with "dataset", since under CPG Flow each MultiQC run covers one dataset. Find them with
 `grep -n 'cohort' src/align_genotype/config_template.toml` and change every hit inside a `qc_thresholds` comment (e.g. "Cohort medians ~32-37x" → "Dataset medians ~32-37x", "~25-37% of legitimately higher-dup preps in the two highest-duplication cohorts" → "... datasets").
 
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `uv run python -m pytest test/test_qc_calibration_settings.py -v`
+
+Expected: PASS, 19 tests (the 18 from Task 2, plus this one).
+
+- [ ] **Step 6: Verify no scratch references remain**
+
+Run: `grep -rn 'testing_scripts' src/`
+
+Expected: no output.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/align_genotype/config_template.toml test/test_qc_calibration_settings.py
+git commit -m "feat(qc_calibration): ship the calibration metric lists in the config template
+
+Genome and exome candidate sets are disjoint where the Picard module differs, so
+they are config rather than constants. Ships disabled. Also drops the local
+scratch-script citations from the qc_thresholds comments and switches their
+cohort/dataset wording to CPG Flow's."
+```
+
+---
+
+## Task 4: `values.py` — the per-dataset values file
+
+Replaces `cache.py`. Two changes of substance. First, the sequencing group ID is kept alongside every value, so value counts and sequencing-group counts are both exact — the old cache stored bare floats and therefore could not answer "what is the per-sequencing-group warn rate", which matters because MultiQC 1.33 can split one tool across sections and a sequencing group then contributes one value per section. Second, the file is written by a Hail Batch job to a local path that Hail uploads, so the old `mkstemp`-then-`replace` dance and the `CloudPath` branch are gone.
+
+**Files:**
+- Create: `src/align_genotype/qc_calibration/values.py`
+- Test: `test/test_qc_calibration_values.py`
+
+- [ ] **Step 1: Write the failing test**
+
+Create `test/test_qc_calibration_values.py`:
+
+```python
+"""Unit tests for the per-dataset values file."""
+
+import json
+
+import numpy as np
+import pytest
+
+from align_genotype.qc_calibration import values as values_mod
+
+
+def make_values(**overrides) -> values_mod.DatasetValues:
+    defaults = {
+        'dataset': 'dataset-a',
+        'seq_type': 'genome',
+        'analysis_id': 42,
+        'timestamp': '2026-06-01T00:00:00',
+        'uri': 'gs://bucket/multiqc_data.json',
+        'multiqc_version': '1.33',
+        'generated': '2026-08-12T00:00:00',
+        'n_sequencing_groups': 3,
+        'section_sizes': {'picard_1': 3},
+        'metrics': {
+            'MEDIAN_COVERAGE': values_mod.MetricValues(
+                entries=(('picard_1', 'CPG1', 30.0), ('picard_1', 'CPG2', 34.0), ('picard_1', 'CPG3', 38.0)),
+                n_dropped=1,
+            ),
+        },
+    }
+    return values_mod.DatasetValues(**{**defaults, **overrides})
+
+
+def test_metric_values_exposes_an_array_in_entry_order():
+    metric = make_values().metrics['MEDIAN_COVERAGE']
+    np.testing.assert_array_equal(metric.array, np.array([30.0, 34.0, 38.0]))
+
+
+def test_metric_values_counts_values_and_sequencing_groups_separately():
+    """One sequencing group in two sections yields two values but one group."""
+    metric = values_mod.MetricValues(
+        entries=(('picard_1', 'CPG1', 1.0), ('picard_4', 'CPG1', 1.0), ('picard_1', 'CPG2', 2.0)),
+        n_dropped=0,
+    )
+    assert metric.n_values == 3
+    assert metric.n_groups_with_values == 2
+    assert metric.duplicated is True
+    assert metric.sections == ('picard_1', 'picard_4')
+
+
+def test_metric_values_not_duplicated_when_one_section():
+    assert make_values().metrics['MEDIAN_COVERAGE'].duplicated is False
+
+
+def test_empty_metric_values_gives_an_empty_array():
+    metric = values_mod.MetricValues(entries=(), n_dropped=0)
+    assert metric.array.size == 0
+    assert metric.n_values == 0
+    assert metric.n_groups_with_values == 0
+    assert metric.sections == ()
+
+
+def test_array_filters_non_finite_defensively():
+    """extract already drops these; the file is JSON and could be hand-edited."""
+    metric = values_mod.MetricValues(
+        entries=(('s', 'CPG1', 1.0), ('s', 'CPG2', float('nan')), ('s', 'CPG3', float('inf'))),
+        n_dropped=0,
+    )
+    np.testing.assert_array_equal(metric.array, np.array([1.0]))
+
+
+def test_round_trips_through_json(tmp_path):
+    path = tmp_path / 'values.json'
+    original = make_values()
+    values_mod.save(original, path)
+    assert values_mod.load(path) == original
+
+
+def test_saved_json_is_readable_and_shaped_as_documented(tmp_path):
+    path = tmp_path / 'values.json'
+    values_mod.save(make_values(), path)
+    payload = json.loads(path.read_text())
+    assert payload['dataset'] == 'dataset-a'
+    assert payload['analysis_id'] == 42
+    assert payload['metrics']['MEDIAN_COVERAGE']['n_dropped'] == 1
+    assert payload['metrics']['MEDIAN_COVERAGE']['entries'][0] == ['picard_1', 'CPG1', 30.0]
+
+
+def test_save_refuses_a_non_finite_value(tmp_path):
+    """A NaN reaching the file would poison every percentile downstream."""
+    broken = make_values(
+        metrics={'X': values_mod.MetricValues(entries=(('s', 'CPG1', float('nan')),), n_dropped=0)},
+    )
+    with pytest.raises(values_mod.ValuesError, match='non-finite'):
+        values_mod.save(broken, tmp_path / 'values.json')
+
+
+def test_load_rejects_a_boolean_count(tmp_path):
+    """`int(True)` is 1 with no exception, so a bool must be rejected explicitly."""
+    path = tmp_path / 'values.json'
+    values_mod.save(make_values(), path)
+    payload = json.loads(path.read_text())
+    payload['analysis_id'] = True
+    path.write_text(json.dumps(payload))
+    with pytest.raises(values_mod.ValuesError, match='analysis_id'):
+        values_mod.load(path)
+
+
+def test_load_rejects_a_boolean_metric_value(tmp_path):
+    path = tmp_path / 'values.json'
+    values_mod.save(make_values(), path)
+    payload = json.loads(path.read_text())
+    payload['metrics']['MEDIAN_COVERAGE']['entries'][0][2] = True
+    path.write_text(json.dumps(payload))
+    with pytest.raises(values_mod.ValuesError):
+        values_mod.load(path)
+
+
+def test_dataset_values_metric_returns_the_stored_metric_when_present():
+    assert make_values().metric('MEDIAN_COVERAGE').n_values == 3
+
+
+def test_load_names_the_file_when_the_shape_is_wrong(tmp_path):
+    path = tmp_path / 'values.json'
+    path.write_text('{"dataset": "a"}')
+    with pytest.raises(values_mod.ValuesError, match=str(path)):
+        values_mod.load(path)
+
+
+def test_load_names_the_file_when_the_json_is_malformed(tmp_path):
+    path = tmp_path / 'values.json'
+    path.write_text('{not json')
+    with pytest.raises(values_mod.ValuesError, match=str(path)):
+        values_mod.load(path)
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run python -m pytest test/test_qc_calibration_values.py -v`
+
+Expected: FAIL — `ModuleNotFoundError: No module named 'align_genotype.qc_calibration.values'`.
+
+- [ ] **Step 3: Write the implementation**
+
+Create `src/align_genotype/qc_calibration/values.py`:
+
+```python
+"""The per-dataset values file - the small artifact the report stage reads.
+
+One MultiQC report runs to hundreds of megabytes; this is what it distils to, and it is
+the only thing the cross-dataset analysis ever loads. Values carry the sequencing group
+they came from, because MultiQC 1.33 can split one tool across general-stats sections
+(`picard_1` and `picard_4` both sit in the Picard namespace) and a sequencing group then
+contributes one value per section. Threshold derivation keeps that duplication because
+production does - `check_multiqc._relative_flags_for_metric` feeds the same doubled list
+to `robust_threshold` - but reporting a per-sequencing-group rate needs the identity, and
+storing bare floats made that uncomputable.
+"""
+
+import json
+import math
+from dataclasses import dataclass, field
+from typing import Any
+
+import numpy as np
+
+from cpg_utils import Path, to_path
+
+# (section, sequencing group, value) - the shape `check_multiqc.gather_metric_values`
+# returns, kept verbatim so nothing has to be reshaped on the way in.
+Entry = tuple[str, str, float]
+
+
+class ValuesError(RuntimeError):
+    """A values file could not be read, or holds something that must never be written."""
+
+
+def _require_int(field: str, value: Any) -> int:
+    """Reject a bool before `int()` silently turns it into 0 or 1.
+
+    `bool` subclasses `int`, so `isinstance(True, int)` is True and `int(True)` is 1 with
+    no exception - the same trap `settings.py` guards against. The `TypeError` raised here
+    is caught by `load`'s except clause and rewrapped with the file path.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f'{field} must be an integer, got {value!r}')
+    return value
+
+
+def _require_number(field: str, value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f'{field} must be a number, got {value!r}')
+    return float(value)
+
+
+@dataclass(frozen=True)
+class MetricValues:
+    """One metric's usable values in one dataset, plus how many were unusable."""
+
+    entries: tuple[Entry, ...]
+    n_dropped: int
+
+    @property
+    def array(self) -> np.ndarray:
+        """The values as a float array, in entry order.
+
+        Non-finite values are filtered here as well as in `extract`: this is a plain JSON
+        file, and every percentile and MAD downstream assumes finite input.
+        """
+        if not self.entries:
+            return np.array([], dtype=float)
+        values = np.array([value for _, _, value in self.entries], dtype=float)
+        return values[np.isfinite(values)]
+
+    @property
+    def n_values(self) -> int:
+        return len(self.entries)
+
+    @property
+    def n_groups_with_values(self) -> int:
+        """Distinct sequencing groups carrying this metric.
+
+        Deliberately not `n_sequencing_groups`: `DatasetValues` has a field of that name
+        meaning the dataset's *total*, and the two diverge whenever a metric is missing
+        for some groups. Picking the wrong one as a rate denominator is a silent bug.
+        """
+        return len({sg for _, sg, _ in self.entries})
+
+    @property
+    def sections(self) -> tuple[str, ...]:
+        return tuple(sorted({section for section, _, _ in self.entries}))
+
+    @property
+    def duplicated(self) -> bool:
+        """Whether this metric carries more values than sequencing groups."""
+        return self.n_values > self.n_groups_with_values
+
+
+@dataclass(frozen=True)
+class DatasetValues:
+    """One dataset's extracted values, with the provenance of the report they came from."""
+
+    dataset: str
+    seq_type: str
+    analysis_id: int
+    timestamp: str
+    uri: str
+    multiqc_version: str
+    generated: str
+    n_sequencing_groups: int
+    section_sizes: dict[str, int] = field(default_factory=dict)
+    metrics: dict[str, MetricValues] = field(default_factory=dict)
+
+    def metric(self, key: str) -> MetricValues:
+        """This dataset's values for `key`, empty rather than missing if absent."""
+        return self.metrics.get(key, MetricValues(entries=(), n_dropped=0))
+
+
+def save(values: DatasetValues, path: str | Path) -> None:
+    """Write a values file as JSON.
+
+    `allow_nan=False` is the guard that matters: a non-finite value written here would
+    reach every percentile and MAD in the report stage. Serialising before opening the
+    target means such a value raises with nothing written.
+    """
+    payload: dict[str, Any] = {
+        'dataset': values.dataset,
+        'seq_type': values.seq_type,
+        'analysis_id': values.analysis_id,
+        'timestamp': values.timestamp,
+        'uri': values.uri,
+        'multiqc_version': values.multiqc_version,
+        'generated': values.generated,
+        'n_sequencing_groups': values.n_sequencing_groups,
+        'section_sizes': dict(values.section_sizes),
+        'metrics': {
+            key: {
+                'n_dropped': metric.n_dropped,
+                'entries': [[section, sg, value] for section, sg, value in metric.entries],
+            }
+            for key, metric in values.metrics.items()
+        },
+    }
+    for key, metric in values.metrics.items():
+        for _, sg, value in metric.entries:
+            if not math.isfinite(value):
+                raise ValuesError(f'{values.dataset}: metric {key!r} sequencing group {sg!r} has a non-finite value')
+    text = json.dumps(payload, indent=2, allow_nan=False)
+    with to_path(path).open('w') as f:
+        f.write(text)
+
+
+def _require_finite(field: str, value: float) -> float:
+    """Reject a non-finite value on read, matching what `save` refuses to write.
+
+    Without this a hand-edited file loads cleanly and then has `len(array) != n_values`,
+    because `array` filters non-finite values while `n_values` counts them - and
+    downstream code divides by `n_values`.
+    """
+    if not math.isfinite(value):
+        raise ValueError(f'{field} is non-finite ({value!r})')
+    return value
+
+
+def load(path: str | Path) -> DatasetValues:
+    """Read a values file written by `save`.
+
+    Every parse failure surfaces as one `ValuesError` naming the path: a missing key, a
+    wrong-shaped value and malformed JSON otherwise raise three unrelated exception types
+    with no indication of which of N files was at fault.
+    """
+    try:
+        with to_path(path).open() as f:
+            raw = json.load(f)
+        return DatasetValues(
+            dataset=raw['dataset'],
+            seq_type=raw['seq_type'],
+            analysis_id=_require_int('analysis_id', raw['analysis_id']),
+            timestamp=raw['timestamp'],
+            uri=raw['uri'],
+            multiqc_version=raw['multiqc_version'],
+            generated=raw['generated'],
+            n_sequencing_groups=_require_int('n_sequencing_groups', raw['n_sequencing_groups']),
+            section_sizes=dict(raw['section_sizes']),
+            metrics={
+                key: MetricValues(
+                    entries=tuple(
+                        (
+                            section,
+                            sg,
+                            _require_finite(
+                                f'metric {key!r} sequencing group {sg!r}',
+                                _require_number(f'metric {key!r} sequencing group {sg!r}', value),
+                            ),
+                        )
+                        for section, sg, value in body['entries']
+                    ),
+                    n_dropped=_require_int(f'{key} n_dropped', body['n_dropped']),
+                )
+                for key, body in raw['metrics'].items()
+            },
+        )
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise ValuesError(f'{path}: not a usable values file - {exc}') from exc
+```
+
+`json.JSONDecodeError` subclasses `ValueError`, so it is caught by the clause above.
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `uv run python -m pytest test/test_qc_calibration_values.py -v`
+
+Expected: PASS, 15 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/align_genotype/qc_calibration/values.py test/test_qc_calibration_values.py
+git commit -m "feat(qc_calibration): per-dataset values file keyed by sequencing group
+
+Replaces the multi-dataset value cache. Keeping the sequencing group alongside
+each value makes value and group counts both exact, which the old bare-float
+cache could not do when MultiQC splits one tool across general-stats sections.
+Hail writes the file, so the atomic-rename and CloudPath branches go."
+```
+
+---
+
+## Task 5: `extract.py` — one MultiQC document to one `DatasetValues`
+
+Replaces `collect.py`. The old module looped over a manifest, called `gc.collect()` between reports and wrapped each in a broad `except Exception` so one bad dataset did not discard the successes behind it. None of that is needed: one Hail job handles one report, and Hail isolates per-job failure.
+
+**Files:**
+- Create: `src/align_genotype/qc_calibration/extract.py`
+- Test: `test/test_qc_calibration_extract.py`
+
+- [ ] **Step 1: Write the failing test**
+
+Create `test/test_qc_calibration_extract.py`:
+
+```python
+"""Unit tests for extracting one MultiQC report into a values file."""
+
+import numpy as np
+import pytest
+
+from align_genotype.qc_calibration import extract as extract_mod
+from align_genotype.qc_calibration import settings as settings_mod
+
+SETTINGS = settings_mod.CalibrationSettings(
+    seq_type='genome',
+    metrics=(
+        settings_mod.MetricSpec(key='MEDIAN_COVERAGE', direction='min', unit='x'),
+        settings_mod.MetricSpec(key='FREEMIX', direction='max', unit='frac'),
+    ),
+)
+
+PROVENANCE = {
+    'dataset': 'dataset-a',
+    'analysis_id': 42,
+    'timestamp': '2026-06-01T00:00:00',
+    'uri': 'gs://bucket/multiqc_data.json',
+    'generated': '2026-08-12T00:00:00',
+}
+
+
+def document(general_stats, version='1.33') -> dict:
+    return {'config_version': version, 'report_general_stats_data': general_stats}
+
+
+def test_extracts_values_from_the_v133_dict_shape():
+    doc = document(
+        {
+            'picard_1': {'CPG1': {'MEDIAN_COVERAGE': 30.0}, 'CPG2': {'MEDIAN_COVERAGE': 34.0}},
+            'verifybamid': {'CPG1': {'FREEMIX': 0.001}},
+        },
+    )
+    result = extract_mod.extract(doc, SETTINGS, **PROVENANCE)
+    assert result.dataset == 'dataset-a'
+    assert result.seq_type == 'genome'
+    assert result.multiqc_version == '1.33'
+    assert result.n_sequencing_groups == 2
+    assert result.section_sizes == {'picard_1': 2, 'verifybamid': 1}
+    np.testing.assert_array_equal(result.metric('MEDIAN_COVERAGE').array, np.array([30.0, 34.0]))
+    np.testing.assert_array_equal(result.metric('FREEMIX').array, np.array([0.001]))
+
+
+def test_extracts_values_from_the_v114_list_shape():
+    """v1.14 stores general stats as a positional list; both shapes exist in real reports."""
+    doc = document([{'CPG1': {'MEDIAN_COVERAGE': 30.0}}, {'CPG1': {'FREEMIX': 0.001}}], version='1.14')
+    result = extract_mod.extract(doc, SETTINGS, **PROVENANCE)
+    assert sorted(result.section_sizes) == ['section_0', 'section_1']
+    np.testing.assert_array_equal(result.metric('MEDIAN_COVERAGE').array, np.array([30.0]))
+
+
+def test_strips_the_rich_id_suffix_to_get_the_sequencing_group():
+    """MultiQC runs with --replace-names, so sample keys can read CPG1|EXTID."""
+    doc = document({'picard_1': {'CPG1|EXT1': {'MEDIAN_COVERAGE': 30.0}}})
+    result = extract_mod.extract(doc, SETTINGS, **PROVENANCE)
+    assert result.metric('MEDIAN_COVERAGE').entries == (('picard_1', 'CPG1', 30.0),)
+
+
+def test_one_group_in_two_sections_yields_two_values_and_one_group():
+    doc = document(
+        {
+            'picard_1': {'CPG1': {'MEDIAN_COVERAGE': 30.0}},
+            'picard_4': {'CPG1': {'MEDIAN_COVERAGE': 30.0}},
+        },
+    )
+    metric = extract_mod.extract(doc, SETTINGS, **PROVENANCE).metric('MEDIAN_COVERAGE')
+    assert (metric.n_values, metric.n_groups_with_values) == (2, 1)
+
+
+def test_picard_question_mark_placeholder_is_dropped_and_counted():
+    doc = document({'picard_1': {'CPG1': {'MEDIAN_COVERAGE': '?'}, 'CPG2': {'MEDIAN_COVERAGE': 34.0}}})
+    metric = extract_mod.extract(doc, SETTINGS, **PROVENANCE).metric('MEDIAN_COVERAGE')
+    np.testing.assert_array_equal(metric.array, np.array([34.0]))
+    assert metric.n_dropped == 1
+
+
+def test_non_finite_value_is_dropped_and_counted():
+    doc = document({'picard_1': {'CPG1': {'MEDIAN_COVERAGE': float('nan')}, 'CPG2': {'MEDIAN_COVERAGE': 34.0}}})
+    metric = extract_mod.extract(doc, SETTINGS, **PROVENANCE).metric('MEDIAN_COVERAGE')
+    np.testing.assert_array_equal(metric.array, np.array([34.0]))
+    assert metric.n_dropped == 1
+
+
+def test_numeric_strings_are_coerced():
+    doc = document({'picard_1': {'CPG1': {'MEDIAN_COVERAGE': '30.5'}}})
+    metric = extract_mod.extract(doc, SETTINGS, **PROVENANCE).metric('MEDIAN_COVERAGE')
+    np.testing.assert_array_equal(metric.array, np.array([30.5]))
+    assert metric.n_dropped == 0
+
+
+def test_a_metric_absent_from_the_report_is_present_but_empty():
+    """Absence must be recorded, not omitted - the report banner is built from this."""
+    doc = document({'picard_1': {'CPG1': {'MEDIAN_COVERAGE': 30.0}}})
+    result = extract_mod.extract(doc, SETTINGS, **PROVENANCE)
+    assert 'FREEMIX' in result.metrics
+    assert result.metric('FREEMIX').entries == ()
+
+
+def test_a_document_that_is_not_an_object_is_an_error():
+    with pytest.raises(extract_mod.ExtractError, match='not an object'):
+        extract_mod.extract([], SETTINGS, **PROVENANCE)
+
+
+def test_no_usable_general_stats_is_an_error():
+    """Refusing beats reporting a clean extraction on a report we could not read."""
+    with pytest.raises(extract_mod.ExtractError, match='no usable report_general_stats_data'):
+        extract_mod.extract(document(None), SETTINGS, **PROVENANCE)
+
+
+def test_empty_general_stats_is_a_distinct_error():
+    """A report that parsed fine but holds zero modules is a different problem from one
+    we could not read, and sends an operator somewhere different. Matching a shared
+    substring here would not detect the two messages being re-merged."""
+    with pytest.raises(extract_mod.ExtractError, match=r'present but empty'):
+        extract_mod.extract(document({}), SETTINGS, **PROVENANCE)
+
+
+def test_both_unreadable_errors_name_the_dataset_and_uri():
+    for doc in (document(None), document({})):
+        with pytest.raises(extract_mod.ExtractError, match=r'dataset-a.*gs://bucket'):
+            extract_mod.extract(doc, SETTINGS, **PROVENANCE)
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run python -m pytest test/test_qc_calibration_extract.py -v`
+
+Expected: FAIL — `ModuleNotFoundError: No module named 'align_genotype.qc_calibration.extract'`.
+
+- [ ] **Step 3: Write the implementation**
+
+Create `src/align_genotype/qc_calibration/extract.py`:
+
+```python
+"""Distil one MultiQC report into one dataset's values file.
+
+Extraction goes through `check_multiqc.normalise_sections` and
+`check_multiqc.gather_metric_values`, so calibration sees precisely what enforcement
+sees. A metric configured but absent from the report is recorded present-and-empty
+rather than omitted: that distinction is what the report's presence matrix is built
+from, and a silently absent metric is how a gate goes inert.
+"""
+
+import math
+from typing import Any
+
+from align_genotype.qc_calibration.settings import CalibrationSettings
+from align_genotype.qc_calibration.values import DatasetValues, MetricValues
+from align_genotype.scripts import check_multiqc
+
+
+class ExtractError(RuntimeError):
+    """A MultiQC report could not be read, or holds nothing to extract."""
+
+
+def extract(
+    document: Any,
+    settings: CalibrationSettings,
+    *,
+    dataset: str,
+    analysis_id: int,
+    timestamp: str,
+    uri: str,
+    generated: str,
+) -> DatasetValues:
+    """Extract every configured metric from one parsed MultiQC document."""
+    # `[]`, `null`, `42` and `"str"` are all valid JSON, so a truncated or wrong-file URI
+    # can parse cleanly and then fail on `.get` with a bare AttributeError naming neither
+    # the dataset nor the path.
+    if not isinstance(document, dict):
+        raise ExtractError(f'{dataset}: report is a {type(document).__name__}, not an object, in {uri}')
+
+    # `or`, not a `get` default: an explicit `"config_version": null` would otherwise
+    # record the version as the string 'None'.
+    version = str(document.get('config_version') or 'unknown')
+    raw = document.get('report_general_stats_data')
+    sections = check_multiqc.normalise_sections(raw)
+    if not sections:
+        # Two operationally different failures, kept apart exactly as
+        # `check_multiqc.load_sections` keeps them apart: a report we could not read sends
+        # an operator to the file and their credentials, while a report that parsed fine
+        # and genuinely holds no QC modules means the dataset belongs out of the run.
+        if isinstance(raw, (dict, list)) and len(raw) == 0:
+            raise ExtractError(
+                f'{dataset}: report_general_stats_data is present but empty (multiqc {version}) in {uri}; '
+                f'the report contains zero QC modules, so there is nothing to calibrate from',
+            )
+        raise ExtractError(f'{dataset}: no usable report_general_stats_data (multiqc {version}) in {uri}')
+
+    metrics: dict[str, MetricValues] = {}
+    for metric in settings.metrics:
+        entries, n_non_numeric = check_multiqc.gather_metric_values(sections, metric.key)
+        finite = tuple(
+            # Production derives a sequencing group ID the same way: MultiQC runs with
+            # --replace-names against the dataset's rich ID map, so a sample key can read
+            # `CPG1|EXTID`.
+            (section, sample.split('|', 1)[0], value)
+            for section, sample, value in entries
+            if math.isfinite(value)
+        )
+        # Two disjoint kinds of loss - values float() refused, and values it accepted that
+        # came back nan/inf - so summing them cannot double-count.
+        metrics[metric.key] = MetricValues(
+            entries=finite,
+            n_dropped=n_non_numeric + (len(entries) - len(finite)),
+        )
+
+    return DatasetValues(
+        dataset=dataset,
+        seq_type=settings.seq_type,
+        analysis_id=analysis_id,
+        timestamp=timestamp,
+        uri=uri,
+        multiqc_version=version,
+        generated=generated,
+        n_sequencing_groups=len(
+            {sample.split('|', 1)[0] for section in sections.values() for sample in section},
+        ),
+        section_sizes={name: len(section) for name, section in sections.items()},
+        metrics=metrics,
+    )
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `uv run python -m pytest test/test_qc_calibration_extract.py -v`
+
+Expected: PASS, 11 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/align_genotype/qc_calibration/extract.py test/test_qc_calibration_extract.py
+git commit -m "feat(qc_calibration): extract one MultiQC report per dataset
+
+One report per call, so the gc.collect() loop and the broad per-dataset except
+that kept one bad URI from discarding the successes behind it both go - Hail
+isolates per-job failure. Sequencing group IDs are stripped of their rich-ID
+suffix exactly as production does."
+```
+
+---
+
+## Task 6: Retire the "cohort" wording in `stats.py`
+
+`stats.py` needs no logic change — percentiles, flag rates and the churn simulation are
+already pure functions over arrays. Only the wording is wrong.
+
+**Files:**
+- Modify: `src/align_genotype/qc_calibration/stats.py`
+- Modify: `test/test_qc_calibration_stats.py`
+
+- [ ] **Step 1: Confirm the suite is green before touching anything**
+
+Run: `uv run python -m pytest test/test_qc_calibration_stats.py -v`
+
+Expected: PASS, 20 tests.
+
+- [ ] **Step 2: Rewrite the module docstring and the two comments**
+
+In `src/align_genotype/qc_calibration/stats.py`, replace the module docstring with:
+
+```python
+"""Numeric analysis over extracted values - percentiles, flag rates, dataset-growth churn.
+
+No I/O and no config: everything here is a pure function of arrays already in memory.
+"""
+```
+
+Replace the `FAIL_RATE_LIMIT` / `WARN_RATE_LIMIT` comment with:
+
+```python
+# A healthy dataset should sit near 0% fail and single-digit % warn. Beyond these, a
+# candidate threshold is marked for a second look - advice, not a rejection: "healthy
+# dataset" is a human judgement, not a computable property.
+```
+
+In `ChurnResult`, replace the class docstring with:
+
+```python
+    """How a dataset-relative threshold moved, and who changed status because of it."""
+```
+
+In `churn`, replace the docstring with:
+
+```python
+    """Re-score the *initial* values against the *grown* set's threshold.
+
+    `flips` counts values whose flag status changes purely because the dataset grew -
+    each one a spurious "updated" flag in the database, which is the cost that decides
+    whether a dataset-relative tier is safe to adopt. Returns None when either set has a
+    degenerate (zero) MAD, since no threshold exists to compare.
+
+    Thresholds are rounded to 4 dp exactly as production does, so the simulation measures
+    the churn operators would actually see rather than sub-0.0001 jitter.
+    """
+```
+
+- [ ] **Step 3: Update the test file's wording**
+
+Run: `grep -n cohort test/test_qc_calibration_stats.py`
+
+Change every hit to `dataset`. These are docstrings and comments only; no assertion changes.
+
+- [ ] **Step 4: Verify nothing broke**
+
+Run: `uv run python -m pytest test/test_qc_calibration_stats.py -v`
+
+Expected: PASS, 20 tests.
+
+- [ ] **Step 5: Verify no stray wording remains**
+
+Run: `grep -n cohort src/align_genotype/qc_calibration/stats.py`
+
+Expected: no output.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/align_genotype/qc_calibration/stats.py test/test_qc_calibration_stats.py
+git commit -m "refactor(qc_calibration): use dataset wording in stats
+
+Comments and docstrings only - the arithmetic is unchanged."
+```
+
+---
+
+## Task 6b: Delete the first half of the CLI surface
+
+Deletion is split in two because the old modules import each other. `cli.py` imports
+almost everything; `emit.py` imports `report`, `spec`, `cache` and `tomlio`; `dryrun.py`
+imports `emit` and `manifest`. Rewriting `relative.py` in Task 7 removes its `spec` /
+`cache` / `tomlio` imports, but the modules deleted here would still be importing the old
+versions — so they have to go first, or the full suite is red from Task 7 to Task 17.
+
+What stays for now: `spec.py`, `cache.py`, `tomlio.py` and `manifest.py`, because the
+un-rewritten `discovery.py` still imports the last two. They go in Task 17, once Task 12
+has rewritten it.
+
+**Files:**
+- Delete: `src/align_genotype/qc_calibration/{cli,dryrun,emit,report,suggest,collect}.py`
+- Delete: `test/test_qc_calibration_{cli,dryrun,emit,report,suggest,collect}.py`
+- Modify: `pyproject.toml`
+
+- [ ] **Step 1: Delete the modules and their tests**
+
+```bash
+git rm src/align_genotype/qc_calibration/{cli,dryrun,emit,report,suggest,collect}.py
+git rm test/test_qc_calibration_{cli,dryrun,emit,report,suggest,collect}.py
+```
+
+- [ ] **Step 2: Drop the console script**
+
+In `pyproject.toml`, remove these three lines — the entry point now names a module that
+no longer exists:
+
+```toml
+# the QC threshold calibration tool - operator-facing, run by hand off a checkout; the
+# pipeline never invokes it
+qc_calibrate = 'align_genotype.qc_calibration.cli:main'
+```
+
+- [ ] **Step 3: Verify nothing still imports them**
+
+Run: `grep -rn 'qc_calibration import \(cli\|dryrun\|emit\|report\|suggest\|collect\)\|qc_calibration\.\(cli\|dryrun\|emit\|report\|suggest\|collect\)\|qc_calibrate' src/ test/ pyproject.toml`
+
+Expected: no output. `report.py`'s `fmt_measure` was imported by `emit.py`; both are gone,
+and the new `render.py` carries its own formatting filters.
+
+- [ ] **Step 4: Run the whole suite**
+
+Run: `uv run python -m pytest -q`
+
+Expected: PASS. The remaining old tests (`spec`, `cache`, `tomlio`, `manifest`,
+`discovery`, `relative`, `stats`) still cover unchanged modules, alongside the new
+`settings`, `values` and `extract` suites.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A src/align_genotype/qc_calibration test/ pyproject.toml
+git commit -m "refactor(qc_calibration): remove the CLI and its report renderers
+
+cli, dryrun, emit, report, suggest and collect have no consumer now that the
+stage is the entrypoint and settings/values/extract cover the data layer. The
+qc_calibrate console script goes with them. spec, cache, tomlio and manifest
+follow once discovery no longer imports them."
+```
+
+---
+
+## Task 7: Rewrite `relative.py` without the global-config detour
+
+The current module writes a throwaway TOML, installs it with `config.set_config_paths()`,
+calls `check_multiqc.relative_flags` to count warns, then tries to restore the previous
+paths. That was defensible in a local CLI. Inside a Hail Batch job, where CPG Flow has
+already installed the run's config and every later `config_retrieve` depends on it,
+mutating global config paths to obtain a warn count is a hazard.
+
+The "no second MAD implementation anywhere" invariant is preserved: `robust_threshold`
+is production's own function, `stats.churn` already calls it directly, and counting a
+breach against a 4-dp-rounded threshold is exactly what `_relative_flags_for_metric`
+does after it derives one.
+
+**Files:**
+- Modify: `src/align_genotype/qc_calibration/relative.py` (full rewrite)
+- Replace: `test/test_qc_calibration_relative.py` (full rewrite)
+
+- [ ] **Step 1: Write the failing test**
+
+Replace the whole of `test/test_qc_calibration_relative.py` with:
+
+```python
+"""Unit tests for dataset-relative (MAD) tier evaluation."""
+
+import numpy as np
+import pytest
+
+from align_genotype.qc_calibration import relative as relative_mod
+from align_genotype.qc_calibration import settings as settings_mod
+from align_genotype.qc_calibration import values as values_mod
+
+METRIC = settings_mod.MetricSpec(key='dup_pct', direction='max', unit='%', relative=True)
+
+
+def settings(min_samples=4, **bars) -> settings_mod.CalibrationSettings:
+    return settings_mod.CalibrationSettings(
+        seq_type='genome',
+        metrics=(METRIC,),
+        k=3.5,
+        min_samples=min_samples,
+        bars=settings_mod.Bars(**bars),
+    )
+
+
+def metric_values(values, section='samtools') -> values_mod.MetricValues:
+    return values_mod.MetricValues(
+        entries=tuple((section, f'CPG{i}', float(v)) for i, v in enumerate(values)),
+        n_dropped=0,
+    )
+
+
+def test_derives_median_mad_and_threshold_per_dataset():
+    by_dataset = {'ds-a': metric_values([10.0, 10.0, 12.0, 12.0, 40.0])}
+    result = relative_mod.evaluate(by_dataset, METRIC, settings())
+    (dataset,) = result.datasets
+    assert dataset.dataset == 'ds-a'
+    assert dataset.median == pytest.approx(12.0)
+    assert dataset.mad_raw == pytest.approx(2.0)
+    # median + k*MAD/0.6745 = 12 + 3.5*2/0.6745 = 22.3795...
+    assert dataset.threshold == pytest.approx(22.3795, abs=1e-4)
+    assert dataset.n_warn == 1  # only the 40.0
+    assert dataset.skipped is None
+
+
+def test_threshold_matches_production_rounded_to_four_dp():
+    """The displayed threshold must be the number production compares against."""
+    from align_genotype.scripts import check_multiqc  # noqa: PLC0415
+
+    values = [10.0, 10.0, 12.0, 12.0, 40.0]
+    expected = round(check_multiqc.robust_threshold(values, 'max', 3.5), 4)
+    result = relative_mod.evaluate({'ds-a': metric_values(values)}, METRIC, settings())
+    assert result.datasets[0].threshold == expected
+
+
+def test_dataset_below_min_samples_is_skipped_with_a_size_reason():
+    result = relative_mod.evaluate({'ds-a': metric_values([1.0, 2.0])}, METRIC, settings(min_samples=50))
+    (dataset,) = result.datasets
+    assert dataset.threshold is None
+    assert dataset.n_warn == 0
+    assert '2 values < min_samples 50' in dataset.skipped
+
+
+def test_dataset_with_no_values_says_so_rather_than_too_small():
+    """A collection problem and a size problem send an operator to different places."""
+    result = relative_mod.evaluate({'ds-a': metric_values([])}, METRIC, settings())
+    assert 'no values' in result.datasets[0].skipped
+
+
+def test_zero_mad_dataset_is_skipped_as_degenerate():
+    result = relative_mod.evaluate({'ds-a': metric_values([5.0] * 10)}, METRIC, settings())
+    (dataset,) = result.datasets
+    assert dataset.threshold is None
+    assert 'zero MAD' in dataset.skipped
+
+
+def test_warn_rate_is_per_value_and_duplication_is_flagged():
+    by_dataset = {
+        'ds-a': values_mod.MetricValues(
+            entries=(
+                ('picard_1', 'CPG0', 10.0),
+                ('picard_4', 'CPG0', 10.0),
+                ('picard_1', 'CPG1', 12.0),
+                ('picard_4', 'CPG1', 12.0),
+                ('picard_1', 'CPG2', 12.0),
+                ('picard_4', 'CPG2', 12.0),
+            ),
+            n_dropped=0,
+        ),
+    }
+    (dataset,) = relative_mod.evaluate(by_dataset, METRIC, settings()).datasets
+    assert dataset.n_values == 6
+    assert dataset.n_groups_with_values == 3
+    assert dataset.duplicated is True
+
+
+def test_growth_churn_reports_both_orderings_and_uses_the_worse():
+    rng = np.random.default_rng(1)
+    # Leading 60% is tight, trailing 40% is high - the batch-ordering effect.
+    ordered = [*list(rng.normal(10, 0.5, 30)), *list(rng.normal(20, 0.5, 20))]
+    result = relative_mod.evaluate({'ds-a': metric_values(ordered)}, METRIC, settings(min_samples=10))
+    (growth,) = result.growth
+    assert growth.ordered is not None
+    assert growth.shuffled is not None
+    assert growth.flip_rate == max(growth.ordered.flip_rate, growth.shuffled.flip_rate)
+
+
+def test_growth_is_not_simulated_when_the_before_slice_is_below_min_samples():
+    """Production would have skipped a dataset that size, so churn against it is fiction."""
+    result = relative_mod.evaluate({'ds-a': metric_values(range(1, 21))}, METRIC, settings(min_samples=20))
+    assert result.growth == ()
+
+
+def test_merge_churn_simulates_both_directions_of_every_pair():
+    by_dataset = {
+        'ds-a': metric_values([10.0, 10.5, 11.0, 11.5, 12.0, 40.0]),
+        'ds-b': metric_values([30.0, 30.5, 31.0, 31.5, 32.0, 60.0]),
+    }
+    result = relative_mod.evaluate(by_dataset, METRIC, settings())
+    assert {(a, b) for a, b, _ in result.merge} == {('ds-a', 'ds-b'), ('ds-b', 'ds-a')}
+
+
+def test_merge_churn_never_self_pairs():
+    by_dataset = {'ds-a': metric_values([10.0, 11.0, 12.0, 13.0, 40.0])}
+    assert relative_mod.evaluate(by_dataset, METRIC, settings()).merge == ()
+
+
+def test_verdict_recommends_when_every_bar_is_cleared():
+    by_dataset = {'ds-a': metric_values([10.0, 10.5, 11.0, 11.5, 12.0, 11.2, 10.8, 11.4])}
+    result = relative_mod.evaluate(by_dataset, METRIC, settings())
+    assert result.verdict == 'RECOMMEND'
+    assert result.verdict_reason == ''
+
+
+def test_verdict_names_the_bar_that_was_missed():
+    by_dataset = {'ds-a': metric_values([10.0, 10.5, 11.0, 11.5, 12.0, 40.0])}
+    result = relative_mod.evaluate(by_dataset, METRIC, settings(max_warn_rate=0.0))
+    assert result.verdict == 'REJECT'
+    assert 'warn rate' in result.verdict_reason
+
+
+def test_verdict_distinguishes_growth_from_merge_churn():
+    """Conflating them would send an operator to the wrong table."""
+    by_dataset = {
+        'ds-a': metric_values([10.0, 10.5, 11.0, 11.5, 12.0, 40.0]),
+        'ds-b': metric_values([30.0, 30.5, 31.0, 31.5, 32.0, 60.0]),
+    }
+    result = relative_mod.evaluate(by_dataset, METRIC, settings(max_merge_churn=0.0))
+    assert 'merge churn' in result.verdict_reason
+    assert 'growth churn' not in result.verdict_reason
+
+
+def test_evaluate_refuses_a_metric_with_no_relative_tier():
+    plain = settings_mod.MetricSpec(key='dup_pct', direction='max', unit='%', relative=False)
+    with pytest.raises(ValueError, match='no configured relative tier'):
+        relative_mod.evaluate({'ds-a': metric_values([1.0, 2.0, 3.0])}, plain, settings())
+
+
+def test_max_warn_rate_ignores_skipped_datasets():
+    by_dataset = {
+        'ds-a': metric_values([10.0, 10.5, 11.0, 11.5, 12.0, 40.0]),
+        'ds-tiny': metric_values([1.0]),
+    }
+    result = relative_mod.evaluate(by_dataset, METRIC, settings())
+    skipped = next(d for d in result.datasets if d.dataset == 'ds-tiny')
+    assert skipped.skipped is not None
+    assert result.max_warn_rate == max(d.warn_rate for d in result.datasets if d.skipped is None)
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run python -m pytest test/test_qc_calibration_relative.py -v`
+
+Expected: FAIL — `AttributeError` or `TypeError` on `relative_mod.evaluate`, whose current
+signature is `(cache, metric, seq_type)`.
+
+- [ ] **Step 3: Write the implementation**
+
+Replace the whole of `src/align_genotype/qc_calibration/relative.py` with:
+
+```python
+"""Dataset-relative (MAD) tier evaluation.
+
+Some metrics have no defensible fixed warn line because their normal level shifts by
+dataset or protocol - duplication rate on whole genomes is the canonical case. A fixed
+warn line either floods the high-duplication datasets or never fires on the low ones, so
+the warn tier is derived per run from that run's own median and MAD (an Iglewicz-Hoaglin
+modified z-score line) with an absolute `fail` gate behind it.
+
+Nothing here re-implements the modified z-score. Thresholds come from
+`check_multiqc.robust_threshold` - production's own function - and a warn is counted by
+breaching the same 4-dp-rounded threshold `_relative_flags_for_metric` compares against.
+
+This module answers two questions about a candidate tier: how many values it would warn
+on per dataset, and whether the flag set stays stable as the dataset changes. The second
+decides adoption. Every flip is a value that stops or starts being flagged purely because
+the dataset's median moved, which is a spurious "updated" flag in the database, so a tier
+that churns is worse than no tier at all.
+"""
+
+import itertools
+from dataclasses import dataclass
+
+import numpy as np
+
+from align_genotype.qc_calibration import stats
+from align_genotype.qc_calibration.settings import Bars, CalibrationSettings, MetricSpec
+from align_genotype.qc_calibration.values import MetricValues
+from align_genotype.scripts import check_multiqc
+
+# The "before" slice for growth: 60% of a dataset, scored against the threshold the whole
+# dataset produces.
+_GROWTH_FRACTION = 0.6
+
+# Which 60% changes the answer. Entry order is inherited from MultiQC's JSON key order,
+# and the same 50 values differing only in order have measured 16.7% churn on the leading
+# slice against 0.0% on a shuffled one - a REJECT and a RECOMMEND for one metric. The
+# leading slice models real batch growth *if* report order tracks sequencing batches,
+# which is plausible for sequentially-assigned CPG IDs but nowhere guaranteed; the
+# shuffled slice models an arbitrary smaller dataset. Neither is safe to assume, so both
+# are simulated and the verdict takes the worse. Seeded so a re-run is reproducible.
+_SHUFFLE_SEED = 0
+
+
+@dataclass(frozen=True)
+class DatasetMad:
+    """One dataset's median, MAD, derived threshold and warn count.
+
+    `threshold` is None exactly when `skipped` is set - a dataset below `min_samples`, one
+    with a degenerate (zero) MAD, or one with no values for this metric has no relative
+    line and therefore no warn count.
+    """
+
+    dataset: str
+    n_values: int
+    n_groups_with_values: int
+    median: float
+    mad_raw: float
+    threshold: float | None
+    n_warn: int
+    skipped: str | None
+
+    @property
+    def warn_rate(self) -> float:
+        """Warned *values* over total values - deliberately not a per-group rate.
+
+        The threshold is derived per value, exactly as production derives it, so this is
+        the rate consistent with the threshold shown beside it. Where a metric appears in
+        two MultiQC sections it overstates the per-sequencing-group rate; `duplicated` is
+        the signal that this is in play, and the values file carries the identity needed
+        to say by how much.
+        """
+        return self.n_warn / self.n_values if self.n_values else 0.0
+
+    @property
+    def duplicated(self) -> bool:
+        return self.n_values > self.n_groups_with_values
+
+
+@dataclass(frozen=True)
+class GrowthChurn:
+    """One dataset's growth simulation under both before-slice orderings.
+
+    Both slices are the same size and are scored against the same whole-dataset
+    threshold; only which values they contain differs.
+    """
+
+    dataset: str
+    ordered: stats.ChurnResult | None
+    shuffled: stats.ChurnResult | None
+
+    @property
+    def flip_rate(self) -> float:
+        """The worse of the two orderings - the number the verdict uses."""
+        rates = [r.flip_rate for r in (self.ordered, self.shuffled) if r is not None]
+        return max(rates) if rates else 0.0
+
+    def ordering_sensitive(self, bar: float) -> bool:
+        """Whether the two orderings disagree about clearing `bar`.
+
+        Diagnostic only. When true, the churn number depends on an assumption about
+        MultiQC key order that a reader should be told about rather than have silently
+        resolved for them.
+        """
+        rates = [r.flip_rate for r in (self.ordered, self.shuffled) if r is not None]
+        return any(r > bar for r in rates) and any(r <= bar for r in rates)
+
+
+@dataclass(frozen=True)
+class MadEvaluation:
+    """A candidate relative tier's per-dataset numbers, churn simulations and verdict."""
+
+    metric: str
+    direction: str
+    bars: Bars
+    datasets: tuple[DatasetMad, ...]
+    growth: tuple[GrowthChurn, ...]
+    merge: tuple[tuple[str, str, stats.ChurnResult], ...]
+
+    @property
+    def max_warn_rate(self) -> float:
+        """Peak warn rate across datasets, ignoring skipped ones."""
+        rates = [d.warn_rate for d in self.datasets if d.skipped is None]
+        return max(rates) if rates else 0.0
+
+    @property
+    def max_growth_churn(self) -> float:
+        rates = [g.flip_rate for g in self.growth]
+        return max(rates) if rates else 0.0
+
+    @property
+    def max_merge_churn(self) -> float:
+        rates = [r.flip_rate for _, _, r in self.merge]
+        return max(rates) if rates else 0.0
+
+    @property
+    def ordering_sensitive(self) -> tuple[str, ...]:
+        return tuple(g.dataset for g in self.growth if g.ordering_sensitive(self.bars.max_growth_churn))
+
+    @property
+    def verdict_reason(self) -> str:
+        """Why this tier misses the bar, or '' when it clears every one.
+
+        Each simulation is named against its own bar. A reader given only a conflated
+        "peak churn" cannot tell whether to re-scope the dataset set or reconsider the
+        metric, and those have different answers.
+        """
+        reasons = []
+        if self.max_warn_rate > self.bars.max_warn_rate:
+            reasons.append(f'peak warn rate {self.max_warn_rate:.1%} exceeds {self.bars.max_warn_rate:.0%}')
+        # Churn to 2 dp, warn rate to 1: churn values sit close to their bars, and
+        # "2.0% exceeds 2%" reads as a contradiction where "2.01% exceeds 2%" does not.
+        if self.max_growth_churn > self.bars.max_growth_churn:
+            reasons.append(
+                f'peak dataset-growth churn {self.max_growth_churn:.2%} '
+                f'exceeds {self.bars.max_growth_churn:.0%}',
+            )
+        if self.max_merge_churn > self.bars.max_merge_churn:
+            reasons.append(
+                f'peak cross-dataset merge churn {self.max_merge_churn:.2%} '
+                f'exceeds {self.bars.max_merge_churn:.0%}',
+            )
+        return '; '.join(reasons)
+
+    @property
+    def verdict(self) -> str:
+        return 'REJECT' if self.verdict_reason else 'RECOMMEND'
+
+
+def _evaluate_dataset(
+    dataset: str,
+    metric_values: MetricValues,
+    metric: MetricSpec,
+    min_samples: int,
+    k: float,
+) -> DatasetMad:
+    """One dataset's relative numbers, mirroring the skips production makes."""
+    values = metric_values.array
+    n_values = int(values.size)
+    counts = {'n_values': n_values, 'n_groups_with_values': metric_values.n_groups_with_values}
+    if n_values == 0:
+        # Distinguished from "too small": nothing was extracted for this metric here,
+        # which is a collection problem, not a size one. Reporting it as
+        # "0 values < min_samples 50" would send a reader to the wrong place.
+        return DatasetMad(
+            dataset, **counts, median=float('nan'), mad_raw=float('nan'),
+            threshold=None, n_warn=0,
+            skipped=f'metric {metric.key!r} has no values in this dataset',
+        )
+    median = float(np.median(values))
+    mad_raw = float(np.median(np.abs(values - median)))
+    if n_values < min_samples:
+        return DatasetMad(
+            dataset, **counts, median=median, mad_raw=mad_raw, threshold=None, n_warn=0,
+            skipped=f'{n_values} values < min_samples {min_samples}',
+        )
+    threshold = check_multiqc.robust_threshold(list(values), metric.direction, k)
+    if threshold is None:
+        return DatasetMad(
+            dataset, **counts, median=median, mad_raw=mad_raw, threshold=None, n_warn=0,
+            skipped='zero MAD (degenerate dataset); use the absolute gate here',
+        )
+    # Production rounds before comparing, so the displayed threshold always explains the
+    # displayed count.
+    threshold = round(threshold, 4)
+    return DatasetMad(
+        dataset, **counts, median=median, mad_raw=mad_raw, threshold=threshold,
+        n_warn=int(stats.breach(values, threshold, metric.direction).sum()),
+        skipped=None,
+    )
+
+
+def _growth_churn(
+    usable: dict[str, np.ndarray],
+    direction: str,
+    k: float,
+    min_samples: int,
+) -> tuple[GrowthChurn, ...]:
+    """Each dataset's 60% before-slice re-scored against the whole dataset's threshold.
+
+    A before-slice below `min_samples` is not simulated: production would have skipped a
+    dataset that size outright and emitted no flags, so deriving a threshold from it and
+    counting flips measures churn against a state that cannot occur.
+    """
+    results = []
+    for dataset, values in usable.items():
+        size = int(values.size * _GROWTH_FRACTION)
+        if size < min_samples:
+            continue
+        shuffled = np.random.default_rng(_SHUFFLE_SEED).permutation(values)
+        results.append(
+            GrowthChurn(
+                dataset=dataset,
+                ordered=stats.churn(values[:size], values, direction, k),
+                shuffled=stats.churn(shuffled[:size], values, direction, k),
+            ),
+        )
+    # An entry where both orderings were degenerate carries no measurement.
+    return tuple(g for g in results if g.ordered is not None or g.shuffled is not None)
+
+
+def _merge_churn(
+    usable: dict[str, np.ndarray],
+    direction: str,
+    k: float,
+) -> tuple[tuple[str, str, stats.ChurnResult], ...]:
+    """Each dataset re-scored against the threshold it gets once another joins it.
+
+    An entry `(a, b, result)` is *a's* flag set after b merges in. A merge disturbs both
+    projects' flag sets by different amounts, so both directions of every pair run -
+    `n*(n-1)` entries, not `n*(n-1)/2`. One direction per pair would leave the headline
+    figure depending on insertion order, the same hazard `_SHUFFLE_SEED` guards against.
+
+    The harsher simulation by construction, and there is a tension worth naming: a metric
+    earns a relative tier precisely *because* its normal level shifts between datasets,
+    and a merge punishes exactly that. Read a high figure as "how much would pooling two
+    projects disturb this", not as a defect count.
+    """
+    results = []
+    for (label_a, values_a), (label_b, values_b) in itertools.permutations(usable.items(), 2):
+        result = stats.churn(values_a, np.concatenate([values_a, values_b]), direction, k)
+        if result is not None:
+            results.append((label_a, label_b, result))
+    return tuple(results)
+
+
+def evaluate(
+    by_dataset: dict[str, MetricValues],
+    metric: MetricSpec,
+    settings: CalibrationSettings,
+) -> MadEvaluation:
+    """Evaluate `metric`'s dataset-relative warn tier across every dataset supplied."""
+    if not metric.relative:
+        raise ValueError(
+            f'metric {metric.key!r} has no configured relative tier to evaluate; '
+            f'set relative = true on [qc_calibration.{settings.seq_type}.metrics.{metric.key}]',
+        )
+    datasets = tuple(
+        _evaluate_dataset(name, metric_values, metric, settings.min_samples, settings.k)
+        for name, metric_values in by_dataset.items()
+    )
+    # Datasets production would skip outright cannot churn, so they are excluded rather
+    # than contributing a misleading zero flip rate.
+    usable = {
+        name: metric_values.array
+        for name, metric_values in by_dataset.items()
+        if metric_values.array.size >= settings.min_samples
+    }
+    return MadEvaluation(
+        metric=metric.key,
+        direction=metric.direction,
+        bars=settings.bars,
+        datasets=datasets,
+        growth=_growth_churn(usable, metric.direction, settings.k, settings.min_samples),
+        merge=_merge_churn(usable, metric.direction, settings.k),
+    )
+```
+
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `uv run python -m pytest test/test_qc_calibration_settings.py -v`
@@ -1941,7 +3250,13 @@ class MadEvaluation:
         return 'REJECT' if self.verdict_reason else 'RECOMMEND'
 
 
-def _evaluate_dataset(dataset: str, metric_values: MetricValues, metric: MetricSpec, min_samples: int) -> DatasetMad:
+def _evaluate_dataset(
+    dataset: str,
+    metric_values: MetricValues,
+    metric: MetricSpec,
+    min_samples: int,
+    k: float,
+) -> DatasetMad:
     """One dataset's relative numbers, mirroring the skips production makes."""
     values = metric_values.array
     n_values = int(values.size)
@@ -1962,7 +3277,7 @@ def _evaluate_dataset(dataset: str, metric_values: MetricValues, metric: MetricS
             dataset, **counts, median=median, mad_raw=mad_raw, threshold=None, n_warn=0,
             skipped=f'{n_values} values < min_samples {min_samples}',
         )
-    threshold = check_multiqc.robust_threshold(list(values), metric.direction, _k_for(metric))
+    threshold = check_multiqc.robust_threshold(list(values), metric.direction, k)
     if threshold is None:
         return DatasetMad(
             dataset, **counts, median=median, mad_raw=mad_raw, threshold=None, n_warn=0,
@@ -1976,15 +3291,6 @@ def _evaluate_dataset(dataset: str, metric_values: MetricValues, metric: MetricS
         n_warn=int(stats.breach(values, threshold, metric.direction).sum()),
         skipped=None,
     )
-
-
-# `k` is a single run-wide setting rather than per metric, but reading it through one
-# function keeps the call sites honest if that ever changes.
-_K: dict[str, float] = {}
-
-
-def _k_for(metric: MetricSpec) -> float:
-    return _K[metric.key]
 
 
 def _growth_churn(
@@ -2052,9 +3358,8 @@ def evaluate(
             f'metric {metric.key!r} has no configured relative tier to evaluate; '
             f'set relative = true on [qc_calibration.{settings.seq_type}.metrics.{metric.key}]',
         )
-    _K[metric.key] = settings.k
     datasets = tuple(
-        _evaluate_dataset(name, metric_values, metric, settings.min_samples)
+        _evaluate_dataset(name, metric_values, metric, settings.min_samples, settings.k)
         for name, metric_values in by_dataset.items()
     )
     # Datasets production would skip outright cannot churn, so they are excluded rather
@@ -2108,13 +3413,13 @@ Run: `uv run python -m pytest test/test_qc_calibration_relative.py -v`
 
 Expected: PASS, 15 tests.
 
-- [ ] **Step 6: Verify the global-config detour is gone**
+- [ ] **Step 5: Verify the global-config detour is gone**
 
 Run: `grep -n 'set_config_paths\|tomlio\|relative_flags' src/align_genotype/qc_calibration/relative.py`
 
 Expected: no output.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/align_genotype/qc_calibration/relative.py test/test_qc_calibration_relative.py
