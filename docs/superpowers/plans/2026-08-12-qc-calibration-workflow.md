@@ -4905,6 +4905,13 @@ queues a job.
   They diverge whenever a metric is missing for some groups. Rates over a metric use
   `n_values` (matching production's per-value threshold) or `n_groups_with_values` -
   never the dataset total.
+- **MAD fixtures can be vacuous two ways.** Too few points: with two, MAD is half the
+  range so the modified z-score is always exactly +/-0.6745 and nothing can be flagged at
+  any `k` this codebase uses. Or MAD exactly zero: a fixture like `[10,10,12,12,12,12]`
+  has median 12 and MAD 0, so `robust_threshold` returns None, the dataset is skipped as
+  degenerate, and any test claiming to measure a warn rate on it measures nothing. Both
+  have shipped in this plan. Compute the median and MAD of every small fixture before
+  trusting a test that depends on a threshold.
 - **MAD fixtures need at least three points.** With two, the modified z-score is always
   exactly `±0.6745` (MAD equals half the range), so nothing can ever be flagged at any
   `k` this codebase uses, and a test built on two points passes whatever the code does.
