@@ -743,10 +743,16 @@ Change:
 to:
 
 ```
-# Values are set so a healthy dataset flags at ~0% fail / single-digit % warn, while
-# a genuinely poor batch still surfaces. These metrics are capture-kit dependent -
+# Calibrated against two real WES datasets (647- and 522-sample MultiQC runs). Values
+# are set so a healthy dataset flags at ~0% fail / single-digit % warn, while a
+# genuinely poor batch still surfaces. These metrics are capture-kit dependent -
 # re-run the QC calibration workflow on a known-good batch when onboarding a new kit.
 ```
+
+Keep the sample counts. They name no dataset - they are anonymous aggregates, exactly
+like the genome intro's "(110-841 samples each)", which survives because its script
+citation sits in a separate clause. Dropping them leaves the exome thresholds reading as
+unsourced while the genome ones read as evidence-based, which is true of neither.
 
 Then replace the remaining bare uses of "cohort" in the `qc_thresholds` comments with "dataset", since under CPG Flow each MultiQC run covers one dataset. Find them with
 `grep -n 'cohort' src/align_genotype/config_template.toml` and change every hit inside a `qc_thresholds` comment (e.g. "Cohort medians ~32-37x" → "Dataset medians ~32-37x", "~25-37% of legitimately higher-dup preps in the two highest-duplication cohorts" → "... datasets").
@@ -4696,6 +4702,11 @@ covering, in this order:
 
 Do not reference `testing_scripts/`, "the old workflow", "the manual process this
 replaces", or any local scratch script. This document stands alone.
+
+**Keep anonymous evidence counts** wherever they already appear - "10 real WGS datasets
+(110-841 samples each)", "two real WES datasets (647- and 522-sample MultiQC runs)".
+They name no dataset and are the only record of what the shipped thresholds rest on.
+Strip the citation, keep the evidence.
 
 - [ ] **Step 2: Verify no scratch references survive anywhere**
 
