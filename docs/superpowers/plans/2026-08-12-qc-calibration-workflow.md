@@ -3577,7 +3577,7 @@ def test_filters_server_side_on_stage_and_sequencing_type():
     assert query.calls[0] == {
         'dataset': 'ds-a',
         'analysisType': 'qc',
-        'metaFilter': {'stage': {'eq': 'CramMultiQC'}, 'sequencing_type': {'eq': 'genome'}},
+        'metaFilter': {'stage': 'CramMultiQC', 'sequencing_type': 'genome'},
     }
 
 
@@ -3674,7 +3674,7 @@ QueryFn = Callable[[str, dict[str, Any] | None], dict[str, Any]]
 
 ANALYSES_QUERY = gql(
     """
-    query CramMultiqc($dataset: String!, $analysisType: String!, $metaFilter: JSON!) {
+    query CramMultiqc($dataset: String!, $analysisType: String!, $metaFilter: JSON) {
         project(name: $dataset) {
             analyses(status: {eq: COMPLETED}, type: {eq: $analysisType}, meta: $metaFilter) {
                 id
@@ -3712,7 +3712,11 @@ def latest_cram_multiqc(
         {
             'dataset': dataset,
             'analysisType': 'qc',
-            'metaFilter': {'stage': {'eq': CRAM_MULTIQC_STAGE}, 'sequencing_type': {'eq': seq_type}},
+            # Flat, not nested `{'eq': ...}`: `meta` is an opaque JSON scalar in the
+            # schema with no typed filter object, so the convention is not schema-enforced.
+            # This matches `scripts/build_vntyper_index.py`, the one working precedent in
+            # this repo for filtering analyses on meta.
+            'metaFilter': {'stage': CRAM_MULTIQC_STAGE, 'sequencing_type': seq_type},
         },
     )
     # `project` can be present-but-null - no read access, say - so `.get('project', {})`
