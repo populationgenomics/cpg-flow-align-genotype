@@ -221,7 +221,10 @@ def test_metric_missing_from_some_datasets_produces_a_narrower_warning():
     """Present in one dataset, absent in another - distinct from absent everywhere."""
     built = summary_mod.build(
         [
-            dataset_values('ds-p', [30, 32, 34], [10, 10.5, 11]),
+            # 6 points, not 3: a 3-point candidate here collapses fail and warn onto the
+            # same rounded integer and trips the inert-tier warning too - see the
+            # dedicated inert-tier tests below for that case in isolation.
+            dataset_values('ds-p', [30, 32, 34, 36, 38, 10], [10, 10.5, 11, 11.5, 12, 12.5]),
             dataset_values('ds-q', [], [12, 12.5, 13]),
         ],
         SETTINGS,
@@ -398,3 +401,93 @@ def test_relative_block_reports_zero_merge_pairs_for_a_single_dataset():
     assert evaluation['merge_pairs_simulated'] == 0
     assert evaluation['n_merge_datasets_evaluated'] == 0
     assert evaluation['merge_worst'] == []
+
+
+# --- Inert warn tier: a tier that looks configured and checks nothing ------------------
+#
+# Found by running the whole pipeline end to end, not by any test: `check_multiqc.worst_breach`
+# evaluates fail before warn and returns the first breach, so a `min` metric's warn threshold
+# must sit strictly above its fail threshold (the mirror for `max`) or every value that would
+# warn is already recorded as a fail. Rounding for 'x'/'%' units can collapse two distinct raw
+# percentiles onto the same integer and produce exactly this - `fail=27, warn=27` was observed
+# in a real smoke run.
+
+
+def test_candidate_warn_tier_equal_to_fail_produces_an_inert_warning():
+    """p1=26.04 and p5=26.2 both round to 26 for a two-point 'x'-unit dataset - fail == warn."""
+    built = summary_mod.build(
+        [dataset_values('ds-only', [26.0, 30.0], [10, 11])],
+        SETTINGS,
+        current={},
+        skipped_datasets=[],
+        generated='2026-08-12T00:00:00',
+        ar_guid='x',
+    )
+    candidate = built['metrics']['MEDIAN_COVERAGE']['candidate']
+    assert candidate['fail'] == candidate['warn'] == 26
+    inert = [w for w in built['warnings'] if 'unreachable' in w and 'MEDIAN_COVERAGE' in w]
+    assert len(inert) == 1
+    assert 'candidate' in inert[0]
+    assert 'checks nothing' not in inert[0]  # exclusive to the absent-everywhere warning
+
+
+def test_candidate_warn_at_or_past_fail_for_a_max_metric_produces_an_inert_warning():
+    """The mirrored case: a 'max' metric is inert when warn >= fail (p99=29.96, p95=29.8, both round to 30)."""
+    metric = settings_mod.MetricSpec(key='FREEMIX', direction='max', unit='%')
+    max_settings = settings_mod.CalibrationSettings(seq_type='genome', metrics=(metric,), k=3.5, min_samples=4)
+    values = values_mod.DatasetValues(
+        dataset='ds-only',
+        seq_type='genome',
+        analysis_id=1,
+        timestamp='2026-06-01T00:00:00',
+        uri='gs://ds-only/multiqc_data.json',
+        multiqc_version='1.33',
+        generated='2026-08-12T00:00:00',
+        n_sequencing_groups=2,
+        section_sizes={'picard_1': 2},
+        metrics={
+            'FREEMIX': values_mod.MetricValues(
+                entries=(('picard_1', 'ds-only-CPG0', 26.0), ('picard_1', 'ds-only-CPG1', 30.0)),
+                n_dropped=0,
+            ),
+        },
+    )
+    built = summary_mod.build(
+        [values],
+        max_settings,
+        current={},
+        skipped_datasets=[],
+        generated='2026-08-12T00:00:00',
+        ar_guid='x',
+    )
+    candidate = built['metrics']['FREEMIX']['candidate']
+    assert candidate['fail'] == candidate['warn'] == 30
+    inert = [w for w in built['warnings'] if 'unreachable' in w and 'FREEMIX' in w]
+    assert len(inert) == 1
+    assert 'candidate' in inert[0]
+
+
+def test_correctly_ordered_tiers_produce_no_inert_warning(built):
+    """MEDIAN_COVERAGE's candidate in the shared fixture has a real gap between fail and warn."""
+    candidate = built['metrics']['MEDIAN_COVERAGE']['candidate']
+    assert candidate['fail'] != candidate['warn']
+    assert not any('unreachable' in w for w in built['warnings'])
+
+
+def test_inert_current_tier_produces_the_shipped_config_variant_of_the_warning():
+    """An inert pair already in `current` is a live production defect, not just a proposal to review."""
+    built = summary_mod.build(
+        [dataset_values('ds-only', [30, 32, 34, 36, 38, 10], [10, 10.5, 11, 11.5, 12, 12.5])],
+        SETTINGS,
+        current={'MEDIAN_COVERAGE': {'fail': 27, 'warn': 27}},
+        skipped_datasets=[],
+        generated='2026-08-12T00:00:00',
+        ar_guid='x',
+    )
+    # The candidate for this fixture is fail=11, warn=15 (a real gap) - only the shipped pair
+    # is inert, so exactly one warning should fire, and it must be the shipped-config variant.
+    inert = [w for w in built['warnings'] if 'unreachable' in w and 'MEDIAN_COVERAGE' in w]
+    assert len(inert) == 1
+    assert 'shipped' in inert[0]
+    assert 'config_template.toml' in inert[0]
+    assert 'checks nothing' not in inert[0]

@@ -33,6 +33,22 @@ def _rates(values: np.ndarray, metric: MetricSpec, tiers: dict[str, float | None
     }
 
 
+def _inert_tier(direction: str, fail: float | None, warn: float | None) -> bool:
+    """Whether `warn` can never fire because `fail` is evaluated first and already catches it.
+
+    `check_multiqc.worst_breach` iterates severities fail-then-warn and returns the first
+    breach, so a `min` metric's warn line must sit strictly above its fail line - the values
+    between the two are what warn is for - and a `max` metric's mirrored below. Whenever that
+    ordering fails (including equality: rounding for 'x'/'%' units can collapse two distinct
+    raw percentiles onto the same integer), warn is a tier that looks configured and checks
+    nothing, exactly like a metric absent from every dataset - just discovered by comparing
+    two numbers instead of by absence. `None` on either side means no comparison is possible.
+    """
+    if fail is None or warn is None:
+        return False
+    return warn <= fail if direction == 'min' else warn >= fail
+
+
 def _churn_result(result: stats.ChurnResult | None) -> dict[str, Any] | None:
     if result is None:
         return None
@@ -176,6 +192,24 @@ def build(
             )
         elif missing_from:
             warnings.append(f'{metric.key} was absent from {len(missing_from)} dataset(s): {", ".join(missing_from)}')
+
+        # A warn tier that can never fire is the same failure as an absent metric - a key
+        # that looks configured and checks nothing - just found by comparing two numbers
+        # instead of by absence. The shipped tiers get the same check: if config_template.toml
+        # already carries an inert pair, that is a live production defect this report should
+        # surface, not something calibration merely warns about for its own proposal.
+        if _inert_tier(metric.direction, candidate_tiers.get('fail'), candidate_tiers.get('warn')):
+            warnings.append(
+                f'{metric.key}: the candidate warn tier ({candidate_tiers["warn"]}) is unreachable behind the '
+                f'fail tier ({candidate_tiers["fail"]}) - production evaluates fail before warn, so every '
+                f'value that would warn is recorded as a fail instead.',
+            )
+        if _inert_tier(metric.direction, shipped.get('fail'), shipped.get('warn')):
+            warnings.append(
+                f'{metric.key}: the shipped warn tier ({shipped["warn"]}) is unreachable behind the shipped '
+                f'fail tier ({shipped["fail"]}) in config_template.toml - production evaluates fail before warn, '
+                f'so every value that would warn is recorded as a fail instead.',
+            )
 
     relative_blocks: dict[str, Any] = {}
     for metric in settings.relative_metrics:
