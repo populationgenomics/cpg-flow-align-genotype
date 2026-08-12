@@ -1941,7 +1941,13 @@ class MadEvaluation:
         return 'REJECT' if self.verdict_reason else 'RECOMMEND'
 
 
-def _evaluate_dataset(dataset: str, metric_values: MetricValues, metric: MetricSpec, min_samples: int) -> DatasetMad:
+def _evaluate_dataset(
+    dataset: str,
+    metric_values: MetricValues,
+    metric: MetricSpec,
+    min_samples: int,
+    k: float,
+) -> DatasetMad:
     """One dataset's relative numbers, mirroring the skips production makes."""
     values = metric_values.array
     n_values = int(values.size)
@@ -1962,7 +1968,7 @@ def _evaluate_dataset(dataset: str, metric_values: MetricValues, metric: MetricS
             dataset, **counts, median=median, mad_raw=mad_raw, threshold=None, n_warn=0,
             skipped=f'{n_values} values < min_samples {min_samples}',
         )
-    threshold = check_multiqc.robust_threshold(list(values), metric.direction, _k_for(metric))
+    threshold = check_multiqc.robust_threshold(list(values), metric.direction, k)
     if threshold is None:
         return DatasetMad(
             dataset, **counts, median=median, mad_raw=mad_raw, threshold=None, n_warn=0,
@@ -1976,15 +1982,6 @@ def _evaluate_dataset(dataset: str, metric_values: MetricValues, metric: MetricS
         n_warn=int(stats.breach(values, threshold, metric.direction).sum()),
         skipped=None,
     )
-
-
-# `k` is a single run-wide setting rather than per metric, but reading it through one
-# function keeps the call sites honest if that ever changes.
-_K: dict[str, float] = {}
-
-
-def _k_for(metric: MetricSpec) -> float:
-    return _K[metric.key]
 
 
 def _growth_churn(
@@ -2052,9 +2049,8 @@ def evaluate(
             f'metric {metric.key!r} has no configured relative tier to evaluate; '
             f'set relative = true on [qc_calibration.{settings.seq_type}.metrics.{metric.key}]',
         )
-    _K[metric.key] = settings.k
     datasets = tuple(
-        _evaluate_dataset(name, metric_values, metric, settings.min_samples)
+        _evaluate_dataset(name, metric_values, metric, settings.min_samples, settings.k)
         for name, metric_values in by_dataset.items()
     )
     # Datasets production would skip outright cannot churn, so they are excluded rather
@@ -2074,47 +2070,19 @@ def evaluate(
     )
 ```
 
-- [ ] **Step 4: Remove the module-level `_K` hack**
-
-The `_K` dict above is process-global mutable state, which is exactly the class of thing
-this task exists to remove. Replace it: delete the `_K` dict and `_k_for`, add a `k`
-parameter to `_evaluate_dataset`, and pass `settings.k` at the call site.
-
-```python
-def _evaluate_dataset(
-    dataset: str,
-    metric_values: MetricValues,
-    metric: MetricSpec,
-    min_samples: int,
-    k: float,
-) -> DatasetMad:
-```
-
-with `threshold = check_multiqc.robust_threshold(list(values), metric.direction, k)`, and
-in `evaluate`:
-
-```python
-    datasets = tuple(
-        _evaluate_dataset(name, metric_values, metric, settings.min_samples, settings.k)
-        for name, metric_values in by_dataset.items()
-    )
-```
-
-Then delete the `_K[metric.key] = settings.k` line.
-
-- [ ] **Step 5: Run the tests to verify they pass**
+- [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `uv run python -m pytest test/test_qc_calibration_relative.py -v`
 
 Expected: PASS, 15 tests.
 
-- [ ] **Step 6: Verify the global-config detour is gone**
+- [ ] **Step 5: Verify the global-config detour is gone**
 
 Run: `grep -n 'set_config_paths\|tomlio\|relative_flags' src/align_genotype/qc_calibration/relative.py`
 
 Expected: no output.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/align_genotype/qc_calibration/relative.py test/test_qc_calibration_relative.py
