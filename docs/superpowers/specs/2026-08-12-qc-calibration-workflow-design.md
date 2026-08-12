@@ -308,13 +308,16 @@ ANALYSES_QUERY = gql("""
 """)
 ```
 
-Meta filtering takes a per-key operator dict, not a flat mapping, and both it and the
-analysis type are passed as query variables:
+Meta filtering takes a flat mapping, matching `scripts/build_vntyper_index.py` - the one
+working precedent in this repo for filtering analyses on `meta`. `meta` is an opaque
+`JSON` scalar in Metamist's schema with no typed filter object, so the convention is not
+schema-enforced and cannot be validated locally; the shipped precedent is the best
+available evidence.
 
 ```python
 meta_filter = {
-    'stage': {'eq': 'CramMultiQC'},
-    'sequencing_type': {'eq': seq_type},
+    'stage': 'CramMultiQC',
+    'sequencing_type': seq_type,
 }
 result = query(
     ANALYSES_QUERY,

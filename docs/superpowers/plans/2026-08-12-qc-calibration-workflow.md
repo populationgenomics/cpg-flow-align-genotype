@@ -2180,7 +2180,9 @@ def test_max_metric_seeds_from_the_highest_per_dataset_tails():
 def test_x_and_percent_units_round_to_whole_numbers():
     metric = settings_mod.MetricSpec(key='COV', direction='min', unit='x')
     candidate = thresholds_mod.candidate({'ds': metric_values([10.4, 20.0, 30.0])}, metric)
-    assert isinstance(candidate.fail, int)
+    # `type(...) is`, not isinstance: np.float64 subclasses float, so isinstance cannot
+    # detect a leaked numpy scalar - the exact thing the cast exists to prevent.
+    assert type(candidate.fail) is int
 
 
 def test_frac_unit_keeps_two_decimal_places():
@@ -2188,7 +2190,7 @@ def test_frac_unit_keeps_two_decimal_places():
     metric = settings_mod.MetricSpec(key='PCT_20X', direction='min', unit='frac')
     candidate = thresholds_mod.candidate({'ds': metric_values([0.9012, 0.95, 0.97])}, metric)
     assert candidate.fail == pytest.approx(0.9, abs=0.01)
-    assert isinstance(candidate.fail, float)
+    assert type(candidate.fail) is float
 
 
 def test_a_relative_metric_gets_no_absolute_warn():
@@ -2315,11 +2317,14 @@ def candidate(by_dataset: dict[str, MetricValues], metric: MetricSpec) -> Candid
 
     n_with_data = sum(1 for v in by_dataset.values() if v.array.size)
     plural = '' if n_with_data == 1 else 's'
-    basis = f'worst per-dataset p{pcts["fail"]}={fail_raw:.4g} across {n_with_data} dataset{plural}'
+    # A sentence, not a fragment: this text is rendered in the HTML report *and* emitted
+    # as a `# ` comment above the threshold in the pasteable config block, alongside
+    # hand-written full-sentence rationales.
+    basis = f'Worst per-dataset p{pcts["fail"]}={fail_raw:.4g} across {n_with_data} dataset{plural}'
 
     warn: float | None = None
     if metric.relative:
-        basis += '; warn tier is dataset-relative, so no absolute warn is proposed'
+        basis += '; warn tier is dataset-relative, so no absolute warn is proposed.'
     else:
         warn_raw = _tail(by_dataset, metric, pcts['warn'])
         # Unreachable: `_tail` walks the same per-dataset arrays at a different
@@ -2328,7 +2333,7 @@ def candidate(by_dataset: dict[str, MetricValues], metric: MetricSpec) -> Candid
         if warn_raw is None:
             raise AssertionError('a dataset with fail-percentile data must also have warn-percentile data')
         warn = _round_for_unit(warn_raw, metric.unit)
-        basis += f', warn p{pcts["warn"]}={warn_raw:.4g}'
+        basis += f', warn p{pcts["warn"]}={warn_raw:.4g}.'
 
     return Candidate(
         metric=metric.key,
