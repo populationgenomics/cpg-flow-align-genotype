@@ -1,5 +1,6 @@
-"""Derive warn/fail and cohort-relative QC thresholds from a set of MultiQC datasets.
+"""Derive candidate QC thresholds from every dataset's latest MultiQC report.
 
-See README.md in this package for the operator workflow. The entry point is the
-``qc_calibrate`` console script (``qc_calibration.cli``).
+Run as two CPG Flow stages - see `qc_calibration_stages.py` and README.md in this
+package. Every module here is pure: no Hail Batch, no stage machinery, so the analysis is
+testable without either.
 """
