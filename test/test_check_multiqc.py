@@ -7,6 +7,7 @@ testing_scripts/testing_data/*_multiqc*.json).
 """
 
 import json
+from datetime import datetime
 
 import pytest
 
@@ -225,7 +226,7 @@ def test_robust_threshold_zero_mad_returns_none():
 
 # A tight ZERO_CVG cohort (~0.02) with one relative outlier (0.08) and one absolute
 # failure (0.15). direction=max; absolute fail gate at >0.10.
-_REL_CFG = {'ZERO_CVG_TARGETS_PCT': {'direction': 'max', 'k': 3.5, 'min_cohort': 5}}
+_REL_CFG = {'ZERO_CVG_TARGETS_PCT': {'direction': 'max', 'k': 3.5, 'min_samples': 5}}
 _REL_SECTIONS = {
     'picard': {
         'S1': {'ZERO_CVG_TARGETS_PCT': 0.020},
@@ -251,10 +252,36 @@ def test_relative_flags_warn_only_outlier(tmp_path, patch_config):
     assert 'S1' not in result['qc_flags']
 
 
-def test_relative_skipped_below_min_cohort(tmp_path, patch_config):
-    patch_config('exome', {'relative': {'ZERO_CVG_TARGETS_PCT': {'direction': 'max', 'k': 3.5, 'min_cohort': 100}}})
+def test_relative_skipped_below_min_samples(tmp_path, patch_config):
+    patch_config('exome', {'relative': {'ZERO_CVG_TARGETS_PCT': {'direction': 'max', 'k': 3.5, 'min_samples': 100}}})
     result = _run(_write_json(tmp_path, _REL_SECTIONS), tmp_path / 'out.json')
-    assert result['qc_flags'] == {}  # cohort of 8 < min_cohort 100 -> no relative flags
+    assert result['qc_flags'] == {}  # 8 values < min_samples 100 -> no relative flags
+
+
+def test_relative_uses_min_samples_key(patch_config):
+    """The config key is `min_samples`; a run of 3 must be skipped by a bar of 4.
+
+    (10, 11) is a tight pair and 50 is a clear outlier under the k=3.5 MAD rule, so
+    if `min_samples` were ignored (falling back to the old default of 0) CPG2 would
+    get flagged. It must not be: the run has 3 samples, below the min_samples bar of 4.
+    """
+    patch_config(
+        'genome',
+        {
+            'relative': {
+                'reads_duplicated_percent': {'direction': 'max', 'k': 3.5, 'min_samples': 4},
+            },
+        },
+    )
+    sections = {
+        'samtools': {
+            'CPG0': {'reads_duplicated_percent': 10.0},
+            'CPG1': {'reads_duplicated_percent': 11.0},
+            'CPG2': {'reads_duplicated_percent': 50.0},
+        },
+    }
+    flags = check_multiqc.relative_flags(sections, 'genome', datetime(2026, 1, 1), already_flagged={})  # noqa: DTZ001
+    assert flags == []
 
 
 def test_relative_skipped_on_zero_mad(tmp_path, patch_config):
@@ -280,7 +307,7 @@ def test_absolute_fail_takes_precedence_over_relative(tmp_path, patch_config):
 def test_relative_flags_logs_non_numeric_drop_count(tmp_path, patch_config, caplog):
     # A cohort where one value is a non-numeric placeholder: the drop should be
     # surfaced, since it affects whether the resulting MAD threshold can be trusted.
-    patch_config('exome', {'relative': {'ZERO_CVG_TARGETS_PCT': {'direction': 'max', 'k': 3.5, 'min_cohort': 3}}})
+    patch_config('exome', {'relative': {'ZERO_CVG_TARGETS_PCT': {'direction': 'max', 'k': 3.5, 'min_samples': 3}}})
     sections = {
         'picard': {
             'S1': {'ZERO_CVG_TARGETS_PCT': 0.02},

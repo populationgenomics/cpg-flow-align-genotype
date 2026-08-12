@@ -289,7 +289,7 @@ def relative_flags(
     For each configured metric, gathers every sample's value across the current run
     (the "cohort"), derives a robust median/MAD outlier threshold, and warns samples
     beyond it. Relative flags are always ``severity='warn'`` / ``method='relative'``,
-    and are skipped when the cohort is smaller than ``min_cohort`` or MAD is zero.
+    and are skipped when the cohort is smaller than ``min_samples`` or MAD is zero.
     ``already_flagged`` maps sg_id -> {(section, metric)} flagged by the absolute pass;
     those are not double-flagged, so the absolute fail gate takes precedence.
 
@@ -304,9 +304,11 @@ def relative_flags(
                 f'Relative flagging for {metric!r}: {n_dropped} non-numeric values dropped '
                 f'from cohort of {len(entries) + n_dropped}.',
             )
-        min_cohort = cfg.get('min_cohort', 0)
-        if len(entries) < min_cohort:
-            logging.info(f'Relative flagging skipped for {metric!r}: cohort {len(entries)} < min_cohort {min_cohort}.')
+        min_samples = cfg.get('min_samples', 0)
+        if len(entries) < min_samples:
+            logging.info(
+                f'Relative flagging skipped for {metric!r}: {len(entries)} values < min_samples {min_samples}.'
+            )
             continue
         results.extend(_relative_flags_for_metric(metric, cfg, entries, today, already_flagged))
     return results
