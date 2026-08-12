@@ -1291,9 +1291,18 @@ def test_no_usable_general_stats_is_an_error():
         extract_mod.extract(document(None), SETTINGS, **PROVENANCE)
 
 
-def test_empty_general_stats_is_an_error_naming_the_dataset_and_uri():
-    with pytest.raises(extract_mod.ExtractError, match='dataset-a.*gs://bucket'):
+def test_empty_general_stats_is_a_distinct_error():
+    """A report that parsed fine but holds zero modules is a different problem from one
+    we could not read, and sends an operator somewhere different. Matching a shared
+    substring here would not detect the two messages being re-merged."""
+    with pytest.raises(extract_mod.ExtractError, match=r'present but empty'):
         extract_mod.extract(document({}), SETTINGS, **PROVENANCE)
+
+
+def test_both_unreadable_errors_name_the_dataset_and_uri():
+    for doc in (document(None), document({})):
+        with pytest.raises(extract_mod.ExtractError, match=r'dataset-a.*gs://bucket'):
+            extract_mod.extract(doc, SETTINGS, **PROVENANCE)
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -1345,9 +1354,21 @@ def extract(
     if not isinstance(document, dict):
         raise ExtractError(f'{dataset}: report is a {type(document).__name__}, not an object, in {uri}')
 
-    version = str(document.get('config_version', 'unknown'))
-    sections = check_multiqc.normalise_sections(document.get('report_general_stats_data'))
+    # `or`, not a `get` default: an explicit `"config_version": null` would otherwise
+    # record the version as the string 'None'.
+    version = str(document.get('config_version') or 'unknown')
+    raw = document.get('report_general_stats_data')
+    sections = check_multiqc.normalise_sections(raw)
     if not sections:
+        # Two operationally different failures, kept apart exactly as
+        # `check_multiqc.load_sections` keeps them apart: a report we could not read sends
+        # an operator to the file and their credentials, while a report that parsed fine
+        # and genuinely holds no QC modules means the dataset belongs out of the run.
+        if isinstance(raw, (dict, list)) and len(raw) == 0:
+            raise ExtractError(
+                f'{dataset}: report_general_stats_data is present but empty (multiqc {version}) in {uri}; '
+                f'the report contains zero QC modules, so there is nothing to calibrate from',
+            )
         raise ExtractError(f'{dataset}: no usable report_general_stats_data (multiqc {version}) in {uri}')
 
     metrics: dict[str, MetricValues] = {}
@@ -4169,7 +4190,11 @@ def extract_dataset_metrics(report: MultiqcReport, output: Path, job_attrs: dict
 
     `read_input` rather than a `gcloud storage cp` in the command, matching every other
     job here. Reports run to hundreds of megabytes and parse into several GB of Python
-    objects, so this asks for highmem and enough disk for one localised report.
+    objects, so this asks for highmem and enough disk for one localised report. The peak
+    is dominated by the entry script's `json.load`, not by extraction itself:
+    `normalise_sections` shares the leaf per-sample dicts rather than copying them, so
+    `extract` adds only cheap scaffolding and the values file it returns is far smaller
+    than the report.
     """
     batch = hail_batch.get_batch()
 

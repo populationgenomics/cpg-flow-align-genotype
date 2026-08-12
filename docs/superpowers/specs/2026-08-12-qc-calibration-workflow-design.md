@@ -179,6 +179,12 @@ No `gcloud storage cp`. Inputs via `batch.read_input(uri)`, outputs via
 | Job | Resources | Rationale |
 | --- | --- | --- |
 | extract (per dataset) | `HIGHMEM`, `storage` configurable, default `20Gi` | a 500 MB JSON parses into several GB of Python objects; one report localised per job |
+
+Peak memory sits in the entry script's `json.load`, not in extraction:
+`check_multiqc.normalise_sections` shares the leaf per-sample dicts rather than copying
+them, so `extract` adds only cheap scaffolding and returns something far smaller than the
+report. The entry script should drop its reference to the parsed document before writing
+the values file so the peak does not span both.
 | report (per multicohort) | `STANDARD`, 2 CPU | reads N small JSON files |
 
 Both jobs run the `workflow.driver_image` and invoke `python3 -m align_genotype.scripts.…`,
