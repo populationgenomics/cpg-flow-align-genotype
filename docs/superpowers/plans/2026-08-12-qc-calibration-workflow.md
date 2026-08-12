@@ -63,53 +63,44 @@ This touches production behaviour, so it lands as its own commit reviewable in i
 Add to `test/test_check_multiqc.py`, after `test_relative_skipped_below_min_cohort` (find it with `grep -n min_cohort test/test_check_multiqc.py`):
 
 ```python
-def test_relative_uses_min_samples_key(tmp_path, patch_config, caplog):
-    """The config key is `min_samples`; `min_cohort` was the pre-rename spelling."""
+def test_relative_uses_min_samples_key(patch_config):
+    """The config key is `min_samples`; a run of 3 must be skipped by a bar of 4."""
     patch_config(
         'genome',
         {
-            'fail': {'max': {'reads_duplicated_percent': 40}},
             'relative': {
-                'reads_duplicated_percent': {'direction': 'max', 'k': 3.5, 'min_samples': 3},
+                'reads_duplicated_percent': {'direction': 'max', 'k': 3.5, 'min_samples': 4},
             },
         },
     )
     sections = {
         'samtools': {
             f'CPG{i}': {'reads_duplicated_percent': value}
-            for i, value in enumerate([10.0, 10.5, 11.0, 10.2, 99.0])
+            for i, value in enumerate([10.0, 11.0, 50.0])
         },
     }
     flags = check_multiqc.relative_flags(sections, 'genome', datetime(2026, 1, 1), already_flagged={})
-    assert [f.flag for _, _, f in flags] == ['reads_duplicated_percent']
-    assert [sg for _, sg, _ in flags] == ['CPG4']
+    assert flags == []
 ```
 
 Note `test_check_multiqc.py` already imports `datetime`; confirm with `grep -n '^from datetime' test/test_check_multiqc.py` and add `from datetime import datetime` if absent.
+
+**Three data points is the minimum that makes this test mean anything.** With exactly two
+points the modified z-score is always exactly `±0.6745`, because MAD equals half the
+range - so `|mz| > k` is false for every `k` this codebase uses, and no two-point set can
+ever be flagged whether or not the size guard runs. A two-point version of this test
+passes identically before and after the rename: a vacuous regression guard on the only
+production behaviour change in this plan. The same trap applies to any small MAD fixture
+you are tempted to build later; use at least three points with a genuine outlier.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `uv run pytest test/test_check_multiqc.py::test_relative_uses_min_samples_key -v`
 
-Expected: FAIL. `min_cohort` is absent from the config, so `cfg.get('min_cohort', 0)` returns `0`, the cohort-size guard never trips, and the assertion on which sequencing groups were flagged still passes — but the *pre-existing* test asserting `min_cohort` skips below threshold is what will now conflict. If this test passes at this step, that is because the rename is a pure key change with no behaviour change at size 5 ≥ 3; in that case make the test discriminating by lowering the sample count below the bar:
-
-```python
-def test_relative_uses_min_samples_key(tmp_path, patch_config):
-    """The config key is `min_samples`; a run of 2 must be skipped by a bar of 3."""
-    patch_config(
-        'genome',
-        {
-            'relative': {
-                'reads_duplicated_percent': {'direction': 'max', 'k': 3.5, 'min_samples': 3},
-            },
-        },
-    )
-    sections = {'samtools': {'CPG0': {'reads_duplicated_percent': 10.0}, 'CPG1': {'reads_duplicated_percent': 99.0}}}
-    flags = check_multiqc.relative_flags(sections, 'genome', datetime(2026, 1, 1), already_flagged={})
-    assert flags == []
-```
-
-Use this second form. It fails before the rename because `min_cohort` is unset, `min_samples` is ignored, the bar defaults to `0`, and `CPG1` gets flagged — so `flags` is non-empty.
+Expected: FAIL. Before the rename `min_samples` is ignored, `cfg.get('min_cohort', 0)`
+defaults the bar to `0`, so the three-value run is not skipped, `CPG2` (50.0) is flagged
+as an outlier, and `flags` is non-empty. After the rename the bar is 4, `3 < 4`, and the
+metric is skipped.
 
 - [ ] **Step 3: Make the rename**
 
@@ -154,7 +145,7 @@ min_samples = 50   # below this, MAD is too noisy; skip relative flagging
 
 Run: `grep -rn min_cohort src/ test/`
 
-Every remaining hit in `test/test_check_multiqc.py` must be changed to `min_samples`. Hits in `src/align_genotype/qc_calibration/` are the old CLI modules being deleted in Task 16 — leave them, they still import cleanly until then.
+Every remaining hit in `test/test_check_multiqc.py` must be changed to `min_samples`. Hits in `src/align_genotype/qc_calibration/` are the old CLI modules deleted in Tasks 6b and 17 — leave them, they still import cleanly until then.
 
 - [ ] **Step 6: Run the full check_multiqc suite**
 
@@ -4702,6 +4693,11 @@ queues a job.
 - **`test/` is not a package.** `test_qc_calibration_render.py` imports fixtures from
   `test.test_qc_calibration_summary`. If that import fails, add an empty
   `test/__init__.py` in the same commit, or inline the two helpers.
+- **MAD fixtures need at least three points.** With two, the modified z-score is always
+  exactly `±0.6745` (MAD equals half the range), so nothing can ever be flagged at any
+  `k` this codebase uses, and a test built on two points passes whatever the code does.
+  Task 1's original test had this defect. Check any small relative/churn fixture against
+  it.
 - **Ruff is strict here.** `ANN`, `BLE`, `TCH`, `PLC0415` (lazy imports) and `DTZ` are
   all enabled. Use `datetime.now(tz=timezone.utc)`, mark deliberate function-local
   imports `# noqa: PLC0415`, and annotate every signature.
