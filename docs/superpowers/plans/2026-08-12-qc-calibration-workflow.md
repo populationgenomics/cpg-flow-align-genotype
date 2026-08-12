@@ -598,7 +598,11 @@ def test_config_template_ships_a_parseable_calibration_block():
     else:
         import tomli as tomllib  # noqa: PLC0415
 
-    template = Path('src/align_genotype/config_template.toml')
+    import align_genotype  # noqa: PLC0415
+
+    # Package-relative, not cwd-relative: a test must not depend on where pytest was
+    # invoked from. config_template.toml is already declared package data.
+    template = Path(align_genotype.__file__).parent / 'config_template.toml'
     parsed = tomllib.loads(template.read_text())
     block = parsed['qc_calibration']
 
@@ -4797,6 +4801,9 @@ queues a job.
   `KeyError`) that the plan's own test list never exercised. When implementing, check each
   branch of the code you are given and add the missing test rather than transcribing the
   list as-is.
+- **Resolve fixture paths from the package, not the working directory.** A test that
+  does `Path('src/align_genotype/...')` passes from the repo root and fails under an IDE
+  runner or `pytest <absolute-path>`. Use `Path(align_genotype.__file__).parent / ...`.
 - **MAD fixtures need at least three points.** With two, the modified z-score is always
   exactly `±0.6745` (MAD equals half the range), so nothing can ever be flagged at any
   `k` this codebase uses, and a test built on two points passes whatever the code does.
