@@ -4924,3 +4924,45 @@ queues a job.
   all enabled. Use `datetime.now(tz=timezone.utc)`, mark deliberate function-local
   imports `# noqa: PLC0415`, and annotate every signature.
 - **Line length is 120**, single quotes, `uv run ruff format` to normalise.
+
+## What changed during implementation
+
+All 19 tasks (1 through 18, plus 6b) landed; every one produced at least one review
+finding. The code blocks above are left as written — they are the historical record of
+what was planned, not what shipped — but they have drifted from the real modules in the
+places below. Reconstructed from `git log --oneline` on this branch; hashes are short.
+The design spec (`docs/superpowers/specs/2026-08-12-qc-calibration-workflow-design.md`)
+has been corrected to match the code directly; this section instead explains *why* the
+two disagree.
+
+### Substantive divergences
+
+| Task | Plan specified | Shipped instead | Commit(s) |
+| --- | --- | --- | --- |
+| 1 | A regression test with 5 points (`min_samples=3`), plus a conditional fallback to a 2-point version (`min_samples=3`, values `[10.0, 99.0]`) if the 5-point one turned out not to discriminate. | A single 3-point fixture (`[10.0, 11.0, 50.0]`, `min_samples=4`). The 5-point form was vacuous for a different reason than intended (`min_cohort` defaulted to `0` pre-rename, so its size guard never tripped either way regardless of sample count) and its suggested fix was vacuous for the reason it names: with exactly 2 points MAD is always half the range, so the modified z-score is always `±0.6745` and nothing can ever be flagged at any `k` used here. | `d5d932f` (plan fix), shipped via `5495ed1` |
+| 2 | `settings.enabled()` and the numeric config readers specified as `bool(...)` / `float(...)` / `int(...)` coercion. | `_require_bool` / `_require_number` / `_require_int` helpers that reject anything not already the right type. `bool('false')` is `True`, so a quoted `enabled = "false"` would have silently turned every production run into a job-per-dataset calibration run. | `ca15b3a` (plan fix), `975ce63` |
+| 4 | `values.load` read counts and metric values with plain `int()`/`float()`. | `_require_int` / `_require_number` / `_require_finite_number` guards. `int(True)` is `1` with no exception, so a boolean in a hand-edited values file would load silently; a non-finite value would load and then disagree with `array`'s filtering, breaking the `len(array) == n_values` invariant downstream code relies on. | `46a65f3` (plan fix), `c67508d` |
+| 4 | The per-metric sequencing-group count was going to be named `n_sequencing_groups`, same as `DatasetValues`'s dataset-total field. | Renamed to `n_groups_with_values` on `MetricValues`, so the per-metric count and the dataset total can never be confused by name. | `78cbeb8` (plan fix), `c67508d` |
+| 5 | `extract.extract` raising one error message for "report unreadable." | Two distinct messages: "no usable `report_general_stats_data`" (key absent or malformed — chase the file or credentials) vs. "present but empty" (parsed fine, genuinely holds zero modules — a different problem), mirroring `check_multiqc.load_sections`'s own distinction. | `9d0aeca` (plan fix), `b662d75` |
+| 7 | An early draft of the plan's Task 7 introduced a module-level mutable `_K` dict to thread `k`/`min_samples` into `relative.py`'s free functions, then a later step to delete it again. | Dropped before implementation — `k` and `min_samples` are passed as ordinary parameters throughout. Took two attempts to land cleanly (a fix, then a revert, then a redo scoped correctly). | `b63d9cd`, `0396b20` (revert), `251ea24` |
+| 9 | `snippet.render` emitting bare threshold lines with no evidence. | Each threshold line preceded by its `Candidate.basis` as a comment; the relative table's `direction`/`k`/`min_samples` lines carry static glosses of what those keys mean, matching the committed `config_template.toml`. | `ffc8699`, `7f7a112`, `8b751bb`, `a64752e`, `fd3eaf4`/`1d73224` |
+| 10 | The per-relative-metric coverage counts (`n_datasets`, `n_datasets_skipped`, `n_datasets_evaluated`, `n_growth_evaluated`, `n_merge_datasets_evaluated`, `merge_pairs_simulated`) do not appear anywhere in the plan's Task 10 code block. | Added in the same commit that first assembled `summary.py`, so that a reader of the report sees the denominator behind each of the three peak figures (warn rate, growth churn, merge churn), which are each computed over a different subset of datasets. | `0b89593` |
+| 10 | Not anticipated by the plan at all. | `_inert_tier`: a check that a candidate's (or the shipped config's) warn line can never fire because `check_multiqc.worst_breach` evaluates fail before warn. Found by running the whole pipeline end to end on real data — not by any test — when rounding collapsed a `MEDIAN_COVERAGE` candidate to `fail=27, warn=27`. Checked against both the candidate tiers (severity `warning`) and the shipped `qc_thresholds` tiers (severity `error`, since an inert pair there would be a live production defect, not merely a proposal). | `fbe5dd6` |
+| 10/11/14 | `warnings` specified as a `list[str]`, with `qc_calibration_report.py` routing ERROR-vs-WARNING by testing the message for the substring `'checks nothing'`. | `warnings` is a `list[dict]` of `{'severity': 'error'|'warning', 'message': str}`; the report script and the HTML template (`.banner` vs. `.banner.warning`) route on the `severity` field. The substring match would have logged a shipped-config defect at the same level as a metric merely absent from some datasets. | `6a91833` (the last commit on the branch) |
+| 12 | The Metamist meta filter shown as `{'stage': ..., 'sequencing_type': ...}` — already flat in the committed plan text, but this was itself a mid-branch correction from an earlier nested `{'eq': ...}` form used in the pre-refactor CLI. | Confirmed flat in `discovery.py`, matching the one other precedent in the repo (`scripts/build_vntyper_index.py`). | `1d73224` (plan fix), `e86f513` |
+
+### Process notes
+
+- **The plan's own test lists were not exhaustive**, in most tasks — see "Notes for the
+  implementer" above for the general pattern. The most severe case was `summary.py`
+  (Task 10): the shared fixture in the plan's test list used `n=6` values per dataset with
+  `min_samples=4`, but growth churn only simulates a dataset whose 60% before-slice still
+  clears `min_samples` (`0.6 * n >= min_samples`, i.e. `n >= 7` here) — so growth churn
+  could not run at all under that fixture, and the `_churn_result` mapping over
+  `evaluation.growth` was never exercised until a dedicated larger-fixture test was added
+  later in the same task.
+- **The inert-warn-tier check (Task 10, `fbe5dd6`) came from running the pipeline, not
+  from a review of the code or the plan.** It is the one finding in this branch that no
+  test, no code review and no plan correction caught first — a smoke run against real
+  data did. Recorded here because it is the strongest argument in this project for keeping
+  that smoke-run step in the workflow rather than trusting unit coverage alone.

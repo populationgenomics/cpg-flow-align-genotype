@@ -102,6 +102,17 @@ in `multiqc_data.json`.
 Incidentally noted: `dataset_stages.py:184` `_update_meta` is dead code — defined, never
 referenced by any stage decorator.
 
+**6. A warn tier can be configured and still check nothing.** `check_multiqc.worst_breach`
+iterates severities fail-then-warn and returns the first breach, so a `min` metric's warn
+line must sit strictly above its fail line (mirrored for `max`) or every value that would
+warn is already recorded as a fail — the same failure mode as a metric absent from every
+dataset, just found by comparing two numbers instead of by absence. This was not anticipated
+in the original design; it surfaced from running the pipeline end to end, when rounding a
+candidate to its display unit collapsed two distinct raw percentiles onto the same value.
+The report checks it against both the candidates it proposes and the tiers already shipped
+in `config_template.toml`, since the latter would be a live production defect if it ever
+occurred (see the Failure policy table).
+
 ## Architecture
 
 Two stages in a new `qc_calibration_stages.py`, added to `run_workflow.py`'s stage list.
@@ -141,7 +152,8 @@ iterate-on-config loop the CLI's two-phase design existed to provide.
 Keying on the Metamist analysis ID means a new MultiQC report produces a new path, so
 extraction re-runs exactly when the underlying data changed and never reads a stale
 cache. Discovery therefore has to run inside `expected_outputs`, which is why it is
-`lru_cache`d on `(dataset_name, seq_type)`.
+cached (`functools.cache`, unbounded for the life of the process) on `(dataset_name,
+seq_type)`.
 
 `QcCalibrationDatasetMetrics` is deliberately **not** `forced` — that would defeat the
 keying. `QcCalibrationReport` **is** `forced=True`, like `GenerateSgQcReport`, so the
@@ -178,7 +190,7 @@ No `gcloud storage cp`. Inputs via `batch.read_input(uri)`, outputs via
 
 | Job | Resources | Rationale |
 | --- | --- | --- |
-| extract (per dataset) | `HIGHMEM`, `storage` configurable, default `20Gi` | a 500 MB JSON parses into several GB of Python objects; one report localised per job |
+| extract (per dataset) | `HIGHMEM`, 2 CPU, `storage` configurable, default `20Gi` | a 500 MB JSON parses into several GB of Python objects; one report localised per job |
 
 Peak memory sits in the entry script's `json.load`, not in extraction:
 `check_multiqc.normalise_sections` shares the leaf per-sample dicts rather than copying
@@ -245,37 +257,43 @@ those fields encoded moves to the README and to the report's own framing text.
 
 ## Module layout
 
-| Current | Fate | Target size | Notes |
+Sizes below are as-built (`wc -l` on this branch), not the pre-implementation estimate.
+Every module came out larger than planned — validation guards, evidence comments and
+review findings (see the plan's "What changed during implementation" section) account
+for most of the difference, not scope creep.
+
+| Current | Fate | Actual size | Notes |
 | --- | --- | --- | --- |
 | `cli.py` (241) | delete | — | the stage is the entrypoint; `qc_calibrate` leaves `pyproject.toml` |
 | `tomlio.py` (77) | delete | — | nothing reads or writes TOML; the emitted block is f-strings |
 | `manifest.py` (131) | delete | — | no manifest artifact; provenance lives in the report JSON |
 | `dryrun.py` (179) | delete | — | proved the emitted block loads; production proves that every run |
-| `spec.py` (246) | → `settings.py` | ~90 | `MetricSpec` + direction/unit validation, read via `config_retrieve` |
-| `cache.py` (227) | → `values.py` | ~90 | drops the `mkstemp`/`replace` dance, the `CloudPath` branch and `require_usable`; gains SG IDs |
-| `collect.py` (220) | → `extract.py` | ~110 | one dataset per call; drops `collect_all`, `gc.collect()`, broad `except` |
-| `stats.py` (113) | keep | 113 | percentiles, flag rates, churn — wording only |
-| `relative.py` (499) | keep, cut | ~230 | see below |
-| `suggest.py` (173) | → `thresholds.py` | ~110 | keeps tail selection and unit rounding; drops spec mutation and `reviewed` |
-| `emit.py` (239) | → `snippet.py` | ~70 | keeps section ordering for a clean diff; drops both guards and `tomlio` |
-| `report.py` (587) | → `summary.py` + `render.py` + template | ~190 | the ~250 lines of ASCII table machinery go; pure data assembly survives, plus a thin Jinja wrapper |
-| `discovery.py` (196) | keep, cut | ~80 | drops `myProjects` and the eligibility filter; `gql()`, meta filter, non-lazy import |
+| `spec.py` (246) | → `settings.py` | 181 | `MetricSpec` + direction/unit validation, read via `config_retrieve` |
+| `cache.py` (227) | → `values.py` | 202 | drops the `mkstemp`/`replace` dance, the `CloudPath` branch and `require_usable`; gains SG IDs plus bool/finiteness guards on load |
+| `collect.py` (220) | → `extract.py` | 85 | one dataset per call; drops `collect_all`, `gc.collect()`, broad `except`; splits "report unreadable" from "report empty" |
+| `stats.py` (113) | keep | 110 | percentiles, flag rates, churn — wording only |
+| `relative.py` (499) | keep, cut | 295 | see below |
+| `suggest.py` (173) | → `thresholds.py` | 106 | keeps tail selection and unit rounding; drops spec mutation and `reviewed` |
+| `emit.py` (239) | → `snippet.py` | 130 | keeps section ordering for a clean diff; drops both guards and `tomlio`; gains per-threshold evidence comments and relative-table key annotations |
+| `report.py` (587) | → `summary.py` + `render.py` + template | 284 + 59 | the ~250 lines of ASCII table machinery go; pure data assembly survives, plus a thin Jinja wrapper |
+| `discovery.py` (196) | keep, cut | 135 | drops `myProjects` and the eligibility filter; `gql()`, meta filter, non-lazy import |
 
 New:
 
 ```
 src/align_genotype/
-  qc_calibration_stages.py                      ~110  two stages
-  jobs/qc_calibration.py                         ~90  two job builders
-  scripts/qc_calibration_extract.py              ~60  per-dataset job entry
-  scripts/qc_calibration_report.py               ~90  report job entry
-  templates/qc_calibration_report.html.jinja    ~350  mostly CSS, mirrors sg_qc_overview
-  qc_calibration/render.py                       ~40  Jinja environment and template render
-  qc_calibration/README.md                             rewritten
+  qc_calibration_stages.py                       154  two stages
+  jobs/qc_calibration.py                          77  two job builders
+  scripts/qc_calibration_extract.py               69  per-dataset job entry
+  scripts/qc_calibration_report.py                70  report job entry
+  templates/qc_calibration_report.html.jinja     327  mostly CSS, mirrors sg_qc_overview
+  qc_calibration/render.py                        59  Jinja environment and template render
+  qc_calibration/README.md                            rewritten
 ```
 
-The package goes from 3,133 lines to roughly 1,050 of library plus ~350 of
-stages/jobs/scripts.
+The package (`qc_calibration/`) goes from 3,133 lines to 1,593 of library (including
+`render.py`), plus 370 in `qc_calibration_stages.py`/`jobs`/`scripts` and 327 in the Jinja
+template.
 
 ### The one substantive cut in `relative.py`
 
@@ -345,21 +363,45 @@ ranked and is skipped with a warning.
 sequencing_type, generated, ar_guid
 settings            k, min_samples, max_warn_rate, max_growth_churn, max_merge_churn
 datasets[]          dataset, analysis_id, timestamp, uri, n_sequencing_groups,
-                    multiqc_version
+                    multiqc_version, section_sizes
 skipped_datasets[]  dataset, reason
-metrics{KEY}        direction, unit, n_values, n_groups_with_values, n_datasets,
-                    n_dropped, present_in[], missing_from[],
+metrics{KEY}        direction, unit, relative, n_values, n_groups_with_values, n_datasets,
+                    n_dropped, present_in[], missing_from[], duplicated_in[],
                     current{fail, warn}, candidate{fail, warn, basis},
-                    flag_rates{current{dataset: [fail, warn]}, candidate{…}},
+                    flag_rates{current{dataset: {fail, warn}}, candidate{…}},
                     percentiles{dataset: {p1 … p99}}
-relative{KEY}       verdict, reason, max_warn_rate, max_growth_churn, max_merge_churn,
-                    datasets[]{n_values, n_groups_with_values, median, mad, threshold,
-                               n_warn, warn_rate, skipped},
-                    growth[]{ordered, shuffled, worse, ordering_sensitive},
-                    merge_worst[]
-warnings[]
+relative{KEY}       metric, direction, verdict, reason,
+                    bars{max_warn_rate, max_growth_churn, max_merge_churn},
+                    max_warn_rate, max_growth_churn, max_merge_churn,
+                    n_datasets, n_datasets_skipped, n_datasets_evaluated,
+                    n_growth_evaluated, n_merge_datasets_evaluated, merge_pairs_simulated,
+                    ordering_sensitive[],
+                    datasets[]{dataset, n_values, n_groups_with_values, median, mad,
+                               threshold, n_warn, warn_rate, duplicated, skipped},
+                    growth[]{dataset, ordered, shuffled, worse, ordering_sensitive},
+                    merge_worst[]{dataset, merged_with, threshold_before, threshold_after,
+                                  n_initial, flagged_before, flagged_after, flips, flip_rate}
+warnings[]          {severity: 'error'|'warning', message}
 config_snippet      the qc_thresholds TOML block, as a string
 ```
+
+`bars` is the configured advisory bar for each of the three peaks; the bare `max_warn_rate`
+/ `max_growth_churn` / `max_merge_churn` alongside it are the *measured* peaks for this
+metric. `n_datasets`, `n_datasets_skipped`, `n_datasets_evaluated`, `n_growth_evaluated`
+and `n_merge_datasets_evaluated` were added so each of the three peaks carries its own
+denominator: warn-rate, growth-churn and merge-churn are each computed over a different
+subset of datasets (skipped datasets drop out of the warn-rate peak; growth additionally
+drops any dataset whose 60% before-slice would itself fall below `min_samples`; merge needs
+at least two usable datasets to produce any pairs), and a reader shown only "peak warn rate
+4.2%" cannot tell what fraction of the run that describes. `merge_pairs_simulated` is the
+total pair count before truncation to the worst ten in `merge_worst`.
+
+`warnings[]` entries carry an explicit `severity` field rather than being routed by a
+substring match on `message`. Severity is assigned per finding: a metric absent from every
+dataset, and a shipped `qc_thresholds` warn tier that is unreachable behind its own fail
+tier, are `'error'`; a metric absent from only some datasets, and a *candidate* warn tier
+that is unreachable behind its own candidate fail tier, are `'warning'`. See the Failure
+policy table below for what "unreachable" means.
 
 `n_values` and `n_groups_with_values` both appear per metric — correction 4 made visible
 rather than caveated. The two are named differently on purpose: `n_sequencing_groups` on a
@@ -371,11 +413,24 @@ shipped today.
 
 ### `calibration.html` — analysis dataset web bucket
 
-Rendered from a Jinja template, following `sg_qc_overview.html.jinja`. Sections in order:
+Rendered from a Jinja template, following `sg_qc_overview.html.jinja`, via `render.py`
+(its own module — see Module layout above). The Jinja environment uses
+`jinja2.StrictUndefined` rather than the default `Undefined`: a typo'd field
+(`m.n_value` instead of `m.n_values`) renders as a blank cell under the default, which is
+the worst failure mode for a page people use to decide production thresholds — it looks
+like data, not an error. `StrictUndefined` turns that into a render-time
+`jinja2.UndefinedError` instead. Fields that are legitimately optional (`m.current.fail`
+when nothing is shipped yet) are read through the `default` filter, which still
+short-circuits on `Undefined` even in strict mode, so only *unintended* gaps raise. Sections
+in order:
 
 1. **Header** — sequencing type, sequencing group count, dataset count, metric count,
    `k`, `min_samples`, date, ar-guid.
-2. **Banner** — red, if any configured metric is missing from any dataset.
+2. **Banner** — red for `'error'`-severity warnings (a metric absent from every dataset, or
+   a shipped `qc_thresholds` warn tier that is inert behind its own fail tier); a calmer
+   amber `.banner.warning` variant for `'warning'`-severity ones (absent from some
+   datasets, or a candidate warn tier that is inert). A live production defect must not
+   read as an FYI.
 3. **Recommended fixed thresholds** — metric, direction, current fail/warn, candidate
    fail/warn, flag-rate delta. Carries the caveat that candidates are percentile tails,
    not decisions.
@@ -386,7 +441,8 @@ Rendered from a Jinja template, following `sg_qc_overview.html.jinja`. Sections 
    dataset; flag rates per dataset for current and candidate; churn detail (ordered vs
    shuffled growth with the `ORDERING-SENSITIVE` marker, worst merge pairs); provenance
    and skipped datasets.
-6. **Copy-pasteable `qc_thresholds` block** in a `<pre>` with a copy button.
+6. **Copy-pasteable `qc_thresholds` block** in a `<pre>`. (No copy-button JS shipped — the
+   block is plain text in a `<pre>`, selectable and copyable without one.)
 
 No separate `.toml` output file — the snippet exists in the HTML and in the JSON.
 
@@ -394,12 +450,23 @@ No separate `.toml` output file — the snippet exists in the HTML and in the JS
 
 | Condition | Behaviour |
 | --- | --- |
-| Configured metric missing from *some* datasets | red banner, `warnings[]` entry, WARNING log. Not a job failure. |
-| Configured metric missing from *every* dataset | loudest banner, ERROR log. Still not a job failure. |
-| Report has no usable `report_general_stats_data` | extract job fails, mirroring `check_multiqc.load_sections` |
+| Configured metric missing from *some* datasets | amber `.banner.warning`, `warnings[]` entry `{severity: 'warning', ...}`, WARNING log. Not a job failure. |
+| Configured metric missing from *every* dataset | red `.banner`, `warnings[]` entry `{severity: 'error', ...}`, ERROR log. Still not a job failure. |
+| Candidate warn tier unreachable behind its own candidate fail tier (`warn <= fail` for a `min` metric, mirrored for `max`) | amber banner, `warnings[]` entry `{severity: 'warning', ...}`. This is calibration's own proposal, not yet shipped. |
+| Shipped `[qc_thresholds.<seq_type>...]` warn tier unreachable behind its own shipped fail tier | red banner, `warnings[]` entry `{severity: 'error', ...}` — surfaced because `check_multiqc.worst_breach` evaluates fail before warn, so an inert pair in the shipped config is a live defect, not a hypothetical one. |
+| Report has no usable `report_general_stats_data` (key absent, or not a dict/list) | extract job fails, mirroring `check_multiqc.load_sections` |
+| `report_general_stats_data` present but holds zero modules | extract job fails with a distinct message — the report parsed fine and legitimately contains nothing, a different problem from one we could not read |
 | Non-numeric value (Picard `'?'`) | dropped and counted per metric, as production does; surfaced in the report |
 | NaN / inf | filtered before percentiles and MAD |
 | Dataset below `min_samples` | no relative tier derived; skip reason recorded and displayed |
+
+The inert-tier check (rows 3–4) was not designed up front — it was found by running the
+pipeline end to end on real data, not by any unit test: rounding a candidate to its
+display unit can collapse two distinct raw percentiles onto the same value (observed as
+`fail=27, warn=27` for a `MEDIAN_COVERAGE` candidate on genome data), producing a tier
+that looks configured but can never fire. The shipped-config half of the check is a
+standing safeguard rather than evidence of a current defect — as of this branch,
+`config_template.toml` carries no such pair.
 
 The report job never fails on a missing metric because Hail only copies `write_output`
 targets on job success — failing would destroy the HTML that explains the problem. This
@@ -411,35 +478,45 @@ run happened.
 
 ## Testing
 
-Twelve files, ~1,320 lines, down from thirteen and 3,692. Almost all of the reduction is
-a consequence of deleted module surface rather than thinned coverage. The file *count*
-barely moves because two new suites appear — `render` (template smoke tests) and
-`scripts` (the two job entrypoints) — that the old CLI had no equivalent of; the line
-count is what falls.
+Twelve files, 3,027 lines, down from thirteen and 3,692 (verified with `wc -l
+test/test_qc_calibration_*.py`; 214 tests, all passing). The file *count* barely moves
+because two new suites appear — `render` (template smoke tests) and `scripts` (the two job
+entrypoints) — that the old CLI had no equivalent of. But the line count barely moves
+either: this section originally predicted ~1,320, a reduction of nearly two-thirds: the
+real reduction is 18%. Deleted module surface (`tomlio`/`manifest`/`cli`/`dryrun`, 714
+lines) accounts for most of what *did* shrink; most of what survived came back larger than
+estimated, because every task's review pass added defensive-validation tests and
+finding-specific regressions the original estimate had no way to anticipate — see the
+plan's "What changed during implementation" section for what those findings were.
 
 | | now | after | why |
 | --- | --- | --- | --- |
 | `tomlio`, `manifest`, `cli`, `dryrun` | 714 | 0 | modules deleted |
-| `spec` → `settings` | 284 | ~80 | tested validation rules and TOML round-trips that no longer exist |
-| `report` → `summary` | 703 | ~150 | see below |
-| `relative` | 538 | ~250 | `set_config_paths` restore-path tests go with `_production_config` |
-| `discovery` | 324 | ~120 | eligibility-filter tests go; gains the CramMultiQC-vs-GvcfMultiQC test |
-| `collect` → `extract` | 288 | ~140 | gains sequencing-group-ID retention |
-| `cache` → `values` | 289 | ~70 | atomic-write and CloudPath-branch tests go with the code |
-| `emit` → `snippet` | 226 | ~60 | one golden-block test |
-| `suggest` → `thresholds` | 184 | ~90 | |
+| `spec` → `settings` | 284 | 228 | TOML round-trip tests go with the CLI; gains explicit bool/number/int validation-error coverage |
+| `report` → `summary` | 703 | 570 | see below; the template-rendering smoke test moved to the new `render` suite rather than staying here |
+| `relative` | 538 | 300 | `set_config_paths` restore-path tests go with `_production_config`; gains inert-tier and coverage-denominator cases |
+| `discovery` | 324 | 162 | eligibility-filter tests go; gains the CramMultiQC-vs-GvcfMultiQC test |
+| `collect` → `extract` | 288 | 171 | gains sequencing-group-ID retention and the two-failure-mode split (unreadable vs. present-but-empty) |
+| `cache` → `values` | 289 | 209 | atomic-write and CloudPath-branch tests go with the code; gains bool/finiteness guard coverage |
+| `emit` → `snippet` | 226 | 286 | grew past its predecessor: per-threshold evidence-comment and relative-annotation coverage, not one golden block |
+| `suggest` → `thresholds` | 184 | 95 | |
 | `stats` | 142 | 142 | unchanged |
-| `stages` | — | ~120 | new |
-| `render` | — | ~90 | new: template smoke tests |
-| `scripts` | — | ~110 | new: the two job entrypoints |
+| `stages` | — | 121 | new |
+| `render` | — | 367 | new: template smoke tests, `StrictUndefined` behaviour, severity-banner rendering |
+| `scripts` | — | 376 | new: the two job entrypoints, including severity-field log routing |
 
 What must be covered:
 
-- **`settings`** — bad direction, bad unit, missing metrics table, `relative` defaulting.
-- **`values`** — round-trip with sequencing group IDs; non-numeric value rejected by name.
+- **`settings`** — bad direction, bad unit, missing metrics table, `relative` defaulting;
+  quoted-boolean and non-numeric/non-integer config values rejected rather than coerced.
+- **`values`** — round-trip with sequencing group IDs; non-numeric value rejected by name;
+  a boolean count or a non-finite metric value rejected on load, mirroring what `save`
+  refuses to write.
 - **`extract`** — `'?'` dropped and counted per metric; NaN filtered; both MultiQC section
   shapes (v1.33 dict, v1.14 positional list); presence recorded per section; one
-  sequencing group appearing in two sections yields two values and one SG count.
+  sequencing group appearing in two sections yields two values and one SG count; an
+  unreadable report and a present-but-empty one raise distinctly-worded errors, each
+  naming the dataset and URI.
 - **`stats`** — percentiles and flag rates against hand-computed values; warn excludes
   already-failing; churn on a fixed array.
 - **`relative`** — `min_samples` skip; zero-MAD skip; growth taking the worse of ordered
@@ -448,14 +525,20 @@ What must be covered:
 - **`thresholds`** — tail selection per direction; unit rounding; a metric with no data
   skipped rather than fabricated.
 - **`snippet`** — golden block, parses with `tomllib`, round-trips through
-  `check_multiqc.load_thresholds`.
-- **`summary`** — numeric assertions against a `CalibrationSummary` built from a synthetic
-  three-dataset fixture; one smoke test that the template renders and contains the
-  expected section headings.
+  `check_multiqc.load_thresholds`; per-threshold basis comments; relative-table key
+  annotations (`direction`/`k`/`min_samples` glosses).
+- **`summary`** — numeric assertions against `build()`'s plain-dict output, from small
+  synthetic dataset lists built per test (not one shared fixture); the inert-warn-tier
+  check against both candidate and shipped tiers, for both `min` and `max` metrics.
+- **`render`** — the template renders and carries every expected section heading;
+  `StrictUndefined` behaviour; error- vs. warning-severity banners render distinctly;
+  HTML-escaping of dataset names and skip reasons.
 - **`discovery`** — newest-by-timestamp wins over higher ID; unrankable timestamp skipped;
   a GvcfMultiQC analysis and an HTML output are both excluded.
 - **`stages`** — output paths per sequencing type; `{}` from `expected_outputs` when no
   analysis exists; no jobs when `enabled = false`.
+- **`scripts`** — the two job entrypoints, including severity-field log routing (`ERROR`
+  for `'error'`, `WARNING` for `'warning'`, not a message substring match).
 - **`check_multiqc`** — existing coverage stands; add the `min_samples` rename.
 
 `test_qc_calibration_report.py` is cut on principle regardless of the refactor: 703 lines
