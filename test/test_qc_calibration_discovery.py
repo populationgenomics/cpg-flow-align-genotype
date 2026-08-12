@@ -100,6 +100,24 @@ def test_unrankable_timestamp_is_skipped_with_a_warning(caplog):
     assert 'timestampCompleted' in caplog.text
 
 
+def test_a_tied_timestamp_deterministically_picks_the_first_candidate():
+    """Two analyses completed at the identical instant must not raise or pick randomly.
+
+    `max(..., key=...)` returns the first maximal element on a tie, so selection is
+    deterministic and depends on the order Metamist returned the rows in - documented
+    here so a future reader does not mistake stable behaviour for an untested gap.
+    """
+    query = fake_query(
+        [
+            analysis(1, 'gs://a/first/multiqc_data.json', '2026-01-01T00:00:00'),
+            analysis(2, 'gs://a/second/multiqc_data.json', '2026-01-01T00:00:00'),
+        ],
+    )
+    found = discovery_mod.latest_cram_multiqc('ds-a', 'genome', query_fn=query)
+    assert found.analysis_id == 1
+    assert found.uri == 'gs://a/first/multiqc_data.json'
+
+
 def test_all_timestamps_unrankable_returns_none():
     query = fake_query([analysis(1, 'gs://a/multiqc_data.json', None)])
     assert discovery_mod.latest_cram_multiqc('ds-a', 'genome', query_fn=query) is None

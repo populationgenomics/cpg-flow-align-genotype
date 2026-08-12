@@ -352,6 +352,52 @@ def test_omits_the_datasets_not_included_heading_when_nothing_was_skipped(html: 
     assert 'Datasets not included' not in rendered
 
 
+def test_metric_presence_shows_different_sections_per_dataset() -> None:
+    """The presence matrix's whole purpose is spotting a metric that lands in a different
+    general-stats section in one dataset than another - the template must render each
+    dataset's own section(s), not a single value shared by every dataset that has the
+    metric (`present_in`, a union, cannot distinguish this case).
+    """
+    ds_a = dataset_values('ds-a', [30, 32, 34, 36], [1, 2, 3, 4])
+    ds_b = values_mod.DatasetValues(
+        dataset='ds-b',
+        seq_type='genome',
+        analysis_id=1,
+        timestamp='2026-06-01T00:00:00',
+        uri='gs://ds-b/multiqc_data.json',
+        multiqc_version='1.33',
+        generated='2026-08-12T00:00:00',
+        n_sequencing_groups=4,
+        section_sizes={'picard_4': 4},
+        metrics={
+            'MEDIAN_COVERAGE': values_mod.MetricValues(
+                entries=(
+                    ('picard_4', 'ds-b-CPG0', 40.0),
+                    ('picard_4', 'ds-b-CPG1', 42.0),
+                    ('picard_4', 'ds-b-CPG2', 44.0),
+                    ('picard_4', 'ds-b-CPG3', 46.0),
+                ),
+                n_dropped=0,
+            ),
+            'dup_pct': values_mod.MetricValues(entries=(), n_dropped=0),
+            'ABSENT': values_mod.MetricValues(entries=(), n_dropped=0),
+        },
+    )
+    built = summary_mod.build(
+        [ds_a, ds_b],
+        SETTINGS,
+        current={},
+        skipped_datasets=[],
+        generated='2026-08-12T00:00:00',
+        ar_guid='x',
+    )
+    rendered = render_mod.render(built)
+    presence = rendered.split('Metric presence', 1)[1].split('</details>', 1)[0]
+    row = presence.split('MEDIAN_COVERAGE', 1)[1].split('</tr>', 1)[0]
+    assert 'picard_1' in row
+    assert 'picard_4' in row
+
+
 def test_a_run_with_no_datasets_at_all_still_renders() -> None:
     """Every candidate is None and every table is empty; StrictUndefined must not fire."""
     built = summary_mod.build(

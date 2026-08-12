@@ -366,7 +366,8 @@ datasets[]          dataset, analysis_id, timestamp, uri, n_sequencing_groups,
                     multiqc_version, section_sizes
 skipped_datasets[]  dataset, reason
 metrics{KEY}        direction, unit, relative, n_values, n_groups_with_values, n_datasets,
-                    n_dropped, present_in[], missing_from[], duplicated_in[],
+                    n_dropped, present_in[], sections_by_dataset{dataset: [section]},
+                    missing_from[], duplicated_in[],
                     current{fail, warn}, candidate{fail, warn, basis},
                     flag_rates{current{dataset: {fail, warn}}, candidate{…}},
                     percentiles{dataset: {p1 … p99}}

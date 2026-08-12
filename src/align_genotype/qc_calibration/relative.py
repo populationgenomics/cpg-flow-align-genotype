@@ -188,6 +188,11 @@ def _evaluate_dataset(
             n_warn=0,
             skipped=f'metric {metric.key!r} has no values in this dataset',
         )
+    # Deliberately not `check_multiqc.robust_threshold` here: it returns only the derived
+    # threshold, and this report needs the median and MAD themselves as reported values
+    # (the per-dataset table below), not just what they combine to. `statistics.median`
+    # and `np.median` agree, so this is safe duplication, not a second implementation of
+    # the module-level "don't re-implement the modified z-score" rule above.
     median = float(np.median(values))
     mad_raw = float(np.median(np.abs(values - median)))
     if n_values < min_samples:

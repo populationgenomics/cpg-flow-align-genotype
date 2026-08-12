@@ -12,6 +12,18 @@ run sets it true and passes
 `only_stages` marks every unlisted stage skipped, so naming just the report would make
 the extract stage check for outputs rather than produce them.
 
+The two stages' `if not outputs: return ...` guards in `queue_jobs` are not the same
+mechanism wearing two hats. `QcCalibrationDatasetMetrics` is not `forced`, so when
+`expected_outputs` returns `{}` cpg-flow's `_is_reusable` already marks the stage
+vacuously reusable and `_get_action` returns `Action.REUSE` before `queue_jobs` is ever
+called - its guard is genuine belt-and-braces, defence in depth against a future change
+to that reuse logic. `QcCalibrationReport` is `forced=True` (see the comment on the
+class), and `_get_action` checks `if self.forced: return Action.QUEUE` before it ever
+reaches the REUSE branch - so on every ordinary production run, with
+`qc_calibration.enabled = false`, `report_outputs` returns `{}` and cpg-flow queues this
+stage anyway. Its guard is the only thing standing between that and `queue_jobs` indexing
+`outputs['json']` / `outputs['html']` on an empty dict - load-bearing, not boilerplate.
+
 Every decision lives in the free functions below rather than in the stage methods:
 `Stage.__init__` calls `get_workflow()`, so a stage cannot be constructed outside a real
 run and its methods cannot be unit tested.
@@ -124,6 +136,11 @@ class QcCalibrationDatasetMetrics(stage.DatasetStage):
     required_stages=[QcCalibrationDatasetMetrics],
     analysis_type='web',
     analysis_keys=['html'],
+    # `forced=True`, like `GenerateSgQcReport`: this stage's paths are fixed per
+    # sequencing type (not keyed on an analysis ID the way the extract stage's are), so
+    # without `forced` a second calibration run would REUSE a stale report instead of
+    # regenerating it from whatever values files exist now. Do not remove this - see the
+    # comment on `queue_jobs`'s guard below for the cost `forced` brings with it.
     forced=True,
 )
 class QcCalibrationReport(stage.MultiCohortStage):
@@ -134,6 +151,13 @@ class QcCalibrationReport(stage.MultiCohortStage):
 
     def queue_jobs(self, multicohort: targets.MultiCohort, inputs: stage.StageInput) -> stage.StageOutput:  # noqa: ARG002
         outputs = self.expected_outputs(multicohort)
+        # Load-bearing, not boilerplate: this stage is `forced=True`, so cpg-flow's REUSE
+        # path (`_get_action` returning early on an empty `expected_outputs`) never
+        # protects it the way it protects `QcCalibrationDatasetMetrics` above - `forced`
+        # makes `_get_action` return `Action.QUEUE` unconditionally, so with
+        # `qc_calibration.enabled = false` this method runs on every ordinary production
+        # invocation with `outputs == {}`. Remove this guard and every production run
+        # crashes indexing `outputs['json']` / `outputs['html']` below.
         if not outputs:
             return self.make_outputs(multicohort, data=None, jobs=None)
 

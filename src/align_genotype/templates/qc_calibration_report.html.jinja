@@ -186,8 +186,10 @@
 
   <details>
     <summary>Metric presence</summary>
-    <p class="blurb">Which general-stats section carried each metric. An empty cell means the key is absent or
-    renamed in that dataset — a metric absent everywhere is a key that checks nothing.</p>
+    <p class="blurb">Which general-stats section carried each metric, per dataset. MISSING means the key is absent
+    or renamed in that dataset — a metric absent everywhere is a key that checks nothing. Two datasets showing
+    different sections here is itself the finding: a MultiQC key rename or a tool landing in a different
+    general-stats section in some datasets but not others.</p>
     <div class="scroll">
     <table>
       <tr><th>Metric</th>{% for name in dataset_names %}<th>{{ name }}</th>{% endfor %}</tr>
@@ -196,7 +198,7 @@
         <td class="metric">{{ key }}</td>
         {% for name in dataset_names %}
         <td>{% if name in m.missing_from %}<span class="over">MISSING</span>
-            {% else %}{{ m.present_in | join(', ') }}{% endif %}</td>
+            {% else %}{{ m.sections_by_dataset[name] | join(', ') }}{% endif %}</td>
         {% endfor %}
       </tr>
       {% endfor %}

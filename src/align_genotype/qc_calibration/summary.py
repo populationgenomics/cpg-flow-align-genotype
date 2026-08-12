@@ -169,6 +169,13 @@ def build(
             'n_datasets': len(with_data),
             'n_dropped': sum(mv.n_dropped for mv in per_dataset.values()),
             'present_in': sorted({section for mv in per_dataset.values() for section in mv.sections}),
+            # Per dataset, not the union above: two datasets can each carry a metric
+            # while disagreeing about which section it lives in (a MultiQC key rename,
+            # or a tool landing in a different general-stats section in one dataset than
+            # another), and `present_in` cannot show that - it is one string shared by
+            # every dataset that has the metric at all. This is what the "Metric
+            # presence" table actually needs one cell per dataset for.
+            'sections_by_dataset': {name: mv.sections for name, mv in with_data.items()},
             'missing_from': missing_from,
             'duplicated_in': sorted(name for name, mv in per_dataset.items() if mv.duplicated),
             'current': dict(shipped),

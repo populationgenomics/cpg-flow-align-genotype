@@ -109,6 +109,54 @@ def test_records_where_each_metric_was_found(built):
     assert built['metrics']['ABSENT']['missing_from'] == ['ds-a', 'ds-b']
 
 
+def test_sections_by_dataset_can_differ_even_when_present_in_agrees():
+    """`present_in` is a union across datasets and cannot show a per-dataset difference;
+    `sections_by_dataset` must carry the section each dataset actually uses, so a MultiQC
+    key rename or a tool landing in a different general-stats section in only some
+    datasets is visible rather than masked by the union.
+    """
+    ds_a = dataset_values('ds-a', [30, 32, 34, 36], [1, 2, 3, 4])
+    ds_b = values_mod.DatasetValues(
+        dataset='ds-b',
+        seq_type='genome',
+        analysis_id=1,
+        timestamp='2026-06-01T00:00:00',
+        uri='gs://ds-b/multiqc_data.json',
+        multiqc_version='1.33',
+        generated='2026-08-12T00:00:00',
+        n_sequencing_groups=4,
+        section_sizes={'picard_4': 4},
+        metrics={
+            'MEDIAN_COVERAGE': values_mod.MetricValues(
+                entries=(
+                    ('picard_4', 'ds-b-CPG0', 40.0),
+                    ('picard_4', 'ds-b-CPG1', 42.0),
+                    ('picard_4', 'ds-b-CPG2', 44.0),
+                    ('picard_4', 'ds-b-CPG3', 46.0),
+                ),
+                n_dropped=0,
+            ),
+            'dup_pct': values_mod.MetricValues(entries=(), n_dropped=0),
+            'ABSENT': values_mod.MetricValues(entries=(), n_dropped=0),
+        },
+    )
+    built = summary_mod.build(
+        [ds_a, ds_b],
+        SETTINGS,
+        current=CURRENT,
+        skipped_datasets=[],
+        generated='2026-08-12T00:00:00',
+        ar_guid='x',
+    )
+    metric = built['metrics']['MEDIAN_COVERAGE']
+    # The union hides the difference this test exists to catch.
+    assert metric['present_in'] == ['picard_1', 'picard_4']
+    # The per-dataset mapping does not.
+    assert metric['sections_by_dataset']['ds-a'] == ('picard_1',)
+    assert metric['sections_by_dataset']['ds-b'] == ('picard_4',)
+    assert metric['sections_by_dataset']['ds-a'] != metric['sections_by_dataset']['ds-b']
+
+
 def test_a_metric_missing_everywhere_produces_a_loud_warning(built):
     assert any('every dataset' in w['message'] for w in built['warnings'])
     assert any('ABSENT' in w['message'] for w in built['warnings'])

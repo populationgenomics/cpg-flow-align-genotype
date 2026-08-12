@@ -275,6 +275,36 @@ def test_fmt_error_names_the_offending_metric_and_severity():
         snippet_mod.render(settings, candidates)
 
 
+def test_padded_falls_back_to_a_single_space_beyond_the_line_limit():
+    """`_padded` normally column-aligns comments; when a value is wide enough that padding
+    to the shared column would blow the 120-char line limit, it must fall back to a single
+    space rather than emit an over-long line.
+    """
+    settings = settings_mod.CalibrationSettings(
+        seq_type='genome',
+        metrics=(settings_mod.MetricSpec(key='reads_duplicated_percent', direction='max', unit='%', relative=True),),
+        k=3.5,
+        # Absurdly large on purpose: it is what widens `min_samples`'s base line past the
+        # point where `_MIN_SAMPLES_GLOSS` can still be column-aligned within 120 chars.
+        min_samples=10**60,
+    )
+    candidates = {
+        'reads_duplicated_percent': Candidate('reads_duplicated_percent', fail=38, warn=None, basis=''),
+    }
+    body = snippet_mod.render(settings, candidates)
+    lines = body.splitlines()
+    min_samples_line = next(line for line in lines if line.startswith('min_samples'))
+    assert len(min_samples_line) > 120  # the fallback line itself may still exceed the limit
+    assert ' # below this, MAD is too noisy; skip relative flagging' in min_samples_line
+    # Single-space fallback, not column-aligned padding: no run of two-or-more spaces
+    # before the comment.
+    assert '  #' not in min_samples_line
+    # The other two lines in the same table are unaffected - only the offending line
+    # falls back.
+    direction_line = next(line for line in lines if line.startswith('direction'))
+    assert '  # bad = high' in direction_line
+
+
 def test_fmt_error_for_a_relative_key_names_the_relative_table():
     settings = settings_mod.CalibrationSettings(
         seq_type='genome',
