@@ -199,12 +199,14 @@ def test_config_template_ships_a_parseable_calibration_block():
     import sys  # noqa: PLC0415
     from pathlib import Path  # noqa: PLC0415
 
+    import align_genotype  # noqa: PLC0415
+
     if sys.version_info >= (3, 11):
         import tomllib  # noqa: PLC0415
     else:
         import tomli as tomllib  # noqa: PLC0415
 
-    template = Path('src/align_genotype/config_template.toml')
+    template = Path(align_genotype.__file__).parent / 'config_template.toml'
     parsed = tomllib.loads(template.read_text())
     block = parsed['qc_calibration']
 

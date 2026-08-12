@@ -209,12 +209,19 @@ min_samples = 50   # below this, MAD is too noisy; skip relative flagging
 
 # QC threshold calibration. Derives candidate warn/fail thresholds and dataset-relative
 # (MAD) tiers from every dataset's latest CramMultiQC report, and writes an HTML report
-# to the analysis dataset's web bucket. See qc_calibration/README.md.
+# to the analysis dataset's web bucket. See qc_calibration/README.md. The candidates it
+# proposes are for a human to review and paste into the [qc_thresholds] block above -
+# nothing here writes back to it automatically.
 #
 # `enabled` is false so that these stages sit inert in an ordinary production run: they
 # carry no stage dependencies, so without it they would queue a job per dataset every
 # time. A calibration run sets it true and passes
 #   only_stages = ['QcCalibrationDatasetMetrics', 'QcCalibrationReport']
+#
+# `k` and `min_samples` below are a separate namespace from [qc_thresholds.<seq>.relative.
+# <metric>].k / .min_samples above: those drive production flagging via
+# check_multiqc.relative_flags, these drive candidate derivation in the calibration tool.
+# They currently hold the same values, but changing one does not affect the other.
 [qc_calibration]
 enabled = false
 k = 3.5                  # Iglewicz-Hoaglin outlier constant for relative tiers
@@ -255,7 +262,9 @@ relative = true
 
 # Exome candidates - Picard CollectHsMetrics. There are no *_TARGET_* or FOLD_80 keys on
 # a genome report, and no MEDIAN_COVERAGE on an exome one, so the two lists are disjoint
-# where the capture matters.
+# where the capture matters. reads_properly_paired_percent is samtools-derived and would
+# apply to exome too; it is absent here only because exome has no properly-paired gate
+# today, not for a capture-kit reason.
 [qc_calibration.exome.metrics.MEAN_TARGET_COVERAGE]
 direction = "min"
 unit = "x"
@@ -266,7 +275,7 @@ unit = "frac"
 
 [qc_calibration.exome.metrics.FOLD_80_BASE_PENALTY]
 direction = "max"
-unit = "frac"
+unit = "frac"  # not a 0-1 fraction (values run ~1.5-4x); chosen for its 2 dp rounding
 
 [qc_calibration.exome.metrics.FREEMIX]
 direction = "max"
