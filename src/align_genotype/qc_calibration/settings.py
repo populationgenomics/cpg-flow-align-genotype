@@ -16,7 +16,7 @@ from align_genotype.scripts import check_multiqc
 DIRECTIONS = ('min', 'max')
 UNITS = ('x', 'frac', '%')
 
-_METRIC_KEYS = {'direction', 'unit', 'relative'}
+_METRIC_KEYS = frozenset({'direction', 'unit', 'relative'})
 
 
 class SettingsError(ValueError):
@@ -97,6 +97,39 @@ def parse_metric(key: str, raw: Any) -> MetricSpec:
     return MetricSpec(key=key, direction=direction, unit=unit, relative=relative)
 
 
+def _require_bool(key: str, value: Any) -> bool:
+    """Reject anything that isn't already a TOML boolean rather than coercing it.
+
+    `bool('false')` is `True` - a quoted boolean is a plausible typo, and coercing it
+    would silently defeat the flag it's guarding.
+    """
+    if not isinstance(value, bool):
+        raise SettingsError(f'qc_calibration.{key} must be true or false, got {value!r}')
+    return value
+
+
+def _require_number(key: str, value: Any) -> float:
+    """Reject non-numeric values instead of letting `float()` raise an unlocated error.
+
+    `bool` subclasses `int`, so it must be excluded explicitly - otherwise `k = true`
+    would silently become `1.0`.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise SettingsError(f'qc_calibration.{key} must be a number, got {value!r}')
+    return float(value)
+
+
+def _require_int(key: str, value: Any) -> int:
+    """Reject non-integer values instead of letting `int()` coerce or raise blindly.
+
+    `bool` subclasses `int`, so it must be excluded explicitly - otherwise
+    `min_samples = true` would silently become `1`.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise SettingsError(f'qc_calibration.{key} must be an integer, got {value!r}')
+    return value
+
+
 def enabled() -> bool:
     """Whether the calibration stages should queue any jobs at all.
 
@@ -104,7 +137,7 @@ def enabled() -> bool:
     run. They carry no `required_stages` dependency, so without this they would queue a
     job per dataset and register Metamist analyses on every invocation.
     """
-    return bool(config.config_retrieve(['qc_calibration', 'enabled'], False))
+    return _require_bool('enabled', config.config_retrieve(['qc_calibration', 'enabled'], False))
 
 
 def load() -> CalibrationSettings:
@@ -119,12 +152,21 @@ def load() -> CalibrationSettings:
     return CalibrationSettings(
         seq_type=seq_type,
         metrics=tuple(parse_metric(key, value) for key, value in raw_metrics.items()),
-        k=float(config.config_retrieve(['qc_calibration', 'k'], 3.5)),
-        min_samples=int(config.config_retrieve(['qc_calibration', 'min_samples'], 50)),
+        k=_require_number('k', config.config_retrieve(['qc_calibration', 'k'], 3.5)),
+        min_samples=_require_int('min_samples', config.config_retrieve(['qc_calibration', 'min_samples'], 50)),
         bars=Bars(
-            max_warn_rate=float(config.config_retrieve(['qc_calibration', 'max_warn_rate'], 0.10)),
-            max_growth_churn=float(config.config_retrieve(['qc_calibration', 'max_growth_churn'], 0.02)),
-            max_merge_churn=float(config.config_retrieve(['qc_calibration', 'max_merge_churn'], 0.05)),
+            max_warn_rate=_require_number(
+                'max_warn_rate',
+                config.config_retrieve(['qc_calibration', 'max_warn_rate'], 0.10),
+            ),
+            max_growth_churn=_require_number(
+                'max_growth_churn',
+                config.config_retrieve(['qc_calibration', 'max_growth_churn'], 0.02),
+            ),
+            max_merge_churn=_require_number(
+                'max_merge_churn',
+                config.config_retrieve(['qc_calibration', 'max_merge_churn'], 0.05),
+            ),
         ),
     )
 

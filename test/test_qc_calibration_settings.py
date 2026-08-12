@@ -2,6 +2,8 @@
 
 import pytest
 
+from cpg_utils import config as cpg_config
+
 from align_genotype.qc_calibration import settings as settings_mod
 
 METRICS = {
@@ -9,16 +11,25 @@ METRICS = {
     'reads_duplicated_percent': {'direction': 'max', 'unit': '%', 'relative': True},
 }
 
+_MISSING = object()
+
 
 @pytest.fixture
 def patch_config(monkeypatch):
-    """Wire config_retrieve to an in-memory nested dict."""
+    """Wire config_retrieve to an in-memory nested dict.
+
+    Mirrors the real `cpg_utils.config.config_retrieve`: a missing key with no default
+    raises `ConfigError` rather than returning `None`, so tests can't pass for the wrong
+    reason on a config read that omitted a default.
+    """
 
     def _apply(tree: dict) -> None:
-        def config_retrieve(keys, default=None):  # noqa: ANN202
+        def config_retrieve(keys, default=_MISSING):  # noqa: ANN202
             node = tree
             for key in keys:
                 if not isinstance(node, dict) or key not in node:
+                    if default is _MISSING:
+                        raise cpg_config.ConfigError(f'missing config key: {list(keys)}')
                     return default
                 node = node[key]
             return node
@@ -129,6 +140,40 @@ def test_enabled_defaults_to_false(patch_config):
 def test_enabled_reads_the_flag(patch_config):
     patch_config({'workflow': {'sequencing_type': 'genome'}, 'qc_calibration': {'enabled': True}})
     assert settings_mod.enabled() is True
+
+
+def test_enabled_rejects_a_quoted_boolean(patch_config):
+    patch_config({'workflow': {'sequencing_type': 'genome'}, 'qc_calibration': {'enabled': 'false'}})
+    with pytest.raises(settings_mod.SettingsError, match='must be true or false'):
+        settings_mod.enabled()
+
+
+def test_load_rejects_a_non_numeric_k(patch_config):
+    patch_config(
+        {
+            'workflow': {'sequencing_type': 'genome'},
+            'qc_calibration': {'k': 'abc', 'genome': {'metrics': METRICS}},
+        },
+    )
+    with pytest.raises(settings_mod.SettingsError, match=r'qc_calibration\.k'):
+        settings_mod.load()
+
+
+def test_load_rejects_a_boolean_min_samples(patch_config):
+    patch_config(
+        {
+            'workflow': {'sequencing_type': 'genome'},
+            'qc_calibration': {'min_samples': True, 'genome': {'metrics': METRICS}},
+        },
+    )
+    with pytest.raises(settings_mod.SettingsError, match=r'qc_calibration\.min_samples'):
+        settings_mod.load()
+
+
+def test_load_without_a_sequencing_type_raises(patch_config):
+    patch_config({'qc_calibration': {'genome': {'metrics': METRICS}}})
+    with pytest.raises(cpg_config.ConfigError):
+        settings_mod.load()
 
 
 def test_current_thresholds_reshapes_production_config(patch_config):
