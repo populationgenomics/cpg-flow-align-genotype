@@ -252,7 +252,7 @@ those fields encoded moves to the README and to the report's own framing text.
 | `relative.py` (499) | keep, cut | ~230 | see below |
 | `suggest.py` (173) | → `thresholds.py` | ~110 | keeps tail selection and unit rounding; drops spec mutation and `reviewed` |
 | `emit.py` (239) | → `snippet.py` | ~70 | keeps section ordering for a clean diff; drops both guards and `tomlio` |
-| `report.py` (587) | → `summary.py` + template | ~150 | the ~250 lines of ASCII table machinery go; pure data assembly survives |
+| `report.py` (587) | → `summary.py` + `render.py` + template | ~190 | the ~250 lines of ASCII table machinery go; pure data assembly survives, plus a thin Jinja wrapper |
 | `discovery.py` (196) | keep, cut | ~80 | drops `myProjects` and the eligibility filter; `gql()`, meta filter, non-lazy import |
 
 New:
@@ -264,6 +264,7 @@ src/align_genotype/
   scripts/qc_calibration_extract.py              ~60  per-dataset job entry
   scripts/qc_calibration_report.py               ~90  report job entry
   templates/qc_calibration_report.html.jinja    ~350  mostly CSS, mirrors sg_qc_overview
+  qc_calibration/render.py                       ~40  Jinja environment and template render
   qc_calibration/README.md                             rewritten
 ```
 
@@ -398,8 +399,11 @@ run happened.
 
 ## Testing
 
-Nine files, ~1,120 lines, down from thirteen and 3,692. Almost all of the reduction is a
-consequence of deleted module surface rather than thinned coverage.
+Twelve files, ~1,320 lines, down from thirteen and 3,692. Almost all of the reduction is
+a consequence of deleted module surface rather than thinned coverage. The file *count*
+barely moves because two new suites appear — `render` (template smoke tests) and
+`scripts` (the two job entrypoints) — that the old CLI had no equivalent of; the line
+count is what falls.
 
 | | now | after | why |
 | --- | --- | --- | --- |
@@ -414,6 +418,8 @@ consequence of deleted module surface rather than thinned coverage.
 | `suggest` → `thresholds` | 184 | ~90 | |
 | `stats` | 142 | 142 | unchanged |
 | `stages` | — | ~120 | new |
+| `render` | — | ~90 | new: template smoke tests |
+| `scripts` | — | ~110 | new: the two job entrypoints |
 
 What must be covered:
 
