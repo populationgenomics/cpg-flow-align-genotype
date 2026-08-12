@@ -51,7 +51,7 @@ def test_filters_server_side_on_stage_and_sequencing_type():
     assert query.calls[0] == {
         'dataset': 'ds-a',
         'analysisType': 'qc',
-        'metaFilter': {'stage': {'eq': 'CramMultiQC'}, 'sequencing_type': {'eq': 'genome'}},
+        'metaFilter': {'stage': 'CramMultiQC', 'sequencing_type': 'genome'},
     }
 
 
@@ -124,7 +124,7 @@ def test_a_null_analyses_list_returns_none():
 def test_exome_sequencing_type_is_passed_through():
     query = fake_query([analysis(1, 'gs://a/multiqc_data.json', '2026-01-01T00:00:00')])
     discovery_mod.latest_cram_multiqc('ds-a', 'exome', query_fn=query)
-    assert query.calls[0]['metaFilter']['sequencing_type'] == {'eq': 'exome'}
+    assert query.calls[0]['metaFilter']['sequencing_type'] == 'exome'
 
 
 def test_cached_latest_cram_multiqc_memoizes_per_dataset_and_seq_type(monkeypatch):

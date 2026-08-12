@@ -24,9 +24,17 @@ CRAM_MULTIQC_STAGE = 'CramMultiQC'
 
 QueryFn = Callable[[str, dict[str, Any] | None], dict[str, Any]]
 
+# `meta` is an opaque `JSON` scalar in Metamist's schema - there is no typed filter
+# object for it (unlike `status`/`type`, which have `{eq: ...}`-style filter inputs), so
+# neither the flat key-value form used here nor a nested `{'eq': ...}` form is
+# schema-enforced; the server just receives raw JSON. This flat form matches the one
+# other place in this repo that filters analyses by stage,
+# `scripts/build_vntyper_index.py`'s `REPORT_QUERY`, which is shipped and working -
+# don't "modernise" this to the nested form without re-confirming against a live
+# Metamist first.
 ANALYSES_QUERY = gql(
     """
-    query CramMultiqc($dataset: String!, $analysisType: String!, $metaFilter: JSON!) {
+    query CramMultiqc($dataset: String!, $analysisType: String!, $metaFilter: JSON) {
         project(name: $dataset) {
             analyses(status: {eq: COMPLETED}, type: {eq: $analysisType}, meta: $metaFilter) {
                 id
@@ -64,7 +72,7 @@ def latest_cram_multiqc(
         {
             'dataset': dataset,
             'analysisType': 'qc',
-            'metaFilter': {'stage': {'eq': CRAM_MULTIQC_STAGE}, 'sequencing_type': {'eq': seq_type}},
+            'metaFilter': {'stage': CRAM_MULTIQC_STAGE, 'sequencing_type': seq_type},
         },
     )
     # `project` can be present-but-null - no read access, say - so `.get('project', {})`
