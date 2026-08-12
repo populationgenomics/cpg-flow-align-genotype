@@ -189,3 +189,49 @@ def test_a_bool_threshold_is_rejected_rather_than_rendered_as_true_false():
     candidates = {'FREEMIX': Candidate('FREEMIX', fail=True, warn=None, basis='')}
     with pytest.raises(TypeError):
         snippet_mod.render(settings, candidates)
+
+
+def test_basis_comment_appears_directly_above_its_threshold_line():
+    """A pasted number with no stated evidence is what calibration is meant to end."""
+    body = snippet_mod.render(SETTINGS, CANDIDATES)
+    lines = body.splitlines()
+    idx = lines.index('"MEDIAN_COVERAGE" = 17')
+    assert lines[idx - 1] == '# ...'
+
+
+def test_a_long_basis_wraps_within_the_project_line_limit():
+    long_basis = 'worst per-dataset p1=17.5 ' + ('evidence ' * 30) + 'across 3 datasets'
+    settings = settings_mod.CalibrationSettings(
+        seq_type='genome',
+        metrics=(settings_mod.MetricSpec(key='FREEMIX', direction='max', unit='frac'),),
+    )
+    candidates = {'FREEMIX': Candidate('FREEMIX', fail=0.03, warn=None, basis=long_basis)}
+    body = snippet_mod.render(settings, candidates)
+    comment_lines = [line for line in body.splitlines() if line.startswith('#')]
+    assert comment_lines, 'expected at least one wrapped comment line'
+    assert all(len(line) <= 120 for line in comment_lines)
+    assert len(comment_lines) > 1, 'a basis this long should wrap onto more than one line'
+    # The wrapped text, rejoined, still carries the full basis (modulo whitespace).
+    rejoined = ' '.join(line.removeprefix('# ') for line in comment_lines)
+    assert rejoined == long_basis
+
+
+def test_an_empty_basis_produces_no_comment_line():
+    settings = settings_mod.CalibrationSettings(
+        seq_type='genome',
+        metrics=(settings_mod.MetricSpec(key='FREEMIX', direction='max', unit='frac'),),
+    )
+    candidates = {'FREEMIX': Candidate('FREEMIX', fail=0.03, warn=None, basis='')}
+    body = snippet_mod.render(settings, candidates)
+    lines = body.splitlines()
+    assert lines == ['[qc_thresholds.genome.fail.max]', '"FREEMIX" = 0.03']
+    assert not any(line.startswith('#') for line in lines)
+
+
+def test_relative_table_carries_its_metrics_basis():
+    """The relative table is where the "warn tier is dataset-relative" explanation belongs."""
+    body = snippet_mod.render(SETTINGS, CANDIDATES)
+    lines = body.splitlines()
+    header_idx = lines.index('[qc_thresholds.genome.relative.reads_duplicated_percent]')
+    assert lines[header_idx + 1] == '# ...'
+    assert lines[header_idx + 2] == 'direction = "max"'
