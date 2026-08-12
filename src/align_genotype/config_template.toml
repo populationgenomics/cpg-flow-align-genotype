@@ -151,8 +151,9 @@ min_samples = 50   # below this, MAD is too noisy; skip relative flagging
 # CollectWgsMetrics) are meaningless on exomes, so we gate on Picard
 # CollectHsMetrics target-coverage metrics instead (see jobs/picard.py::hs_metrics).
 #
-# Values are set so a healthy dataset flags at ~0% fail / single-digit % warn, while
-# a genuinely poor batch still surfaces. These metrics are capture-kit dependent -
+# Calibrated against two real WES datasets (647- and 522-sample MultiQC runs). Values
+# are set so a healthy dataset flags at ~0% fail / single-digit % warn, while a
+# genuinely poor batch still surfaces. These metrics are capture-kit dependent -
 # re-run the QC calibration workflow on a known-good batch when onboarding a new kit.
 [qc_thresholds.exome.fail.min]
 # Picard CollectHsMetrics - mean coverage over the target regions (100x is the
