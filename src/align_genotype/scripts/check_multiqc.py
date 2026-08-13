@@ -75,8 +75,8 @@ def main(
 
 # Direction -> (comparison sign written into the flag, predicate for "breaches this threshold").
 DIRECTIONS: dict[str, tuple[str, Any]] = {
-    'min': ('<', lambda val, thresh: val < thresh),
-    'max': ('>', lambda val, thresh: val > thresh),
+    'under': ('<', lambda val, thresh: val < thresh),
+    'over': ('>', lambda val, thresh: val > thresh),
 }
 # Severity tiers, worst first. `fail` is evaluated before `warn`, so a value that
 # breaches both is recorded once, as a fail.

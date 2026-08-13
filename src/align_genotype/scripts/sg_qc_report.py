@@ -1,6 +1,7 @@
 """
 Queries Metamist for all QC flags across a dataset's sequencing groups
-and renders the sg_qc_overview.html.jinja template.
+of a given type (exome or genome) and renders them into a report using
+the sg_qc_overview.html.jinja template.
 """
 
 import re
@@ -71,29 +72,33 @@ SGS_INFO_QUERY = gql(
 # The `flag`/`section` on a QcFlag are the raw MultiQC metric key and module
 # key (see check_multiqc.py). MultiQC's friendly headers aren't captured in the
 # JSON we parse, so we maintain a small map here. The metric set is small and
-# stable (see config_template.toml :: qc_thresholds).
+# stable (see config_template.toml :: qc_thresholds & README.md).
+#
+# Note that some metrics use integers for percentages, others use floats in [0,1].
 # ---------------------------------------------------------------------------
 METRIC_LABELS: dict[str, tuple[str, str]] = {
-    # metric key: (human label, unit suffix)
+    # Metric source
+    # Metric key: (human label, unit suffix)
+    # samtools stats metrics
     'reads_mapped_percent': ('Reads mapped', '%'),
     'reads_duplicated_percent': ('Duplicated reads', '%'),
+    # Picard CollectWgsMetrics (Genome)
     'PCT_PF_READS_ALIGNED': ('Reads aligned (PF)', ''),
-    'FREEMIX': ('Contamination (FreeMix)', ''),
     'MEDIAN_COVERAGE': ('Median coverage', '×'),  # noqa: RUF001
     'MEAN_COVERAGE': ('Mean coverage', '×'),  # noqa: RUF001
-    # Exome (Picard CollectHsMetrics) target-coverage metrics
+    # Picard CollectHsMetrics (Exome) target-coverage metrics
     'MEAN_TARGET_COVERAGE': ('Mean target coverage', '×'),  # noqa: RUF001
     'PCT_TARGET_BASES_20X': ('Target bases ≥20×', ''),  # noqa: RUF001
     'FOLD_80_BASE_PENALTY': ('Fold-80 base penalty', ''),
     'ZERO_CVG_TARGETS_PCT': ('Zero-coverage targets', ''),
+    # VerifyBamID2 contamination metric
+    'FREEMIX': ('Contamination (FreeMix)', ''),
 }
 
 SECTION_LABELS: dict[str, str] = {
     'samtools': 'Samtools',
     'verifybamid': 'VerifyBamID',
     'picard': 'Picard',
-    'vcfcheck': 'VCF check',
-    'bcftools': 'bcftools',
 }
 
 
