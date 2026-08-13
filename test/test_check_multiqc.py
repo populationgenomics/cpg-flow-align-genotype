@@ -16,18 +16,18 @@ from align_genotype.scripts import check_multiqc
 # severity tier then direction: {severity: {direction: {metric: threshold}}}.
 GENOME_THRESHOLDS = {
     'fail': {
-        'min': {'MEDIAN_COVERAGE': 10, 'reads_mapped_percent': 80},
-        'max': {'FREEMIX': 0.04, 'reads_duplicated_percent': 25},
+        'under': {'MEDIAN_COVERAGE': 10, 'reads_mapped_percent': 80},
+        'over': {'FREEMIX': 0.04, 'reads_duplicated_percent': 25},
     },
 }
 EXOME_THRESHOLDS = {
     'fail': {
-        'min': {'MEAN_TARGET_COVERAGE': 50, 'PCT_TARGET_BASES_20X': 0.90, 'reads_mapped_percent': 80},
-        'max': {'FREEMIX': 0.04, 'FOLD_80_BASE_PENALTY': 3.0, 'ZERO_CVG_TARGETS_PCT': 0.05},
+        'under': {'MEAN_TARGET_COVERAGE': 50, 'PCT_TARGET_BASES_20X': 0.90, 'reads_mapped_percent': 80},
+        'over': {'FREEMIX': 0.04, 'FOLD_80_BASE_PENALTY': 3.0, 'ZERO_CVG_TARGETS_PCT': 0.05},
     },
     'warn': {
-        'min': {'MEAN_TARGET_COVERAGE': 80, 'PCT_TARGET_BASES_20X': 0.95, 'reads_mapped_percent': 98},
-        'max': {'FREEMIX': 0.01, 'FOLD_80_BASE_PENALTY': 2.0, 'ZERO_CVG_TARGETS_PCT': 0.01},
+        'under': {'MEAN_TARGET_COVERAGE': 80, 'PCT_TARGET_BASES_20X': 0.95, 'reads_mapped_percent': 98},
+        'over': {'FREEMIX': 0.01, 'FOLD_80_BASE_PENALTY': 2.0, 'ZERO_CVG_TARGETS_PCT': 0.01},
     },
 }
 
@@ -77,11 +77,11 @@ def _flags_by_metric(result: dict, sg: str) -> dict:
 
 
 # --- genome path (single fail tier) ----------------------------------------
-def test_genome_flags_min_and_max(tmp_path, patch_config):
+def test_genome_flags_under_and_over(tmp_path, patch_config):
     patch_config('genome', GENOME_THRESHOLDS)
     sections = {
-        'picard_4': {'CPG1': {'MEDIAN_COVERAGE': 8}},  # below min -> fail
-        'samtools': {'CPG1': {'reads_mapped_percent': 99, 'reads_duplicated_percent': 30}},  # dup above max -> fail
+        'picard_4': {'CPG1': {'MEDIAN_COVERAGE': 8}},  # below under val -> fail
+        'samtools': {'CPG1': {'reads_mapped_percent': 99, 'reads_duplicated_percent': 30}},  # above over val -> fail
         'verifybamid': {'CPG1': {'FREEMIX': 0.01}},  # ok
     }
     result = _run(_write_json(tmp_path, sections), tmp_path / 'out.json')
@@ -142,7 +142,7 @@ def test_value_breaching_both_tiers_recorded_once_as_fail(tmp_path, patch_config
 
 def test_warn_only_metric_emits_warn(tmp_path, patch_config):
     # A metric configured with only a warn tier still flags (as warn).
-    patch_config('genome', {'warn': {'max': {'FREEMIX': 0.01}}})
+    patch_config('genome', {'warn': {'over': {'FREEMIX': 0.01}}})
     sections = {'verifybamid': {'CPG4': {'FREEMIX': 0.02}}}
     result = _run(_write_json(tmp_path, sections), tmp_path / 'out.json')
     assert result['qc_flags']['CPG4'][0]['severity'] == 'warn'
@@ -160,7 +160,7 @@ def test_exome_with_no_thresholds_checks_nothing(tmp_path, patch_config):
 # --- silent-inert-metric warning -------------------------------------------
 def test_warns_on_configured_metric_absent_from_report(tmp_path, patch_config, caplog):
     # PCT_PF_READS_ALIGNED is the classic case: configured but never surfaced.
-    patch_config('genome', {'fail': {'min': {'PCT_PF_READS_ALIGNED': 0.8}}})
+    patch_config('genome', {'fail': {'under': {'PCT_PF_READS_ALIGNED': 0.8}}})
     sections = {'samtools': {'CPG1': {'reads_mapped_percent': 99}}}
     with caplog.at_level('WARNING'):
         _run(_write_json(tmp_path, sections), tmp_path / 'out.json')
