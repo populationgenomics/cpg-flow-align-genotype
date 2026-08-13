@@ -138,7 +138,7 @@ reads_properly_paired_percent = 90
 # A sample is warned when its modified z-score exceeds `k` on the `direction` side:
 #   mz = 0.6745 * (value - median) / MAD ; threshold = median +/- k*MAD/0.6745
 # Relative flags never fail (advisory only), and are skipped when the dataset has
-# fewer than `min_samples` samples or zero MAD. 
+# fewer than `min_samples` samples or zero MAD.
 
 #  warn flagging for genome
 # reads_duplicated_percent is strongly cohort dependent for WGS, so a fixed warn

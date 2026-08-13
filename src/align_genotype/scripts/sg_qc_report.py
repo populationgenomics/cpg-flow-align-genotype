@@ -186,10 +186,6 @@ def _flag_to_dict(flag: QcFlag, source: str) -> dict:
     severity = flag.severity or 'fail'
     method = getattr(flag, 'method', 'absolute') or 'absolute'
     is_relative = method == 'relative'
-    value_display = _value_display(flag.value, flag.comparison, flag.threshold, unit)
-    if is_relative:
-        # The threshold is cohort-derived, so "above maximum X" reads oddly; reframe.
-        value_display = f'{_fmt_num(flag.value)}{unit} (cohort outlier)'
     return {
         'source': source,
         'flag': flag.flag,

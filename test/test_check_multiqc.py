@@ -234,7 +234,7 @@ _REL_SECTIONS = {
         'S4': {'ZERO_CVG_TARGETS_PCT': 0.022},
         'S5': {'ZERO_CVG_TARGETS_PCT': 0.020},
         'S6': {'ZERO_CVG_TARGETS_PCT': 0.023},
-        'OUT': {'ZERO_CVG_TARGETS_PCT': 0.080},   # relative outlier (< 0.10 fail gate) -> warn
+        'OUT': {'ZERO_CVG_TARGETS_PCT': 0.080},  # relative outlier (< 0.10 fail gate) -> warn
         'FAILS': {'ZERO_CVG_TARGETS_PCT': 0.150},  # absolute fail (> 0.10)
     },
 }

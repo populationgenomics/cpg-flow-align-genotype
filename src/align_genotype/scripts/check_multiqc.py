@@ -91,8 +91,8 @@ MODIFIED_Z_CONST = 0.6745
 def robust_threshold(values: list[float], direction: str, k: float) -> float | None:
     """Cohort-relative outlier threshold from the modified z-score.
 
-    Returns ``median +/- k*MAD/0.6745`` on the bad side for ``direction``
-    ('max' = high is bad, 'min' = low is bad). Returns None when MAD == 0
+    Returns `median +/- k*MAD/0.6745` on the bad side for `direction`
+    ('over' = high is bad, 'under' = low is bad). Returns None when MAD == 0
     (degenerate cohort, e.g. all-identical values) so callers can skip.
     """
     if not values:
@@ -102,14 +102,14 @@ def robust_threshold(values: list[float], direction: str, k: float) -> float | N
     if mad == 0:
         return None
     delta = k * mad / MODIFIED_Z_CONST
-    return med + delta if direction == 'max' else med - delta
+    return med + delta if direction == 'over' else med - delta
 
 
 def load_thresholds(seq_type: str) -> dict[str, dict[str, dict[str, float]]]:
     """Read the nested qc_thresholds config into {direction: {metric: {severity: threshold}}}.
 
-    Config layout is ``[qc_thresholds.<seq_type>.<severity>.<direction>]`` (see
-    config_template.toml). A metric may define only some tiers.
+    Config layout is `[qc_thresholds.<seq_type>.<severity>.<direction>]` (see config_template.toml).
+    A metric may define only some tiers.
     """
     thresholds: dict[str, dict[str, dict[str, float]]] = {direction: {} for direction in DIRECTIONS}
     for severity in SEVERITIES:
@@ -137,8 +137,8 @@ def warn_unmatched_metrics(sections: dict[str, Any], seq_type: str) -> None:
     """Log a warning for any configured threshold metric MultiQC never surfaced.
 
     Without this, a typo'd or unsurfaced metric key silently checks nothing -
-    which is exactly how the old ``PCT_PF_READS_ALIGNED`` genome gate (present only
-    in ``report_saved_raw_data``, not ``report_general_stats_data``) went unnoticed.
+    which is exactly how the old `PCT_PF_READS_ALIGNED` genome gate (present only
+    in `report_saved_raw_data`, not `report_general_stats_data`) went unnoticed.
     Scans every severity tier and direction.
     """
     present_metrics = {
@@ -196,21 +196,23 @@ def _relative_flags_for_metric(
         sg_id = sample.split('|', 1)[0]
         if (section_name, metric) in already_flagged.get(sg_id, set()):
             continue  # already flagged absolutely (e.g. fail) - don't double up
-        results.append((
-            sample,
-            sg_id,
-            QcFlag(
-                flag=metric,
-                value=val,
-                comparison=sign,
-                threshold=threshold,
-                section=section_name,
-                date=today.isoformat(timespec='seconds'),
-                ar_guid=config.try_get_ar_guid(),
-                severity='warn',
-                method='relative',
-            ),
-        ))
+        results.append(
+            (
+                sample,
+                sg_id,
+                QcFlag(
+                    flag=metric,
+                    value=val,
+                    comparison=sign,
+                    threshold=threshold,
+                    section=section_name,
+                    date=today.isoformat(timespec='seconds'),
+                    ar_guid=config.try_get_ar_guid(),
+                    severity='warn',
+                    method='relative',
+                ),
+            )
+        )
     return results
 
 
@@ -224,9 +226,9 @@ def relative_flags(
 
     For each configured metric, gathers every sample's value across the current run
     (the "cohort"), derives a robust median/MAD outlier threshold, and warns samples
-    beyond it. Relative flags are always ``severity='warn'`` / ``method='relative'``,
-    and are skipped when the cohort is smaller than ``min_cohort`` or MAD is zero.
-    ``already_flagged`` maps sg_id -> {(section, metric)} flagged by the absolute pass;
+    beyond it. Relative flags are always `severity='warn'` / `method='relative'`,
+    and are skipped when the cohort is smaller than `min_samples` or MAD is zero.
+    `already_flagged` maps sg_id -> {(section, metric)} flagged by the absolute pass;
     those are not double-flagged, so the absolute fail gate takes precedence.
 
     Returns (sample, sg_id, QcFlag) tuples.
@@ -235,9 +237,9 @@ def relative_flags(
     results: list[tuple[str, str, QcFlag]] = []
     for metric, cfg in spec.items():
         entries = _gather_metric_values(sections, metric)
-        min_cohort = cfg.get('min_cohort', 0)
-        if len(entries) < min_cohort:
-            logging.info(f'Relative flagging skipped for {metric!r}: cohort {len(entries)} < min_cohort {min_cohort}.')
+        min_samples = cfg.get('min_samples', 0)
+        if len(entries) < min_samples:
+            logging.info(f'Relative flagging skipped for {metric!r}: {len(entries)} < min_samples {min_samples}.')
             continue
         results.extend(_relative_flags_for_metric(metric, cfg, entries, today, already_flagged))
     return results
