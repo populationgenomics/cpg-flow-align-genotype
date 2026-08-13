@@ -1,4 +1,5 @@
 [workflow]
+sequencing_technology = 'short-read' # This repo is intended to process short-read sequencing data
 
 skip_stages = []
 
