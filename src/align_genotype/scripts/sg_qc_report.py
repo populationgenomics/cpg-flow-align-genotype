@@ -15,6 +15,7 @@ import jinja2
 from loguru import logger
 
 from cpg_utils.config import config_retrieve, dataset_for_access_level
+from cpg_utils.metamist_registration import create_new
 from metamist.graphql import gql, query
 
 from align_genotype.utils import QcFlag
@@ -505,6 +506,22 @@ def main(dataset: str, output: str):
     with open(output, 'w') as f:
         f.write(html)
     logger.info(f'{logging_prefix} :: Wrote SG QC report to {output}')
+
+    # Register results in Metamist manually to capture all dataset SGs in scope, not just the input_cohorts SGs
+    meta = {
+        'stage': 'GenerateSgQcReport',
+        'sequencing_type': seq_type,
+        'sequencing_technology': seq_tech,
+    }
+
+    create_new(
+        project=dataset,
+        output=output,
+        analysis_type='web',
+        sgs=[sg['id'] for sg in sequencing_groups],
+        meta=meta,
+    )
+    logger.info(f'{logging_prefix} :: Registered web analysis for {len(sequencing_groups)} SG(s)')
 
 
 if __name__ == '__main__':
