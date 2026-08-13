@@ -230,14 +230,15 @@ class GvcfMultiQC(stage.DatasetStage):
 
 @stage.stage(
     required_stages=[CramMultiQC, GvcfMultiQC],
-    analysis_type='web',
-    analysis_keys=['html'],
     forced=True,
 )
 class GenerateSgQcReport(stage.DatasetStage):
     """
     Queries Metamist for all QC flags across the dataset's sequencing groups of a given type
     (exome or genome) and generates a summary HTML report at a static URL.
+
+    A web analysis is manually created inside the job, because this stage uses the dataset's
+    SGs and not the input_cohort's SGs.
     """
 
     def expected_outputs(self, dataset: targets.Dataset) -> dict[str, Path]:
