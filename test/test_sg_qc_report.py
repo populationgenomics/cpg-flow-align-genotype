@@ -281,7 +281,7 @@ def test_summarise_flags_all_resolved_is_not_affected():
 # --- end-to-end render -----------------------------------------------------
 def test_render_report_smoke():
     summary = summarise_flags(collect_qc_flags([SAMPLE_SG]))
-    html = render_report('validation-test', [_report()], summary=summary)
+    html = render_report('dataset', [_report()], summary=summary)
     assert 'Unresolved flags' in html
     assert 'Resolved — past incidents' in html
     assert 'QC Flag Summary' in html  # new title
@@ -322,7 +322,7 @@ def test_source_histogram():
 
 def test_render_report_includes_filter_bar_and_row_data():
     summary = summarise_flags(collect_qc_flags([SAMPLE_SG]))
-    html = render_report('validation-test', [_report()], summary=summary)
+    html = render_report('dataset', [_report()], summary=summary)
     assert 'filter-bar' in html
     assert 'metric-chip' in html
     assert 'data-metrics="' in html
@@ -336,7 +336,7 @@ def test_render_report_shows_flags_at_top_level():
     # The 3 active flags render inline (2 shown) with a "+1 more" affordance,
     # without needing to expand the detail row.
     summary = summarise_flags(collect_qc_flags([SAMPLE_SG]))
-    html = render_report('validation-test', [_report()], summary=summary)
+    html = render_report('dataset', [_report()], summary=summary)
     assert 'flag-glance' in html
     assert '+1 more' in html  # 3 active flags -> 2 shown inline + 1 more
 
@@ -353,7 +353,7 @@ def test_render_report_all_clear_banner():
         'sgs_affected': 0,
         'resolved_flags': 0,
     }
-    html = render_report('validation-test', [clean], summary=summary)
+    html = render_report('dataset', [clean], summary=summary)
     assert 'All clear' in html
 
 
@@ -424,7 +424,7 @@ def test_row_orders_fail_before_warn():
 
 def test_render_report_shows_severity_badges_and_chips():
     summary = summarise_flags(collect_qc_flags([_sg_with_severities()]))
-    html = render_report('validation-test', [_sev_report()], summary=summary)
+    html = render_report('dataset', [_sev_report()], summary=summary)
     assert 'badge badge-warn' in html
     assert 'badge badge-fail' in html
     assert 'Failing flags' in html  # summary card
