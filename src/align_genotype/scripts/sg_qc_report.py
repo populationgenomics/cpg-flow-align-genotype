@@ -1,6 +1,7 @@
 """
 Queries Metamist for all QC flags across a dataset's sequencing groups
-and renders the sg_qc_overview.html.jinja template.
+of a given type (exome or genome) and renders them into a report using
+the sg_qc_overview.html.jinja template.
 """
 
 import re
@@ -13,7 +14,7 @@ from time import perf_counter
 import jinja2
 from loguru import logger
 
-from cpg_utils.config import dataset_for_access_level
+from cpg_utils.config import config_retrieve, dataset_for_access_level
 from metamist.graphql import gql, query
 
 from align_genotype.utils import QcFlag
@@ -22,9 +23,9 @@ JINJA_TEMPLATE_DIR = Path(__file__).absolute().parent.parent / 'templates'
 
 DATASET_SGS_QUERY = gql(
     """
-    query datasetSgs($dataset: String!) {
+    query datasetSgs($dataset: String!, $seqType: String!, $seqTech: String!) {
         project(name: $dataset) {
-            sequencingGroups {
+            sequencingGroups(type: {eq: $seqType}, technology: {eq: $seqTech}) {
                 id
                 meta
                 type
@@ -71,29 +72,34 @@ SGS_INFO_QUERY = gql(
 # The `flag`/`section` on a QcFlag are the raw MultiQC metric key and module
 # key (see check_multiqc.py). MultiQC's friendly headers aren't captured in the
 # JSON we parse, so we maintain a small map here. The metric set is small and
-# stable (see config_template.toml :: qc_thresholds).
+# stable (see config_template.toml :: qc_thresholds & README.md).
+#
+# Note that some metrics use integers for percentages, others use floats in [0,1].
 # ---------------------------------------------------------------------------
-METRIC_LABELS: dict[str, tuple[str, str]] = {
-    # metric key: (human label, unit suffix)
-    'reads_mapped_percent': ('Reads mapped', '%'),
-    'reads_duplicated_percent': ('Duplicated reads', '%'),
-    'PCT_PF_READS_ALIGNED': ('Reads aligned (PF)', ''),
-    'FREEMIX': ('Contamination (FreeMix)', ''),
-    'MEDIAN_COVERAGE': ('Median coverage', '×'),  # noqa: RUF001
-    'MEAN_COVERAGE': ('Mean coverage', '×'),  # noqa: RUF001
-    # Exome (Picard CollectHsMetrics) target-coverage metrics
-    'MEAN_TARGET_COVERAGE': ('Mean target coverage', '×'),  # noqa: RUF001
-    'PCT_TARGET_BASES_20X': ('Target bases ≥20×', ''),  # noqa: RUF001
-    'FOLD_80_BASE_PENALTY': ('Fold-80 base penalty', ''),
-    'ZERO_CVG_TARGETS_PCT': ('Zero-coverage targets', ''),
+METRIC_LABELS: dict[str, tuple[str, str, int]] = {
+    # Metric source
+    # Metric key: (human label, unit suffix, multiplier to convert to unit)
+    # samtools stats metrics
+    'reads_mapped_percent': ('Reads mapped', '%', 1),
+    'reads_duplicated_percent': ('Duplicated reads', '%', 1),
+    # Picard CollectWgsMetrics (Genome)
+    'PCT_PF_READS_ALIGNED': ('Passing Filter Reads aligned', '%', 100),
+    'MEDIAN_COVERAGE': ('Median coverage', '×', 100),
+    'MEAN_COVERAGE': ('Mean coverage', '×', 100),
+    # Picard CollectHsMetrics (Exome) target-coverage metrics
+    'MEAN_TARGET_COVERAGE': ('Mean target coverage', '×', 1),
+    'PCT_TARGET_BASES_20X': ('Target bases ≥20×', '%', 100),
+    'FOLD_80_BASE_PENALTY': ('Fold-80 base penalty', '%', 100),
+    'ZERO_CVG_TARGETS_PCT': ('Zero-coverage targets', '%', 100),
+    # VerifyBamID2 contamination metric
+    'FREEMIX': ('Contamination (FreeMix)', '%', 100),
 }
+
 
 SECTION_LABELS: dict[str, str] = {
     'samtools': 'Samtools',
     'verifybamid': 'VerifyBamID',
     'picard': 'Picard',
-    'vcfcheck': 'VCF check',
-    'bcftools': 'bcftools',
 }
 
 
@@ -128,9 +134,9 @@ def _has_active(flags: list[QcFlag]) -> bool:
 # ---------------------------------------------------------------------------
 # Flag label / value / date formatting
 # ---------------------------------------------------------------------------
-def _metric_label(metric: str) -> tuple[str, str]:
-    """(human label, unit) for a MultiQC metric key; falls back to the key."""
-    return METRIC_LABELS.get(metric, (metric, ''))
+def _metric_label(metric: str) -> tuple[str, str, int]:
+    """(human label, unit, multiplier) for a MultiQC metric key; falls back to the key."""
+    return METRIC_LABELS.get(metric, (metric, '', 1))
 
 
 def _section_label(section: str) -> str:
@@ -174,7 +180,7 @@ SEVERITY_RANK: dict[str, int] = {'fail': 0, 'warn': 1}
 
 def _flag_to_dict(flag: QcFlag, source: str) -> dict:
     """Flatten a QcFlag into a template-ready, human-readable dict."""
-    label, unit = _metric_label(flag.flag)
+    label, unit, multiplier = _metric_label(flag.flag)
     # Active flags carry their detection date; resolved carry the resolution date.
     date_full = (flag.resolution_date if flag.resolved else flag.date) or ''
     severity = flag.severity or 'fail'
@@ -195,7 +201,7 @@ def _flag_to_dict(flag: QcFlag, source: str) -> dict:
         'severity_label': 'Fail' if severity == 'fail' else 'Warn',
         'method': method,
         'is_relative': is_relative,
-        'value_display': value_display,
+        'value_display': _value_display(flag.value * multiplier, flag.comparison, flag.threshold * multiplier, unit),
         'ar_guid': flag.ar_guid,
         'date_full': date_full,
         'date_short': date_full[:10],  # YYYY-MM-DD
@@ -461,12 +467,18 @@ def main(dataset: str, output: str):
     """Query Metamist for QC flags and generate a SG QC HTML report."""
 
     dataset = dataset_for_access_level(dataset)
+    seq_type = config_retrieve(['workflow', 'sequencing_type'])
+    seq_tech = config_retrieve(['workflow', 'sequencing_technology'])
 
-    logger.info(f'{dataset} :: Querying Metamist for QC flags')
+    logging_prefix = f'{dataset} ({seq_type} | {seq_tech})'
+
+    logger.info(f'{logging_prefix} :: Querying Metamist for QC flags')
     started = perf_counter()
-    response = query(DATASET_SGS_QUERY, variables={'dataset': dataset})
+    response = query(DATASET_SGS_QUERY, variables={'dataset': dataset, 'seqType': seq_type, 'seqTech': seq_tech})
     sequencing_groups = response['project']['sequencingGroups']
-    logger.info(f'{dataset} :: Found {len(sequencing_groups)} sequencing groups in {perf_counter() - started:.1f}s')
+    logger.info(
+        f'{logging_prefix} :: Found {len(sequencing_groups)} sequencing groups in {perf_counter() - started:.1f}s'
+    )
 
     sg_data = collect_qc_flags(sequencing_groups)
     summary = summarise_flags(sg_data)
@@ -474,9 +486,9 @@ def main(dataset: str, output: str):
     # Only fetch rich SG metadata for SGs that actually have flags to report.
     flagged = [sg for sg in sg_data if sg['cram_qc_flags'] or sg['gvcf_qc_flags']]
     if not flagged:
-        logger.info(f'{dataset} :: No sequencing groups have QC flags; skipping report generation')
+        logger.info(f'{logging_prefix} :: No sequencing groups have QC flags; skipping report generation')
         return
-    logger.info(f'{dataset} :: {len(flagged)} sequencing groups have QC flags.')
+    logger.info(f'{logging_prefix} :: {len(flagged)} sequencing groups have QC flags.')
 
     infos = get_sg_infos([sg['id'] for sg in flagged])
     reports = [
@@ -489,14 +501,14 @@ def main(dataset: str, output: str):
         if sg['id'] in infos
     ]
 
-    logger.info(f'{dataset} :: Rendering report for {len(reports)} flagged SG(s)')
+    logger.info(f'{logging_prefix} :: Rendering report for {len(reports)} flagged SG(s)')
     started = perf_counter()
     html = render_report(dataset, reports, summary=summary)
-    logger.info(f'{dataset} :: Rendered report in {perf_counter() - started:.1f}s')
+    logger.info(f'{logging_prefix} :: Rendered report in {perf_counter() - started:.1f}s')
 
     with open(output, 'w') as f:
         f.write(html)
-    logger.info(f'{dataset} :: Wrote SG QC report to {output}')
+    logger.info(f'{logging_prefix} :: Wrote SG QC report to {output}')
 
 
 if __name__ == '__main__':

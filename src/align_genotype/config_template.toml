@@ -1,4 +1,5 @@
 [workflow]
+sequencing_technology = 'short-read' # This repo is intended to process short-read sequencing data
 
 skip_stages = []
 
@@ -59,6 +60,7 @@ postproc_gvcf_storage = 20
 # Experimentally validated best reblocking bands for GATK ReblockGVCF, from seqr-loader config
 reblock_gq_bands = [13, 20, 30, 40]
 
+# Overrides for the MultiQC and SomalierPedigree stages
 [workflow.somalier_pedigree]
 send_to_slack = true
 
@@ -72,147 +74,85 @@ send_to_slack = true
 [workflow.gvcf_multiqc.extra_config]
 plots_force_interactive = true
 
+
+[qc_thresholds]
 # QC thresholds are keyed by sequencing_type (genome/exome) and severity tier
-# (fail/warn). A metric is flagged when it falls below its `.min` threshold or
-# rises above its `.max` threshold; `fail` = do not analyse without a decision,
-# `warn` = a human should look. A value that breaches `fail` also breaches `warn`,
-# so only the worst tier is recorded per metric (see scripts/check_multiqc.py).
-# Metric keys must match the keys MultiQC surfaces in `report_general_stats_data`;
-# unmatched keys are logged and skipped. A tier may omit any metric.
-# Genome thresholds. WGS uses Picard CollectWgsMetrics (whole-genome coverage/
-# breadth), not CollectHsMetrics - so the keys differ from exome (no *_TARGET_* /
-# FOLD_80 / ZERO_CVG). Calibrated against 10 real WGS cohorts (110-841 samples each;
-# see testing_scripts/qc_metric_distributions.py + qc_threshold_flagrates.py). Values
-# are set so a healthy cohort flags at ~0% fail / single-digit % warn, while a
-# genuinely poor batch still surfaces.
-[qc_thresholds.genome.fail.min]
-# Picard CollectWgsMetrics - median coverage (30x is the ideal ask). Cohort medians
-# ~32-37x; p1 ~15-28x. Fail below 15x catches the genuinely under-sequenced tail
-# (~0-1% of every cohort) without tripping on normal depth variation.
-"MEDIAN_COVERAGE" = 15
-# Picard CollectWgsMetrics - fraction of the genome at >=20x (primary breadth gate
-# for WGS). Cohort medians ~0.94-0.95; fail below 0.75 flags inadequate breadth
-# (afhcs/chop-gliadx tails ~4-5%, healthy cohorts ~0%).
-"PCT_20X" = 0.75
-# samtools - proportion of reads mapped to the reference. ~99% median across all
-# cohorts; fail below 80% only catches wrong-reference/species/adapter disasters
-# (~5% of the messy chop-gliadx batch, ~0% elsewhere). Preserves the lab's original
-# hard-gate intent. NB: replaces the old "PCT_PF_READS_ALIGNED" key, which MultiQC
-# only writes to report_saved_raw_data (not general stats), so it was never checked.
-"reads_mapped_percent" = 80
+# (fail/warn). A metric is flagged when it falls below its `.under` threshold or
+# rises above its `.over` threshold.
+# Metric keys must match the keys MultiQC surfaces in `report_general_stats_data`
+# Note that some samtools stats metrics use integer thresholds to represent percentages (e.g. 97 = 97%);
+# while Picard and VerifyBamID use floats (e.g. 0.85 = 85%).
+# See README.md for more details on these thresholds.
 
-[qc_thresholds.genome.fail.max]
-# VerifyBamID - contamination. Effectively 0 across all 10 cohorts (p99 <= 0.008);
-# fail above 4% is a pure safety gate for gross contamination.
-"FREEMIX" = 0.04
-# samtools - duplicate rate. Strongly cohort/library-prep dependent on WGS (cohort
-# medians 7-18%), so a fixed warn line over-flags high-dup preps - the warn tier is
-# handled cohort-relatively instead (see [..genome.relative]). This absolute fail
-# above 40% catches only true library-complexity disasters (0% of every cohort). The
-# lab's original 25% would hard-fail ~25-37% of legitimately higher-dup preps
-# (afhcs/schr-neuro), so it is relaxed here.
-"reads_duplicated_percent" = 40
+# Genome minimum thresholds (flag if metrics below these values)
+[qc_thresholds.genome.warn.under]
+MEDIAN_COVERAGE = 25
+PCT_20X = 0.85
+reads_mapped_percent = 97
+reads_properly_paired_percent = 92
 
-[qc_thresholds.genome.warn.min]
-# Below ideal but usable: warn well before the failure line.
-# MEDIAN_COVERAGE warn 25x flags ~0-5% per cohort (the sub-ideal-depth tail).
-"MEDIAN_COVERAGE" = 25
-# PCT_20X warn 0.85 flags the poor-breadth tail (~0-8% per cohort).
-"PCT_20X" = 0.85
-# reads_mapped warn 97% flags the mild-misalignment tail (single-digit % on healthy
-# cohorts, ~15% on chop-gliadx).
-"reads_mapped_percent" = 97
-# samtools - proportion of properly-paired reads. Warn-only (no fail): correlated
-# with reads_mapped, so it is an extra human-look signal for pairing/insert issues
-# rather than a second hard gate. Cohort medians ~96-98%; warn below 92% flags
-# ~0-3% on healthy cohorts (chop-gliadx ~10%).
-"reads_properly_paired_percent" = 92
+[qc_thresholds.genome.fail.under]
+MEDIAN_COVERAGE = 15
+PCT_20X = 0.75
+reads_mapped_percent = 80
+reads_properly_paired_percent = 90
 
-[qc_thresholds.genome.warn.max]
-# Contamination early-warning. ~0 across all cohorts, so this rarely fires - the
-# fail>0.04 gate is the real protection.
+# Genome maximum thresholds (flag if metrics above these values)
+[qc_thresholds.genome.warn.over]
+"reads_duplicated_percent" = 30
 "FREEMIX" = 0.02
-# NB: reads_duplicated_percent has no absolute warn - its warn tier is cohort-relative
-# (see [qc_thresholds.genome.relative] below).
 
-# Cohort-relative (MAD / modified z-score) warn flagging for genome - warn only, same
-# mechanism as the exome ZERO_CVG_TARGETS_PCT tier below. reads_duplicated_percent is
-# strongly cohort/library-prep dependent on WGS (medians range 7.2% to 18.0% across the
-# 10 cohorts), so a fixed warn line either floods high-dup preps or never fires on
-# low-dup ones. Flagging within-cohort outliers instead gives 0-4.2% warn per cohort
-# with ~1% flag churn on homogeneous cohort growth (2.1% worst case when merging two
-# very different projects). The absolute fail>40% gate above still applies as a hard
-# stop; a sample caught there is not double-flagged here. Validated across all 10 WGS
-# cohorts via the production relative_flags() path (testing_scripts/mad_relative_prototype.py,
-# verify_relative_6cohorts.py).
-[qc_thresholds.genome.relative.reads_duplicated_percent]
-direction = "max"  # bad = high (more duplicate reads than the cohort norm)
-k = 3.5            # standard Iglewicz-Hoaglin outlier threshold
-min_cohort = 50    # below this, MAD is too noisy; skip relative flagging
-
-# Exome thresholds. Whole-genome coverage metrics (MEDIAN_COVERAGE from
-# CollectWgsMetrics) are meaningless on exomes, so we gate on Picard
-# CollectHsMetrics target-coverage metrics instead (see jobs/picard.py::hs_metrics).
-#
-# Calibrated against two real WES cohorts (647- and 522-sample MultiQC runs; see
-# testing_scripts/qc_metric_distributions.py + qc_threshold_flagrates.py). Values
-# are set so a healthy cohort flags at ~0% fail / single-digit % warn, while a
-# genuinely poor batch still surfaces. These metrics are capture-kit dependent -
-# re-run those scripts on a known-good batch when onboarding a new kit.
-[qc_thresholds.exome.fail.min]
-# Picard CollectHsMetrics - mean coverage over the target regions (100x is the
-# usual ask). Cohort medians ~59-82x; fail below 30x (worst ~6% of the poor batch).
-"MEAN_TARGET_COVERAGE" = 30
-# Picard - fraction of target bases at >=20x. A healthy cohort sits >=0.86 (p1);
-# fail below 0.80 flags genuinely inadequate breadth (~0% of the good cohort).
-"PCT_TARGET_BASES_20X" = 0.80
-# samtools - proportion of reads mapped. ~99% in both cohorts; fail below 90%
-# only catches wrong-reference/species/adapter disasters.
-"reads_mapped_percent" = 90
-
-[qc_thresholds.exome.fail.max]
-# VerifyBamID (exome contamination panel) - contamination. Cohorts p95 <= 0.018;
-# fail above 4%.
+[qc_thresholds.genome.fail.over]
+"reads_duplicated_percent" = 40
 "FREEMIX" = 0.04
-# Picard - capture uniformity: fold-coverage penalty to reach 80% of targets.
-# Cohort p90 ~2.2-3.0; fail above 3.5.
-"FOLD_80_BASE_PENALTY" = 3.5
-# Picard - fraction of target regions with zero coverage. Strongly kit-dependent
-# (cohort medians 0.022 vs 0.054); fail above 0.10 catches only true outliers.
-# The warn tier is handled cohort-relatively instead (see [..exome.relative]).
-"ZERO_CVG_TARGETS_PCT" = 0.10
-# samtools - duplicate rate. Not a data-quality gate on exomes (10-30% is normal),
-# but a fail above 50% signals a serious library-complexity problem.
-"reads_duplicated_percent" = 50
 
-[qc_thresholds.exome.warn.min]
+# Exome minimum thresholds (flag if metrics below these values)
+[qc_thresholds.exome.warn.under]
 "MEAN_TARGET_COVERAGE" = 50
 "PCT_TARGET_BASES_20X" = 0.90
-"reads_mapped_percent" = 97
+"reads_mapped_percent" = 95
 
-[qc_thresholds.exome.warn.max]
-"FREEMIX" = 0.02
+[qc_thresholds.exome.fail.under]
+"MEAN_TARGET_COVERAGE" = 30
+"PCT_TARGET_BASES_20X" = 0.80
+"reads_mapped_percent" = 90
+
+# Exome maximum thresholds (flag if metrics above these values)
+[qc_thresholds.exome.warn.over]
 "FOLD_80_BASE_PENALTY" = 2.5
-"reads_duplicated_percent" = 35
+"ZERO_CVG_TARGETS_PCT" = 0.07
+"reads_duplicated_percent" = 30
+"FREEMIX" = 0.02
 
-# Cohort-relative (MAD / modified z-score) flagging - warn only. For metrics whose
-# absolute level is strongly capture-kit dependent, a fixed warn line either floods
-# or never fires; instead we flag samples that are statistical outliers *within the
-# current run's cohort*. Only ZERO_CVG_TARGETS_PCT qualifies: across 6 real WES
-# cohorts it held a stable spread (<1% flag churn on cohort growth), whereas
-# PCT_SELECTED_BASES / PCT_OFF_BAIT had cohort-dependent spread and churned heavily.
+[qc_thresholds.exome.fail.over]
+"FOLD_80_BASE_PENALTY" = 3.5
+"ZERO_CVG_TARGETS_PCT" = 0.10
+"reads_duplicated_percent" = 50
+"FREEMIX" = 0.04
+
+# Relative thresholds for QC metrics that are derived on a per-dataset basis
+# Cohort-relative (MAD / modified z-score) flagging is used for metrics that are
+# strongly cohort-dependent. Relative thresholds are calculated using the median
+# and MAD (median absolute deviation) of the metric across the dataset.
+
 # A sample is warned when its modified z-score exceeds `k` on the `direction` side:
 #   mz = 0.6745 * (value - median) / MAD ; threshold = median +/- k*MAD/0.6745
-# Relative flags never fail (advisory only), and are skipped when the cohort has
-# fewer than `min_cohort` samples or zero MAD. The absolute fail>0.10 gate above
-# still applies as a hard stop; a sample caught there is not double-flagged here.
-[qc_thresholds.exome.relative.ZERO_CVG_TARGETS_PCT]
-direction = "max"  # bad = high (more zero-coverage targets)
-k = 3.5            # standard Iglewicz-Hoaglin outlier threshold
-min_cohort = 50    # below this, MAD is too noisy; skip relative flagging
+# Relative flags never fail (advisory only), and are skipped when the dataset has
+# fewer than `min_samples` samples or zero MAD. 
 
-[references.broad]
-ref_fasta = "gs://cpg-common-main/references/hg38/v0/dragen_reference/Homo_sapiens_assembly38_masked.fasta"
+#  warn flagging for genome
+# reads_duplicated_percent is strongly cohort dependent for WGS, so a fixed warn
+# value either floods high-dup preps or never fires on low-dup ones.
+[qc_thresholds.genome.relative.reads_duplicated_percent]
+direction = "over" # bad = high (more duplicate reads than the cohort norm)
+k = 3.5            # standard Iglewicz-Hoaglin outlier threshold
+min_samples = 50   # below this, MAD is too noisy; skip relative flagging
+
+# For exomes, only ZERO_CVG_TARGETS_PCT qualifies for relative flagging.
+[qc_thresholds.exome.relative.ZERO_CVG_TARGETS_PCT]
+direction = "over" # bad = high (more zero-coverage targets)
+k = 3.5            # standard Iglewicz-Hoaglin outlier threshold
+min_samples = 50   # below this, MAD is too noisy; skip relative flagging
 
 [images]
 dragmap = "australia-southeast1-docker.pkg.dev/cpg-common/images/dragmap_ora_dupblaster:2.7.0-1"
@@ -241,6 +181,9 @@ exome_calling_interval_lists = "gs://cpg-common-main/references/hg38/v0/exome_ca
 hg38_telomeres_and_centromeres_intervals_list = "gs://cpg-common-main/references/hg38/v0/hg38.telomeres_centromeres_and_hard_calling_exclusions.interval_list"
 somalier_sites = "gs://cpg-common-main/references/somalier/sites.hg38.vcf.gz"
 dbsnp_vcf = "gs://cpg-common-main/references/hg38/v0/Homo_sapiens_assembly38.dbsnp138.vcf"
+
+[references.broad]
+ref_fasta = "gs://cpg-common-main/references/hg38/v0/dragen_reference/Homo_sapiens_assembly38_masked.fasta"
 
 [vntyper]
 # Logs are very slim when set to INFO

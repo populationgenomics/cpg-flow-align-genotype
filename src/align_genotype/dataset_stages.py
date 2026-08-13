@@ -34,7 +34,6 @@ class SomalierPedigree(stage.DatasetStage):
         * *.pairs.tsv
         https://github.com/ewels/MultiQC/blob/master/multiqc/utils/search_patterns.yaml#L472-L481
         """
-
         prefix = dataset.prefix() / 'somalier' / 'cram' / dataset.get_alignment_inputs_hash()
         web_prefix = dataset.web_prefix() / 'somalier' / 'cram' / dataset.get_alignment_inputs_hash()
         return {
@@ -49,7 +48,6 @@ class SomalierPedigree(stage.DatasetStage):
         """
         Checks calls job from the pedigree module
         """
-
         outputs = self.expected_outputs(dataset)
 
         verifybamid_by_sgid = filter_to_dataset_sgids(inputs.as_path_by_target(CramQcVerifyBamId), dataset)
@@ -90,17 +88,12 @@ class CramMultiQC(stage.DatasetStage):
         """
         Expected to produce an HTML and a corresponding JSON file.
         """
-
-        # get the unique hash for these Sequencing Groups
         sg_hash = dataset.get_alignment_inputs_hash()
-
-        qc_subdir = f'{subdir}/qc' if (subdir := targets.sequencing_subdir()) else 'qc'
-
         return {
-            'latest': dataset.web_prefix() / qc_subdir / 'cram' / 'latest' / 'multiqc.html',
-            'html': dataset.web_prefix() / qc_subdir / 'cram' / sg_hash / 'multiqc.html',
-            'json': dataset.prefix() / qc_subdir / 'cram' / sg_hash / 'multiqc_data.json',
-            'checks': dataset.prefix() / qc_subdir / 'cram' / sg_hash / 'qc-checks.json',
+            'latest': dataset.web_prefix() / 'qc' / 'cram' / 'latest' / 'multiqc.html',
+            'html': dataset.web_prefix() / 'qc' / 'cram' / sg_hash / 'multiqc.html',
+            'json': dataset.prefix() / 'qc' / 'cram' / sg_hash / 'multiqc_data.json',
+            'checks': dataset.prefix() / 'qc' / 'cram' / sg_hash / 'qc-checks.json',
         }
 
     def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput | None:
@@ -181,16 +174,6 @@ class CramMultiQC(stage.DatasetStage):
         return self.make_outputs(dataset, data=outputs, jobs=jobs)
 
 
-def _update_meta(output_path: str) -> dict:
-    import json  # noqa: PLC0415
-
-    from cloudpathlib import CloudPath  # noqa: PLC0415
-
-    with CloudPath(output_path).open() as f:
-        d = json.load(f)
-    return {'multiqc': d['report_general_stats_data']}
-
-
 @stage.stage(
     required_stages=[RunGvcfQc],
     analysis_type='qc',
@@ -202,14 +185,11 @@ class GvcfMultiQC(stage.DatasetStage):
     def expected_outputs(self, dataset: stage.Dataset) -> dict[str, Path]:
         """Expected to produce an HTML and a corresponding JSON file."""
         sg_hash = dataset.get_alignment_inputs_hash()
-
-        qc_subdir = f'{subdir}/qc' if (subdir := targets.sequencing_subdir()) else 'qc'
-
         return {
-            'latest': dataset.web_prefix() / qc_subdir / 'gvcf' / 'latest' / 'multiqc.html',
-            'html': dataset.web_prefix() / qc_subdir / 'gvcf' / sg_hash / 'multiqc.html',
-            'json': dataset.prefix() / qc_subdir / 'gvcf' / sg_hash / 'multiqc_data.json',
-            'checks': dataset.prefix() / qc_subdir / 'gvcf' / sg_hash / 'qc-checks.json',
+            'latest': dataset.web_prefix() / 'qc' / 'gvcf' / 'latest' / 'multiqc.html',
+            'html': dataset.web_prefix() / 'qc' / 'gvcf' / sg_hash / 'multiqc.html',
+            'json': dataset.prefix() / 'qc' / 'gvcf' / sg_hash / 'multiqc_data.json',
+            'checks': dataset.prefix() / 'qc' / 'gvcf' / sg_hash / 'qc-checks.json',
         }
 
     def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput:
@@ -256,15 +236,12 @@ class GvcfMultiQC(stage.DatasetStage):
 )
 class GenerateSgQcReport(stage.DatasetStage):
     """
-    Queries Metamist for all QC flags across the dataset's sequencing groups
-    and generates a summary HTML report at a static URL.
+    Queries Metamist for all QC flags across the dataset's sequencing groups of a given type
+    (exome or genome) and generates a summary HTML report at a static URL.
     """
 
     def expected_outputs(self, dataset: targets.Dataset) -> dict[str, Path]:
-        qc_subdir = f'{subdir}/qc' if (subdir := targets.sequencing_subdir()) else 'qc'
-        return {
-            'html': dataset.web_prefix() / qc_subdir / 'sg_qc_report.html',
-        }
+        return {'html': dataset.web_prefix() / 'qc' / 'sg_qc_report.html'}
 
     def queue_jobs(self, dataset: targets.Dataset, _inputs: stage.StageInput) -> stage.StageOutput:
         outputs = self.expected_outputs(dataset)
