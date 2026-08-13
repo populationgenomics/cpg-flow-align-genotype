@@ -92,6 +92,8 @@ ignore = [
     "Q000", # Single quotes found but double quotes preferred
     "PD901", # Avoid using the generic variable name `df` for DataFrames
     "PLR0913", # Too many arguments in function definition (6 > 5)
+    "PLR0917", # Too many local variables in function (16 > 15)
+    "RUF001", # Ambiguous unicode character string
 ]
 
 [tool.ruff.lint.isort]
