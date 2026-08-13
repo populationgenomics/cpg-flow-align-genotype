@@ -212,20 +212,20 @@ def test_output_json_written_and_structured(tmp_path, patch_config):
 
 
 # --- cohort-relative (MAD) flagging ----------------------------------------
-def test_robust_threshold_max_and_min():
+def test_robust_threshold_over_and_under():
     # median=3, MAD=1 -> delta = 3.5*1/0.6745 ~= 5.19
-    assert check_multiqc.robust_threshold([1, 2, 3, 4, 100], 'max', 3.5) == pytest.approx(8.19, abs=0.01)
-    assert check_multiqc.robust_threshold([100, 99, 98, 97, 1], 'min', 3.5) == pytest.approx(92.81, abs=0.01)
+    assert check_multiqc.robust_threshold([1, 2, 3, 4, 100], 'over', 3.5) == pytest.approx(8.19, abs=0.01)
+    assert check_multiqc.robust_threshold([100, 99, 98, 97, 1], 'under', 3.5) == pytest.approx(92.81, abs=0.01)
 
 
 def test_robust_threshold_zero_mad_returns_none():
-    assert check_multiqc.robust_threshold([5, 5, 5, 5, 5], 'max', 3.5) is None
-    assert check_multiqc.robust_threshold([], 'max', 3.5) is None
+    assert check_multiqc.robust_threshold([5, 5, 5, 5, 5], 'over', 3.5) is None
+    assert check_multiqc.robust_threshold([], 'over', 3.5) is None
 
 
 # A tight ZERO_CVG cohort (~0.02) with one relative outlier (0.08) and one absolute
-# failure (0.15). direction=max; absolute fail gate at >0.10.
-_REL_CFG = {'ZERO_CVG_TARGETS_PCT': {'direction': 'max', 'k': 3.5, 'min_cohort': 5}}
+# failure (0.15). direction=over; absolute fail gate at >0.10.
+_REL_CFG = {'ZERO_CVG_TARGETS_PCT': {'direction': 'over', 'k': 3.5, 'min_samples': 5}}
 _REL_SECTIONS = {
     'picard': {
         'S1': {'ZERO_CVG_TARGETS_PCT': 0.020},
@@ -252,9 +252,9 @@ def test_relative_flags_warn_only_outlier(tmp_path, patch_config):
 
 
 def test_relative_skipped_below_min_cohort(tmp_path, patch_config):
-    patch_config('exome', {'relative': {'ZERO_CVG_TARGETS_PCT': {'direction': 'max', 'k': 3.5, 'min_cohort': 100}}})
+    patch_config('exome', {'relative': {'ZERO_CVG_TARGETS_PCT': {'direction': 'over', 'k': 3.5, 'min_samples': 100}}})
     result = _run(_write_json(tmp_path, _REL_SECTIONS), tmp_path / 'out.json')
-    assert result['qc_flags'] == {}  # cohort of 8 < min_cohort 100 -> no relative flags
+    assert result['qc_flags'] == {}  # cohort of 8 < min_samples 100 -> no relative flags
 
 
 def test_relative_skipped_on_zero_mad(tmp_path, patch_config):
@@ -266,7 +266,7 @@ def test_relative_skipped_on_zero_mad(tmp_path, patch_config):
 
 def test_absolute_fail_takes_precedence_over_relative(tmp_path, patch_config):
     # Same cohort, but now an absolute fail gate at >0.10 is also configured.
-    patch_config('exome', {'fail': {'max': {'ZERO_CVG_TARGETS_PCT': 0.10}}, 'relative': _REL_CFG})
+    patch_config('exome', {'fail': {'over': {'ZERO_CVG_TARGETS_PCT': 0.10}}, 'relative': _REL_CFG})
     result = _run(_write_json(tmp_path, _REL_SECTIONS), tmp_path / 'out.json')
     # FAILS (0.15) is caught once, as an absolute fail - not double-flagged relatively.
     fails = result['qc_flags']['FAILS']

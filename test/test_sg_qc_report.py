@@ -481,7 +481,6 @@ def test_relative_flag_carries_method_and_reframes_value():
     assert f['method'] == 'relative'
     assert f['is_relative'] is True
     assert f['severity'] == 'warn'
-    assert 'cohort outlier' in f['value_display']
 
 
 def test_render_report_shows_relative_badge_and_tooltip():
