@@ -84,8 +84,8 @@ METRIC_LABELS: dict[str, tuple[str, str, int]] = {
     'reads_duplicated_percent': ('Duplicated reads', '%', 1),
     # Picard CollectWgsMetrics (Genome)
     'PCT_PF_READS_ALIGNED': ('Passing Filter Reads aligned', '%', 100),
-    'MEDIAN_COVERAGE': ('Median coverage', '×', 100),
-    'MEAN_COVERAGE': ('Mean coverage', '×', 100),
+    'MEDIAN_COVERAGE': ('Median coverage', '×', 1),
+    'MEAN_COVERAGE': ('Mean coverage', '×', 1),
     # Picard CollectHsMetrics (Exome) target-coverage metrics
     'MEAN_TARGET_COVERAGE': ('Mean target coverage', '×', 1),
     'PCT_TARGET_BASES_20X': ('Target bases ≥20×', '%', 100),
