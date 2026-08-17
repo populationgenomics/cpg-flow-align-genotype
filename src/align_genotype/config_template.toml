@@ -5,6 +5,7 @@ populate_assays = true
 sequencing_type = '' #required
 
 input_cohorts = []
+
 skip_stages = []
 
 # set this to false if we want to use non-preemptible machines
