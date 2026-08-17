@@ -338,6 +338,9 @@ def _extract_reads(assays: list[dict]) -> tuple[list[str], list[tuple[str, str]]
 
 def get_sg_infos(sg_ids: list[str]) -> dict[str, SGInfo]:
     """Query Metamist for detailed SG info, keyed by SG id."""
+    if not sg_ids:
+        logger.warning('No SGs flagged')
+        return {}
     logger.info(f'Querying Metamist for detailed info on {len(sg_ids)} SG(s): {", ".join(sg_ids)}')
     started = perf_counter()
     response = query(SGS_INFO_QUERY, variables={'sgIds': sg_ids})
@@ -480,9 +483,6 @@ def main(dataset: str, output: str):
 
     # Only fetch rich SG metadata for SGs that actually have flags to report.
     flagged = [sg for sg in sg_data if sg['cram_qc_flags'] or sg['gvcf_qc_flags']]
-    if not flagged:
-        logger.info(f'{logging_prefix} :: No sequencing groups have QC flags; skipping report generation')
-        return
     logger.info(f'{logging_prefix} :: {len(flagged)} sequencing groups have QC flags.')
 
     infos = get_sg_infos([sg['id'] for sg in flagged])
