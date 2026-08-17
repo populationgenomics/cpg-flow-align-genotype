@@ -14,6 +14,7 @@ from time import perf_counter
 import jinja2
 from loguru import logger
 
+from cpg_utils import to_path
 from cpg_utils.config import config_retrieve, dataset_for_access_level
 from cpg_utils.metamist_registration import create_new
 from metamist.graphql import gql, query
@@ -501,7 +502,7 @@ def main(dataset: str, output: str):
     html = render_report(dataset, reports, summary=summary)
     logger.info(f'{logging_prefix} :: Rendered report in {perf_counter() - started:.1f}s')
 
-    with open(output, 'w') as f:
+    with to_path(output).open('w') as f:
         f.write(html)
     logger.info(f'{logging_prefix} :: Wrote SG QC report to {output}')
 
