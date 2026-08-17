@@ -134,6 +134,29 @@ plots_force_interactive = true
 "reads_duplicated_percent" = 50
 "FREEMIX" = 0.04
 
+# Relative thresholds for QC metrics that are derived on a per-dataset basis
+# Cohort-relative (MAD / modified z-score) flagging is used for metrics that are
+# strongly cohort-dependent. Relative thresholds are calculated using the median
+# and MAD (median absolute deviation) of the metric across the dataset.
+
+# A sample is warned when its modified z-score exceeds `k` on the `direction` side:
+#   mz = 0.6745 * (value - median) / MAD ; threshold = median +/- k*MAD/0.6745
+# Relative flags never fail (advisory only), and are skipped when the dataset has
+# fewer than `min_samples` samples or zero MAD.
+
+#  warn flagging for genome
+# reads_duplicated_percent is strongly cohort dependent for WGS, so a fixed warn
+# value either floods high-dup preps or never fires on low-dup ones.
+[qc_thresholds.genome.relative.reads_duplicated_percent]
+direction = "over" # bad = high (more duplicate reads than the cohort norm)
+k = 3.5            # standard Iglewicz-Hoaglin outlier threshold
+min_samples = 50   # below this, MAD is too noisy; skip relative flagging
+
+# For exomes, only ZERO_CVG_TARGETS_PCT qualifies for relative flagging.
+[qc_thresholds.exome.relative.ZERO_CVG_TARGETS_PCT]
+direction = "over" # bad = high (more zero-coverage targets)
+k = 3.5            # standard Iglewicz-Hoaglin outlier threshold
+min_samples = 50   # below this, MAD is too noisy; skip relative flagging
 
 [images]
 dragmap = "australia-southeast1-docker.pkg.dev/cpg-common/images/dragmap_ora_dupblaster:2.7.0-1"
