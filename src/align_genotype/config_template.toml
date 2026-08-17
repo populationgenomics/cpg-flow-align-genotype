@@ -1,7 +1,11 @@
 [workflow]
-sequencing_technology = 'short-read' # This repo is intended to process short-read sequencing data
+input_cohorts = []
 
 skip_stages = []
+
+sequencing_type = '' #required
+sequencing_technology = 'short-read' # This repo is intended to process short-read sequencing data
+populate_assays = true
 
 # set this to false if we want to use non-preemptible machines
 align_spot = true
