@@ -90,16 +90,16 @@ plots_force_interactive = true
 
 # Genome minimum thresholds (flag if metrics below these values)
 [qc_thresholds.genome.warn.under]
-MEDIAN_COVERAGE = 25
-PCT_20X = 0.85
-reads_mapped_percent = 97
-reads_properly_paired_percent = 92
+"MEDIAN_COVERAGE" = 25
+"PCT_20X" = 0.85
+"reads_mapped_percent" = 97
+"reads_properly_paired_percent" = 92
 
 [qc_thresholds.genome.fail.under]
-MEDIAN_COVERAGE = 15
-PCT_20X = 0.75
-reads_mapped_percent = 80
-reads_properly_paired_percent = 90
+"MEDIAN_COVERAGE" = 15
+"PCT_20X" = 0.75
+"reads_mapped_percent" = 80
+"reads_properly_paired_percent" = 90
 
 # Genome maximum thresholds (flag if metrics above these values)
 [qc_thresholds.genome.warn.over]
