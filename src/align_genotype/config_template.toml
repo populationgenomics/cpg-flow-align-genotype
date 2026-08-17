@@ -1,12 +1,11 @@
 [workflow]
-
-populate_assays = true
-
-sequencing_type = '' #required
-
 input_cohorts = []
 
 skip_stages = []
+
+sequencing_type = '' #required
+
+populate_assays = true
 
 # set this to false if we want to use non-preemptible machines
 align_spot = true
