@@ -90,7 +90,9 @@ METRIC_LABELS: dict[str, tuple[str, str, int]] = {
     # Picard CollectHsMetrics (Exome) target-coverage metrics
     'MEAN_TARGET_COVERAGE': ('Mean target coverage', '×', 1),
     'PCT_TARGET_BASES_20X': ('Target bases ≥20×', '%', 100),
-    'FOLD_80_BASE_PENALTY': ('Fold-80 base penalty', '%', 100),
+    'FOLD_80_BASE_PENALTY':  ('Fold-80 base penalty', '×', 1),
+    
+   
     'ZERO_CVG_TARGETS_PCT': ('Zero-coverage targets', '%', 100),
     # VerifyBamID2 contamination metric
     'FREEMIX': ('Contamination (FreeMix)', '%', 100),
