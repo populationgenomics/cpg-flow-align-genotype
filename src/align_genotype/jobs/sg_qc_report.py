@@ -25,9 +25,8 @@ def sg_qc_report_job(
         f"""\
     python3 -m align_genotype.scripts.sg_qc_report \\
         --dataset {dataset} \\
-        --output {j.html}
+        --output {outputs['html']}
     """
     )
 
-    batch.write_output(j.html, outputs['html'])
     return j
