@@ -83,21 +83,19 @@ METRIC_LABELS: dict[str, tuple[str, str, int]] = {
     # samtools stats metrics
     'reads_mapped_percent': ('Reads mapped', '%', 1),
     'reads_duplicated_percent': ('Duplicated reads', '%', 1),
+    'reads_properly_paired_percent': ('Reads properly paired', '%', 1),
     # Picard CollectWgsMetrics (Genome)
     'PCT_PF_READS_ALIGNED': ('Passing Filter Reads aligned', '%', 100),
+    'PCT_20X': ('Bases ≥20× coverage', '%', 100),
     'MEDIAN_COVERAGE': ('Median coverage', '×', 1),
     'MEAN_COVERAGE': ('Mean coverage', '×', 1),
     # Picard CollectHsMetrics (Exome) target-coverage metrics
-    'MEAN_TARGET_COVERAGE': ('Mean target coverage', '×', 1),
-    'PCT_TARGET_BASES_20X': ('Target bases ≥20×', '%', 100),
-    'FOLD_80_BASE_PENALTY':  ('Fold-80 base penalty', '×', 1),
-    
-   
     'ZERO_CVG_TARGETS_PCT': ('Zero-coverage targets', '%', 100),
+    'PCT_TARGET_BASES_20X': ('Target bases ≥20×', '%', 100),
+    'FOLD_80_BASE_PENALTY': ('Fold-80 base penalty', '×', 1),
+    'MEAN_TARGET_COVERAGE': ('Mean target coverage', '×', 1),
     # VerifyBamID2 contamination metric
-'FREEMIX': ('Contamination (FreeMix)', '%', 100),
-'PCT_20X': ('Bases ≥20× coverage', '%', 100),
-'reads_properly_paired_percent': ('Reads properly paired', '%', 1),
+    'FREEMIX': ('Contamination (FreeMix)', '%', 100),
 }
 
 
