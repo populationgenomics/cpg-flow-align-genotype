@@ -95,7 +95,9 @@ METRIC_LABELS: dict[str, tuple[str, str, int]] = {
    
     'ZERO_CVG_TARGETS_PCT': ('Zero-coverage targets', '%', 100),
     # VerifyBamID2 contamination metric
-    'FREEMIX': ('Contamination (FreeMix)', '%', 100),
+'FREEMIX': ('Contamination (FreeMix)', '%', 100),
+'PCT_20X': ('Bases ≥20× coverage', '%', 100),
+'reads_properly_paired_percent': ('Reads properly paired', '%', 1),
 }
 
 
