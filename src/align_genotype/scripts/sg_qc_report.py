@@ -511,7 +511,7 @@ def construct_summary_message(
             messages.append(f'❗{summary["active_fail"]} failure flags')
 
     if previous_analysis:
-        previous_summary = previous_analysis['summary']  # This exists because we already checked it did
+        previous_summary = previous_analysis['meta']['summary']  # This exists because we already checked it did
         additional_flags = summary['active_flags'] - previous_summary.get('active_flags', 0)
         additional_sgs = summary['sgs_affected'] - previous_summary.get('sgs_affected', 0)
         if additional_flags > 0 or additional_sgs > 0:
