@@ -507,7 +507,7 @@ def construct_summary_message(
         messages.append('✅ No sequencing groups flagged')
     else:
         messages.append(f'{summary["sgs_affected"]} / {summary["total_sgs"]} sequencing groups flagged')
-        messages.append(f'*{summary["active_flags"]} Total active flags*')
+        messages.append(f'🚩 *{summary["active_flags"]} Total active flags*')
         if summary['active_warn']:
             messages.append(f'⚠️ {summary["active_warn"]} warning flags')
         if summary['active_fail']:
@@ -522,12 +522,11 @@ def construct_summary_message(
         additional_sgs = summary['total_sgs'] - previous_summary.get('total_sgs', 0)
         timestamp_str = previous_analysis['timestampCompleted'].split('T')[0]  # Extract date portion
         if additional_flags > 0 or additional_flagged_sgs > 0 or additional_sgs > 0:
-            messages.append('---')
-            messages.append(f'📢 New updates since previous report on {timestamp_str}:')
+            messages.append(f'📢 *New since last report on {timestamp_str}*')
             if additional_sgs > 0:
-                messages.append(f'+{additional_sgs} new SGs added to the dataset')
+                messages.append(f'+{additional_sgs} new sequencing groups added to the dataset')
             if additional_flagged_sgs > 0:
-                messages.append(f'+{additional_flagged_sgs} flagged SGs')
+                messages.append(f'+{additional_flagged_sgs} additional sequencing groups flagged')
             if additional_flags > 0:
                 messages.append(f'+{additional_flags} new flags ({additional_fail} fail, {additional_warn} warn)')
         else:
