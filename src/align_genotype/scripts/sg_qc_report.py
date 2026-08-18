@@ -494,6 +494,40 @@ def render_report(dataset: str, reports: list[SGReport], *, summary: dict) -> st
     )
 
 
+def construct_summary_message(
+    dataset: str, out_html_url: str, seq_type: str, seq_tech: str, summary: dict, previous_analysis: dict | None
+):
+    """Construct a Slack message with a concise summary and a link to the report."""
+    report_title = f'SG QC report ({seq_type} | {seq_tech})'
+    messages = [f'*[{dataset}]* <{out_html_url}|{report_title}>']
+    if summary['sgs_affected'] == 0:
+        messages.append('✅ No sequencing groups flagged')
+    else:
+        messages.append(f'{summary["sgs_affected"]} / {summary["total_sgs"]} sequencing groups flagged')
+        messages.append(f'*{summary["active_flags"]} Total active flags*')
+        if summary['active_warn']:
+            messages.append(f'⚠️{summary["active_warn"]} warning flags')
+        if summary['active_fail']:
+            messages.append(f'❗{summary["active_fail"]} failure flags')
+
+    if previous_analysis:
+        previous_summary = previous_analysis['summary']  # This exists because we already checked it did
+        additional_flags = summary['active_flags'] - previous_summary.get('active_flags', 0)
+        additional_sgs = summary['sgs_affected'] - previous_summary.get('sgs_affected', 0)
+        if additional_flags > 0 or additional_sgs > 0:
+            messages.append(
+                f'+{additional_sgs} additional flagged SGs and +{additional_flags} new flags '
+                f'since last report on {previous_analysis["timestampCompleted"]}'
+            )
+        else:
+            messages.append(f'No new flags since last report on {previous_analysis["timestampCompleted"]}')
+
+    text = '\n'.join(messages)
+    logger.info(text)
+    if config_retrieve(['workflow', 'sg_qc_report', 'send_to_slack']):
+        send_message(text)
+
+
 def main(dataset: str, output: str, timestamped_output: str, out_html_url: str):
     """Query Metamist for QC flags and generate a SG QC HTML report."""
 
@@ -559,38 +593,7 @@ def main(dataset: str, output: str, timestamped_output: str, out_html_url: str):
     )
     logger.info(f'{logging_prefix} :: Registered web analysis for {len(sequencing_groups)} SG(s)')
 
-    # Construct a Slack message with a concise summary and a link to the report.
-    report_title = f'SG QC report ({seq_type} | {seq_tech})'
-    messages = [f'*[{dataset}]* <{out_html_url}|{report_title}>']
-    messages.append(f'{summary["sgs_affected"]} / {summary["total_sgs"]} sequencing groups flagged')
-    messages.append(
-        f'{summary["active_flags"]} Total active flags '
-        f'({summary["active_warn"]} warn ⚠️ - {summary["active_fail"]} fail ❗)'
-    )
-    # Fetch the previous analysis for this dataset / sequencing type / technology, if any,
-    # to compare the new summary counts against the previous ones and report any changes to Slack.
-    meta_filter = {
-        'stage': 'GenerateSgQcReport',
-        'sequencing_type': seq_type,
-        'sequencing_technology': seq_tech,
-    }
-    if not (previous_analysis := get_previous_analysis(dataset, meta_filter)):
-        logger.info(f'{logging_prefix} :: No valid prior SG QC report found for comparison')
-    else:
-        previous_summary = previous_analysis['meta']['summary']  # This exists because we already checked it did
-        logger.info(f'{logging_prefix} :: Found previous SG QC report summary: {previous_summary}')
-        additional_flags = summary['active_flags'] - previous_summary.get('active_flags', 0)
-        additional_sgs = summary['sgs_affected'] - previous_summary.get('sgs_affected', 0)
-        if additional_flags > 0 or additional_sgs > 0:
-            messages.append(
-                f'+{additional_sgs} additional flagged SGs and +{additional_flags} new flags '
-                f'since last report on {previous_analysis.get("timestampCompleted")}'
-            )
-
-    text = '\n'.join(messages)
-    logger.info(text)
-    if config_retrieve(['workflow', 'sg_qc_report', 'send_to_slack']):
-        send_message(text)
+    construct_summary_message(dataset, out_html_url, seq_type, seq_tech, summary, get_previous_analysis(dataset, meta))
 
 
 if __name__ == '__main__':
