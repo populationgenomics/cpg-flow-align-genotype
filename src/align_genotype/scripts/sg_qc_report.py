@@ -395,7 +395,10 @@ def get_previous_analysis(dataset: str, meta_filter: dict) -> dict | None:
     if not existing_analyses:
         return None
     existing_analyses.sort(key=lambda a: a.get('timestampCompleted') or '', reverse=True)
-    previous_analysis = existing_analyses[0]
+    if len(existing_analyses) == 1:
+        # Only one analysis is the current one, so there are no previous analyses to compare against.
+        return None
+    previous_analysis = existing_analyses[1]  # The second most recent analysis is the previous one
     logger.info(f'Found previous analysis {previous_analysis["id"]} from {previous_analysis["timestampCompleted"]}')
     if not previous_analysis['meta'].get('summary'):
         logger.warning(f'Previous analysis {previous_analysis["id"]} has no summary in meta; skipping')
@@ -513,12 +516,13 @@ def construct_summary_message(
     if previous_analysis:
         previous_summary = previous_analysis['meta']['summary']  # This exists because we already checked it did
         additional_flags = summary['active_flags'] - previous_summary.get('active_flags', 0)
-        additional_sgs = summary['sgs_affected'] - previous_summary.get('sgs_affected', 0)
+        additional_flagged_sgs = summary['sgs_affected'] - previous_summary.get('sgs_affected', 0)
+        additional_sgs = summary['total_sgs'] - previous_summary.get('total_sgs', 0)
         timestamp_str = previous_analysis["timestampCompleted"].split("T")[0]  # Extract date portion
-        if additional_flags > 0 or additional_sgs > 0:
+        if additional_flags > 0 or additional_flagged_sgs > 0:
             messages.append(
-                f'+{additional_sgs} additional flagged SGs and +{additional_flags} new flags '
-                f'since last report on {timestamp_str}'
+                f'+{additional_flagged_sgs} additional flagged SGs and +{additional_flags} new flags '
+                f'since last report on {timestamp_str} ({additional_sgs} new SGs total)'
             )
         else:
             messages.append(f'No new flags since last report on {timestamp_str}')
