@@ -17,10 +17,12 @@ from loguru import logger
 from cpg_utils import to_path
 from cpg_utils.config import config_retrieve, dataset_for_access_level
 from cpg_utils.metamist_registration import create_new
+from cpg_utils.slack import send_message
 from metamist.graphql import gql, query
 
 from align_genotype.utils import QcFlag
 
+STAGE_NAME = 'GenerateSgQcReport'
 JINJA_TEMPLATE_DIR = Path(__file__).absolute().parent.parent / 'templates'
 
 DATASET_SGS_QUERY = gql(
@@ -62,6 +64,21 @@ SGS_INFO_QUERY = gql(
                         externalIds
                     }
                 }
+            }
+        }
+    }
+    """
+)
+
+EXISTING_ANALYSES_QUERY = gql(
+    """
+    query existingAnalyses($dataset: String!, $metaFilter: JSON!) {
+        project(name: $dataset) {
+            analyses(type: {eq: "web"}, meta: $metaFilter) {
+                id
+                outputs
+                timestampCompleted
+                meta
             }
         }
     }
@@ -371,6 +388,21 @@ def get_sg_infos(sg_ids: list[str]) -> dict[str, SGInfo]:
     return infos
 
 
+def get_previous_analysis(dataset: str, meta_filter: dict) -> dict | None:
+    """Query Metamist for existing web analyses matching a meta filter and take the most recent one, if any."""
+    response = query(EXISTING_ANALYSES_QUERY, variables={'dataset': dataset, 'metaFilter': meta_filter})
+    existing_analyses = response['project']['analyses']
+    if not existing_analyses:
+        return None
+    existing_analyses.sort(key=lambda a: a.get('timestampCompleted') or '', reverse=True)
+    previous_analysis = existing_analyses[0]
+    logger.info(f'Found previous analysis {previous_analysis["id"]} from {previous_analysis["timestampCompleted"]}')
+    if not previous_analysis['meta'].get('summary'):
+        logger.warning(f'Previous analysis {previous_analysis["id"]} has no summary in meta; skipping')
+        return None
+    return previous_analysis
+
+
 def collect_qc_flags(sequencing_groups: list[dict]) -> list[dict]:
     """Extract QC flags from each sequencing group's metadata."""
     results = []
@@ -510,8 +542,6 @@ def main(dataset: str, output: str, timestamped_output: str, out_html_url: str):
         f.write(html)
     logger.info(f'{logging_prefix} :: Wrote timestamped SG QC report to {timestamped_output}')
 
-    logger.info(f'{logging_prefix} :: HTML report URL: {out_html_url}')
-
     # Register results in Metamist manually to capture all dataset SGs in scope, not just the input_cohorts SGs
     meta = {
         'stage': 'GenerateSgQcReport',
@@ -528,6 +558,39 @@ def main(dataset: str, output: str, timestamped_output: str, out_html_url: str):
         meta=meta,
     )
     logger.info(f'{logging_prefix} :: Registered web analysis for {len(sequencing_groups)} SG(s)')
+
+    # Construct a Slack message with a concise summary and a link to the report.
+    report_title = f'SG QC report ({seq_type} | {seq_tech})'
+    messages = [f'*[{dataset}]* <{out_html_url}|{report_title}>']
+    messages.append(f'{summary["sgs_affected"]} / {summary["total_sgs"]} sequencing groups flagged')
+    messages.append(
+        f'{summary["active_flags"]} Total active flags '
+        f'({summary["active_warn"]} warn ⚠️ - {summary["active_fail"]} fail ❗)'
+    )
+    # Fetch the previous analysis for this dataset / sequencing type / technology, if any,
+    # to compare the new summary counts against the previous ones and report any changes to Slack.
+    meta_filter = {
+        'stage': 'GenerateSgQcReport',
+        'sequencing_type': seq_type,
+        'sequencing_technology': seq_tech,
+    }
+    if not (previous_analysis := get_previous_analysis(dataset, meta_filter)):
+        logger.info(f'{logging_prefix} :: No valid prior SG QC report found for comparison')
+    else:
+        previous_summary = previous_analysis['meta']['summary']  # This exists because we already checked it did
+        logger.info(f'{logging_prefix} :: Found previous SG QC report summary: {previous_summary}')
+        additional_flags = summary['active_flags'] - previous_summary.get('active_flags', 0)
+        additional_sgs = summary['sgs_affected'] - previous_summary.get('sgs_affected', 0)
+        if additional_flags > 0 or additional_sgs > 0:
+            messages.append(
+                f'+{additional_sgs} additional flagged SGs and +{additional_flags} new flags '
+                f'since last report on {previous_analysis.get("timestampCompleted")}'
+            )
+
+    text = '\n'.join(messages)
+    logger.info(text)
+    if config_retrieve(['workflow', 'sg_qc_report', 'send_to_slack']):
+        send_message(text)
 
 
 if __name__ == '__main__':

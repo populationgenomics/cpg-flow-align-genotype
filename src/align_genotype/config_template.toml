@@ -78,6 +78,8 @@ send_to_slack = true
 [workflow.gvcf_multiqc.extra_config]
 plots_force_interactive = true
 
+[workflow.sg_qc_report]
+send_to_slack = true
 
 [qc_thresholds]
 # QC thresholds are keyed by sequencing_type (genome/exome) and severity tier
