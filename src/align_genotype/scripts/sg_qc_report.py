@@ -518,7 +518,7 @@ def construct_summary_message(
         additional_flags = summary['active_flags'] - previous_summary.get('active_flags', 0)
         additional_flagged_sgs = summary['sgs_affected'] - previous_summary.get('sgs_affected', 0)
         additional_sgs = summary['total_sgs'] - previous_summary.get('total_sgs', 0)
-        timestamp_str = previous_analysis["timestampCompleted"].split("T")[0]  # Extract date portion
+        timestamp_str = previous_analysis['timestampCompleted'].split('T')[0]  # Extract date portion
         if additional_flags > 0 or additional_flagged_sgs > 0:
             messages.append(
                 f'+{additional_flagged_sgs} additional flagged SGs and +{additional_flags} new flags '
