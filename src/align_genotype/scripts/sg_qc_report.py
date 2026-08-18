@@ -514,13 +514,14 @@ def construct_summary_message(
         previous_summary = previous_analysis['meta']['summary']  # This exists because we already checked it did
         additional_flags = summary['active_flags'] - previous_summary.get('active_flags', 0)
         additional_sgs = summary['sgs_affected'] - previous_summary.get('sgs_affected', 0)
+        timestamp_str = previous_analysis["timestampCompleted"].split("T")[0]  # Extract date portion
         if additional_flags > 0 or additional_sgs > 0:
             messages.append(
                 f'+{additional_sgs} additional flagged SGs and +{additional_flags} new flags '
-                f'since last report on {previous_analysis["timestampCompleted"]}'
+                f'since last report on {timestamp_str}'
             )
         else:
-            messages.append(f'No new flags since last report on {previous_analysis["timestampCompleted"]}')
+            messages.append(f'No new flags since last report on {timestamp_str}')
 
     text = '\n'.join(messages)
     logger.info(text)
