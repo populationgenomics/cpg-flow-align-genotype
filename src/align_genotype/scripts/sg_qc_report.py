@@ -462,7 +462,7 @@ def render_report(dataset: str, reports: list[SGReport], *, summary: dict) -> st
     )
 
 
-def main(dataset: str, output: str):
+def main(dataset: str, output: str, timestamped_output: str, out_html_url: str):
     """Query Metamist for QC flags and generate a SG QC HTML report."""
 
     dataset = dataset_for_access_level(dataset)
@@ -506,16 +506,23 @@ def main(dataset: str, output: str):
         f.write(html)
     logger.info(f'{logging_prefix} :: Wrote SG QC report to {output}')
 
+    with to_path(timestamped_output).open('w') as f:
+        f.write(html)
+    logger.info(f'{logging_prefix} :: Wrote timestamped SG QC report to {timestamped_output}')
+
+    logger.info(f'{logging_prefix} :: HTML report URL: {out_html_url}')
+
     # Register results in Metamist manually to capture all dataset SGs in scope, not just the input_cohorts SGs
     meta = {
         'stage': 'GenerateSgQcReport',
         'sequencing_type': seq_type,
         'sequencing_technology': seq_tech,
+        'summary': summary,
     }
 
     create_new(
         project=dataset,
-        output=output,
+        output=timestamped_output,
         analysis_type='web',
         sgs=[sg['id'] for sg in sequencing_groups],
         meta=meta,
@@ -526,6 +533,13 @@ def main(dataset: str, output: str):
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--dataset', required=True, help='Metamist dataset/project name')
-    parser.add_argument('--output', required=True, help='Path to write the HTML report')
+    parser.add_argument('--fixed-output', required=True, help='Path to write the HTML report')
+    parser.add_argument('--timestamped-output', required=True, help='Path to write the timestamped HTML report')
+    parser.add_argument('--html-url', required=True, help='Clickable URL for the HTML report')
     args = parser.parse_args()
-    main(dataset=args.dataset, output=args.output)
+    main(
+        dataset=args.dataset,
+        output=args.fixed_output,
+        timestamped_output=args.timestamped_output,
+        out_html_url=args.html_url,
+    )

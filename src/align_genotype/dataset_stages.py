@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from cpg_flow import stage, targets
 from cpg_utils import Path, config
 
@@ -235,21 +237,34 @@ class GvcfMultiQC(stage.DatasetStage):
 class GenerateSgQcReport(stage.DatasetStage):
     """
     Queries Metamist for all QC flags across the dataset's sequencing groups of a given type
-    (exome or genome) and generates a summary HTML report at a static URL.
+    (exome or genome) and generates a summary HTML report saved to both a static URL and a
+    timestamped URL in the dataset's web bucket.
 
-    A web analysis is manually created inside the job, because this stage uses the dataset's
-    SGs and not the input_cohort's SGs.
+    NOTE: This stage is agnostic of the sequencing groups in the multicohort. It instead gets
+    the datasets in the multicohort and queries Metamist for all their sequencing groups. The
+    analysis is based on those sequencing groups, not the ones in the multicohort. For this
+    reason, the analysis is manually created inside the job and not via a stage decorator.
     """
 
     def expected_outputs(self, dataset: targets.Dataset) -> dict[str, Path]:
-        return {'html': dataset.web_prefix() / 'qc' / 'sg_qc_report.html'}
+        timestamp = datetime.now().astimezone().strftime('%Y-%m-%d_%H%M%S')
+        return {
+            'timestamped': dataset.web_prefix() / 'qc' / timestamp / 'sg_qc_report.html',
+            'html': dataset.web_prefix() / 'qc' / 'sg_qc_report.html',
+        }
 
     def queue_jobs(self, dataset: targets.Dataset, _inputs: stage.StageInput) -> stage.StageOutput:
         outputs = self.expected_outputs(dataset)
 
+        if base_url := dataset.web_url():
+            out_html_url = str(outputs['html']).replace(str(dataset.web_prefix()), base_url)
+        else:
+            out_html_url = outputs['html']
+
         jobs = sg_qc_report.sg_qc_report_job(
             dataset=dataset.name,
             outputs=outputs,
+            out_html_url=out_html_url,
             job_attrs=self.get_job_attrs(dataset),
         )
         return self.make_outputs(dataset, data=outputs, jobs=jobs)

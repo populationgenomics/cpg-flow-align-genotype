@@ -10,6 +10,7 @@ from cpg_utils import Path, config, hail_batch
 def sg_qc_report_job(
     dataset: str,
     outputs: dict[str, Path],
+    out_html_url: str,
     job_attrs: dict,
 ) -> Job:
     """
@@ -25,7 +26,9 @@ def sg_qc_report_job(
         f"""\
     python3 -m align_genotype.scripts.sg_qc_report \\
         --dataset {dataset} \\
-        --output {outputs['html']}
+        --fixed-output {outputs['html']} \\
+        --timestamped-output {outputs['timestamped']} \\
+        --html-url {out_html_url}
     """
     )
 
