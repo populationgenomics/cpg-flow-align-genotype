@@ -579,6 +579,7 @@ def main(dataset: str, output: str, timestamped_output: str, out_html_url: str):
     # Register results in Metamist manually to capture all dataset SGs in scope, not just the input_cohorts SGs
     meta = {
         'stage': 'GenerateSgQcReport',
+        'dataset': dataset,
         'sequencing_type': seq_type,
         'sequencing_technology': seq_tech,
         'summary': summary,
@@ -593,6 +594,7 @@ def main(dataset: str, output: str, timestamped_output: str, out_html_url: str):
     )
     logger.info(f'{logging_prefix} :: Registered web analysis for {len(sequencing_groups)} SG(s)')
 
+    meta.pop('summary')
     construct_summary_message(dataset, out_html_url, seq_type, seq_tech, summary, get_previous_analysis(dataset, meta))
 
 
