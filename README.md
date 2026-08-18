@@ -48,7 +48,7 @@ This single-sample workflow has a dedicated entrypoint, and can be operated thro
 
 ```bash
 analysis-runner --skip-repo-checkout \
-    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.5.6-1 \
+    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.6.0-1 \
     --config src/align_genotype/config_template.toml \
     --dataset seqr \
     --description 'Single-Sample data generation' \
@@ -67,7 +67,7 @@ This Dataset-level workflow can be run in a similar way, but with a different en
 
 ```bash
 analysis-runner --skip-repo-checkout \
-    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.5.6-1 \
+    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.6.0-1 \
     --config src/align_genotype/config_template.toml \
     --dataset seqr \
     --description 'Dataset-Level QC workflow' \
@@ -80,7 +80,7 @@ A third workflow is available to run VNtyper on a set of samples, which can be u
 
 ```bash
 analysis-runner --skip-repo-checkout \
-    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.5.6-1 \
+    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.6.0-1 \
     --config src/align_genotype/config_template.toml \
     --config src/align_genotype/vntyper.toml \
     --dataset seqr \
