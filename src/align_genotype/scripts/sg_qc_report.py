@@ -509,21 +509,27 @@ def construct_summary_message(
         messages.append(f'{summary["sgs_affected"]} / {summary["total_sgs"]} sequencing groups flagged')
         messages.append(f'*{summary["active_flags"]} Total active flags*')
         if summary['active_warn']:
-            messages.append(f'⚠️{summary["active_warn"]} warning flags')
+            messages.append(f'⚠️ {summary["active_warn"]} warning flags')
         if summary['active_fail']:
-            messages.append(f'❗{summary["active_fail"]} failure flags')
+            messages.append(f'❗ {summary["active_fail"]} failure flags')
 
     if previous_analysis:
         previous_summary = previous_analysis['meta']['summary']  # This exists because we already checked it did
         additional_flags = summary['active_flags'] - previous_summary.get('active_flags', 0)
+        additional_fail = summary['active_fail'] - previous_summary.get('active_fail', 0)
+        additional_warn = summary['active_warn'] - previous_summary.get('active_warn', 0)
         additional_flagged_sgs = summary['sgs_affected'] - previous_summary.get('sgs_affected', 0)
         additional_sgs = summary['total_sgs'] - previous_summary.get('total_sgs', 0)
         timestamp_str = previous_analysis['timestampCompleted'].split('T')[0]  # Extract date portion
-        if additional_flags > 0 or additional_flagged_sgs > 0:
-            messages.append(
-                f'+{additional_flagged_sgs} additional flagged SGs and +{additional_flags} new flags '
-                f'since last report on {timestamp_str} ({additional_sgs} new SGs total)'
-            )
+        if additional_flags > 0 or additional_flagged_sgs > 0 or additional_sgs > 0:
+            messages.append('---')
+            messages.append(f'📢 New updates since previous report on {timestamp_str}:')
+            if additional_sgs > 0:
+                messages.append(f'+{additional_sgs} new SGs added to the dataset')
+            if additional_flagged_sgs > 0:
+                messages.append(f'+{additional_flagged_sgs} flagged SGs')
+            if additional_flags > 0:
+                messages.append(f'+{additional_flags} new flags ({additional_fail} fail, {additional_warn} warn)')
         else:
             messages.append(f'No new flags since last report on {timestamp_str}')
 
