@@ -498,11 +498,19 @@ def render_report(dataset: str, reports: list[SGReport], *, summary: dict) -> st
 
 
 def construct_summary_message(
-    dataset: str, out_html_url: str, seq_type: str, seq_tech: str, summary: dict, previous_analysis: dict | None
+    dataset: str,
+    out_html_url: str,
+    cram_multiqc_url: str,
+    gvcf_multiqc_url: str,
+    seq_type: str,
+    seq_tech: str,
+    summary: dict,
+    previous_analysis: dict | None,
 ):
     """Construct a Slack message with a concise summary and a link to the report."""
     report_title = f'SG QC report ({seq_type} | {seq_tech})'
     messages = [f'*[{dataset}]* <{out_html_url}|{report_title}>']
+    messages.append(f'📊 <{cram_multiqc_url}|CRAM MultiQC> · <{gvcf_multiqc_url}|GVCF MultiQC>')
     if summary['sgs_affected'] == 0:
         messages.append('✅ No sequencing groups flagged')
     else:
@@ -538,7 +546,9 @@ def construct_summary_message(
         send_message(text)
 
 
-def main(dataset: str, output: str, timestamped_output: str, out_html_url: str):
+def main(
+    dataset: str, output: str, timestamped_output: str, out_html_url: str, cram_multiqc_url: str, gvcf_multiqc_url: str
+):
     """Query Metamist for QC flags and generate a SG QC HTML report."""
 
     dataset = dataset_for_access_level(dataset)
@@ -605,7 +615,16 @@ def main(dataset: str, output: str, timestamped_output: str, out_html_url: str):
     logger.info(f'{logging_prefix} :: Registered web analysis for {len(sequencing_groups)} SG(s)')
 
     meta.pop('summary')
-    construct_summary_message(dataset, out_html_url, seq_type, seq_tech, summary, get_previous_analysis(dataset, meta))
+    construct_summary_message(
+        dataset,
+        out_html_url,
+        cram_multiqc_url,
+        gvcf_multiqc_url,
+        seq_type,
+        seq_tech,
+        summary,
+        get_previous_analysis(dataset, meta),
+    )
 
 
 if __name__ == '__main__':
@@ -614,10 +633,14 @@ if __name__ == '__main__':
     parser.add_argument('--fixed-output', required=True, help='Path to write the HTML report')
     parser.add_argument('--timestamped-output', required=True, help='Path to write the timestamped HTML report')
     parser.add_argument('--html-url', required=True, help='Clickable URL for the HTML report')
+    parser.add_argument('--cram-multiqc-url', required=True, help='Clickable URL for the CRAM MultiQC report')
+    parser.add_argument('--gvcf-multiqc-url', required=True, help='Clickable URL for the GVCF MultiQC report')
     args = parser.parse_args()
     main(
         dataset=args.dataset,
         output=args.fixed_output,
         timestamped_output=args.timestamped_output,
         out_html_url=args.html_url,
+        cram_multiqc_url=args.cram_multiqc_url,
+        gvcf_multiqc_url=args.gvcf_multiqc_url,
     )

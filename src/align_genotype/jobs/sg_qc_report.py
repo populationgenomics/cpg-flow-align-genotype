@@ -11,6 +11,8 @@ def sg_qc_report_job(
     dataset: str,
     outputs: dict[str, Path],
     out_html_url: str,
+    cram_multiqc_url: str,
+    gvcf_multiqc_url: str,
     job_attrs: dict,
 ) -> Job:
     """
@@ -28,7 +30,9 @@ def sg_qc_report_job(
         --dataset {dataset} \\
         --fixed-output {outputs['html']} \\
         --timestamped-output {outputs['timestamped']} \\
-        --html-url {out_html_url}
+        --html-url {out_html_url} \\
+        --cram-multiqc-url {cram_multiqc_url} \\
+        --gvcf-multiqc-url {gvcf_multiqc_url}
     """
     )
 

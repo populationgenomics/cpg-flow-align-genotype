@@ -69,12 +69,12 @@ reblock_gq_bands = [13, 20, 30, 40]
 send_to_slack = true
 
 [workflow.cram_multiqc]
-send_to_slack = true
+send_to_slack = false  # This is now mostly handled by the SG QC report
 [workflow.cram_multiqc.extra_config]
 plots_force_interactive = true
 
 [workflow.gvcf_multiqc]
-send_to_slack = true
+send_to_slack = false  # This is now mostly handled by the SG QC report
 [workflow.gvcf_multiqc.extra_config]
 plots_force_interactive = true
 

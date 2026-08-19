@@ -22,6 +22,13 @@ def filter_to_dataset_sgids(
     return {k: v for k, v in inputs_by_sgid.items() if k in dataset.get_sequencing_group_ids()}
 
 
+def convert_to_web_url(path: Path, dataset: targets.Dataset) -> str:
+    """Convert a Path to a web URL, if the dataset has a web URL."""
+    if base_url := dataset.web_url():
+        return str(path).replace(str(dataset.web_prefix()), base_url)
+    return str(path)
+
+
 @stage.stage(required_stages=[CramQcVerifyBamId, CramQcSomalier], analysis_type='web', analysis_keys=['html'])
 class SomalierPedigree(stage.DatasetStage):
     """
@@ -253,18 +260,23 @@ class GenerateSgQcReport(stage.DatasetStage):
             'html': dataset.web_prefix() / 'qc' / 'sg_qc_report.html',
         }
 
-    def queue_jobs(self, dataset: targets.Dataset, _inputs: stage.StageInput) -> stage.StageOutput:
+    def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput:
         outputs = self.expected_outputs(dataset)
 
-        if base_url := dataset.web_url():
-            out_html_url = str(outputs['html']).replace(str(dataset.web_prefix()), base_url)
-        else:
-            out_html_url = outputs['html']
+        out_html_url = convert_to_web_url(outputs['html'], dataset)
+        cram_multiqc_url = convert_to_web_url(
+            inputs.as_path_by_target(CramMultiQC, 'latest')[config.dataset_for_access_level(dataset.name)], dataset
+        )
+        gvcf_multiqc_url = convert_to_web_url(
+            inputs.as_path_by_target(GvcfMultiQC, 'latest')[config.dataset_for_access_level(dataset.name)], dataset
+        )
 
         jobs = sg_qc_report.sg_qc_report_job(
             dataset=dataset.name,
             outputs=outputs,
             out_html_url=out_html_url,
+            cram_multiqc_url=cram_multiqc_url,
+            gvcf_multiqc_url=gvcf_multiqc_url,
             job_attrs=self.get_job_attrs(dataset),
         )
         return self.make_outputs(dataset, data=outputs, jobs=jobs)
