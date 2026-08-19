@@ -264,12 +264,8 @@ class GenerateSgQcReport(stage.DatasetStage):
         outputs = self.expected_outputs(dataset)
 
         out_html_url = convert_to_web_url(outputs['html'], dataset)
-        cram_multiqc_url = convert_to_web_url(
-            inputs.as_path_by_target(CramMultiQC, 'latest')[config.dataset_for_access_level(dataset.name)], dataset
-        )
-        gvcf_multiqc_url = convert_to_web_url(
-            inputs.as_path_by_target(GvcfMultiQC, 'latest')[config.dataset_for_access_level(dataset.name)], dataset
-        )
+        cram_multiqc_url = convert_to_web_url(inputs.as_path_by_target(CramMultiQC, 'latest')[dataset.name], dataset)
+        gvcf_multiqc_url = convert_to_web_url(inputs.as_path_by_target(GvcfMultiQC, 'latest')[dataset.name], dataset)
 
         jobs = sg_qc_report.sg_qc_report_job(
             dataset=dataset.name,
