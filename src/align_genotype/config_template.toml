@@ -4,7 +4,7 @@ input_cohorts = []
 skip_stages = []
 
 sequencing_type = '' #required
-
+sequencing_technology = 'short-read' # This repo is intended to process short-read sequencing data
 populate_assays = true
 
 # set this to false if we want to use non-preemptible machines
@@ -64,33 +64,83 @@ postproc_gvcf_storage = 20
 # Experimentally validated best reblocking bands for GATK ReblockGVCF, from seqr-loader config
 reblock_gq_bands = [13, 20, 30, 40]
 
+# Overrides for the MultiQC and SomalierPedigree stages
 [workflow.somalier_pedigree]
 send_to_slack = true
 
 [workflow.cram_multiqc]
-send_to_slack = true
+send_to_slack = false  # This is now mostly handled by the SG QC report
 [workflow.cram_multiqc.extra_config]
 plots_force_interactive = true
 
 [workflow.gvcf_multiqc]
-send_to_slack = true
+send_to_slack = false  # This is now mostly handled by the SG QC report
 [workflow.gvcf_multiqc.extra_config]
 plots_force_interactive = true
 
-[qc_thresholds.genome.min]
-"MEDIAN_COVERAGE" = 10
-"PCT_PF_READS_ALIGNED" = 0.80
+[workflow.sg_qc_report]
+send_to_slack = true
 
-[qc_thresholds.genome.max]
+[qc_thresholds]
+# QC thresholds are keyed by sequencing_type (genome/exome) and severity tier
+# (fail/warn). A metric is flagged when it falls below its `.under` threshold or
+# rises above its `.over` threshold.
+# Metric keys must match the keys MultiQC surfaces in `report_general_stats_data`
+# Note that some samtools stats metrics use integer thresholds to represent percentages (e.g. 97 = 97%);
+# while Picard and VerifyBamID use floats (e.g. 0.85 = 85%).
+# See README.md for more details on these thresholds.
+
+# Genome minimum thresholds (flag if metrics below these values)
+[qc_thresholds.genome.warn.under]
+"MEDIAN_COVERAGE" = 25
+"PCT_20X" = 0.85
+"reads_mapped_percent" = 97
+"reads_properly_paired_percent" = 92
+
+[qc_thresholds.genome.fail.under]
+"MEDIAN_COVERAGE" = 15
+"PCT_20X" = 0.75
+"reads_mapped_percent" = 80
+"reads_properly_paired_percent" = 90
+
+# Genome maximum thresholds (flag if metrics above these values)
+[qc_thresholds.genome.warn.over]
+"reads_duplicated_percent" = 30
+"FREEMIX" = 0.02
+
+[qc_thresholds.genome.fail.over]
+"reads_duplicated_percent" = 40
 "FREEMIX" = 0.04
-"reads_duplicated_percent" = 25
 
-[references.broad]
-ref_fasta = "gs://cpg-common-main/references/hg38/v0/dragen_reference/Homo_sapiens_assembly38_masked.fasta"
+# Exome minimum thresholds (flag if metrics below these values)
+[qc_thresholds.exome.warn.under]
+"MEAN_TARGET_COVERAGE" = 50
+"PCT_TARGET_BASES_20X" = 0.90
+"reads_mapped_percent" = 95
+
+[qc_thresholds.exome.fail.under]
+"MEAN_TARGET_COVERAGE" = 30
+"PCT_TARGET_BASES_20X" = 0.80
+"reads_mapped_percent" = 90
+
+# Exome maximum thresholds (flag if metrics above these values)
+[qc_thresholds.exome.warn.over]
+"FOLD_80_BASE_PENALTY" = 2.5
+"ZERO_CVG_TARGETS_PCT" = 0.07
+"reads_duplicated_percent" = 30
+"FREEMIX" = 0.02
+
+[qc_thresholds.exome.fail.over]
+"FOLD_80_BASE_PENALTY" = 3.5
+"ZERO_CVG_TARGETS_PCT" = 0.10
+"reads_duplicated_percent" = 50
+"FREEMIX" = 0.04
+
 
 [images]
 dragmap = "australia-southeast1-docker.pkg.dev/cpg-common/images/dragmap_ora_dupblaster:2.7.0-1"
 gatk = "australia-southeast1-docker.pkg.dev/cpg-common/images/gatk:4.6.2.0-2"
+multiqc = "australia-southeast1-docker.pkg.dev/cpg-common/images/multiqc:1.33-1"
 picard = "australia-southeast1-docker.pkg.dev/cpg-common/images/picard:3.4.0-3"
 samtools = "australia-southeast1-docker.pkg.dev/cpg-common/images/samtools:1.23.1-1"
 somalier = "australia-southeast1-docker.pkg.dev/cpg-common/images/somalier:0.3.1-1"
@@ -114,6 +164,9 @@ exome_calling_interval_lists = "gs://cpg-common-main/references/hg38/v0/exome_ca
 hg38_telomeres_and_centromeres_intervals_list = "gs://cpg-common-main/references/hg38/v0/hg38.telomeres_centromeres_and_hard_calling_exclusions.interval_list"
 somalier_sites = "gs://cpg-common-main/references/somalier/sites.hg38.vcf.gz"
 dbsnp_vcf = "gs://cpg-common-main/references/hg38/v0/Homo_sapiens_assembly38.dbsnp138.vcf"
+
+[references.broad]
+ref_fasta = "gs://cpg-common-main/references/hg38/v0/dragen_reference/Homo_sapiens_assembly38_masked.fasta"
 
 [vntyper]
 # Logs are very slim when set to INFO

@@ -112,18 +112,23 @@ def reconcile_sg_qc_flags(
                     # Already resolved and still absent: keep as-is
                     logger.info(f"{sg_id} :: {report} flag '{flag['flag']}' remains resolved.")
             elif compare_qc_flag(flag, new_qc_flags_by_key[key]):
-                # Same unresolved issue is still present: refresh the measured value and
-                # but keep resolution status. Identity (metric/threshold/section/
-                # comparison) is unchanged so this counts as 'retained', not 'updated'.
+                # Same unresolved issue is still present: refresh the measured value (and
+                # severity, which tracks the threshold tier) but keep resolution status.
+                # Identity (metric/threshold/section/comparison) is unchanged so this
+                # counts as 'retained', not 'updated'.
                 new_flag = new_qc_flags_by_key[key]
                 flag['value'] = new_flag['value']
+                flag['severity'] = new_flag.get('severity', flag.get('severity', 'fail'))
                 logger.info(f"{sg_id} :: {report} flag '{flag['flag']}' remains unresolved (value refreshed).")
                 stats['retained'] += 1
             else:
                 # Current flag exists in new run but differs (or was resolved and has reappeared):
-                # overwrite with new flag data (which sets resolved=False)
+                # overwrite with new flag data (which sets resolved=False). A change of
+                # threshold tier (e.g. warn -> fail escalation) lands here.
+                old_severity = flag.get('severity', 'fail')
                 flag.update(new_qc_flags_by_key[key])
-                logger.info(f"{sg_id} :: {report} flag '{flag['flag']}' updated with new information.")
+                transition = f' ({old_severity} -> {flag["severity"]})' if old_severity != flag.get('severity') else ''
+                logger.info(f"{sg_id} :: {report} flag '{flag['flag']}' updated with new information{transition}.")
                 stats['updated'] += 1
             final_flags.append(QcFlag(**flag))
     else:

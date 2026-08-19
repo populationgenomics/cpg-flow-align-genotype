@@ -8,7 +8,7 @@ description='Dragmap align & genotype workflow, using CPG-Flow'
 readme = "README.md"
 # currently cpg-flow is pinned to this version
 requires-python = ">=3.10,<3.12"
-version="0.5.5"
+version="0.6.0"
 license={ "file" = "LICENSE" }
 classifiers=[
     'Environment :: Console',
@@ -22,6 +22,7 @@ classifiers=[
 
 dependencies=[
     'cpg-flow~=1.3',
+    'cpg-utils>=5.7.1',
     'hatchling',
     'jinja2',
     'lxml',
@@ -91,6 +92,8 @@ ignore = [
     "Q000", # Single quotes found but double quotes preferred
     "PD901", # Avoid using the generic variable name `df` for DataFrames
     "PLR0913", # Too many arguments in function definition (6 > 5)
+    "PLR0917", # Too many local variables in function (16 > 15)
+    "RUF001", # Ambiguous unicode character string
 ]
 
 [tool.ruff.lint.isort]
@@ -101,11 +104,12 @@ cpg = ["metamist", "cpg_flow", "cpg_utils"]
 hail = ["hail", "hailtop"]
 
 [tool.ruff.lint.per-file-ignores]
+"test/**" = ["S101", "PLR2004", "RUF001", "RUF059"]  # asserts, magic values, unicode & unused unpacks are fine in tests
 "src/align_genotype/scripts/check_pedigree.py" = ["C901", "PLR0912", "PLR0913", "PLR0915"]  # ignore complexity for this script
 "src/align_genotype/jobs/somalier.py" = ["C901", "PLR0912", "PLR0913", "PLR0915"]  # ignore complexity for this script
 
 [tool.bumpversion]
-current_version = "0.5.5"
+current_version = "0.6.0"
 parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)"
 serialize = ["{major}.{minor}.{patch}"]
 commit = true

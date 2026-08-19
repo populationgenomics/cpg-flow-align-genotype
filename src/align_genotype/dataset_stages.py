@@ -1,7 +1,9 @@
+from datetime import datetime
+
 from cpg_flow import stage, targets
 from cpg_utils import Path, config
 
-from align_genotype.jobs import multiqc, somalier
+from align_genotype.jobs import multiqc, sg_qc_report, somalier
 from align_genotype.stages import (
     CramQcPicardCollectMetrics,
     CramQcPicardMultiMetrics,
@@ -20,6 +22,13 @@ def filter_to_dataset_sgids(
     return {k: v for k, v in inputs_by_sgid.items() if k in dataset.get_sequencing_group_ids()}
 
 
+def convert_to_web_url(path: Path, dataset: targets.Dataset) -> str:
+    """Convert a Path to a web URL, if the dataset has a web URL."""
+    if base_url := dataset.web_url():
+        return str(path).replace(str(dataset.web_prefix()), base_url)
+    return str(path)
+
+
 @stage.stage(required_stages=[CramQcVerifyBamId, CramQcSomalier], analysis_type='web', analysis_keys=['html'])
 class SomalierPedigree(stage.DatasetStage):
     """
@@ -34,7 +43,6 @@ class SomalierPedigree(stage.DatasetStage):
         * *.pairs.tsv
         https://github.com/ewels/MultiQC/blob/master/multiqc/utils/search_patterns.yaml#L472-L481
         """
-
         prefix = dataset.prefix() / 'somalier' / 'cram' / dataset.get_alignment_inputs_hash()
         web_prefix = dataset.web_prefix() / 'somalier' / 'cram' / dataset.get_alignment_inputs_hash()
         return {
@@ -49,7 +57,6 @@ class SomalierPedigree(stage.DatasetStage):
         """
         Checks calls job from the pedigree module
         """
-
         outputs = self.expected_outputs(dataset)
 
         verifybamid_by_sgid = filter_to_dataset_sgids(inputs.as_path_by_target(CramQcVerifyBamId), dataset)
@@ -90,17 +97,12 @@ class CramMultiQC(stage.DatasetStage):
         """
         Expected to produce an HTML and a corresponding JSON file.
         """
-
-        # get the unique hash for these Sequencing Groups
         sg_hash = dataset.get_alignment_inputs_hash()
-
-        qc_subdir = f'{subdir}/qc' if (subdir := targets.sequencing_subdir()) else 'qc'
-
         return {
-            'latest': dataset.web_prefix() / qc_subdir / 'cram' / 'latest' / 'multiqc.html',
-            'html': dataset.web_prefix() / qc_subdir / 'cram' / sg_hash / 'multiqc.html',
-            'json': dataset.prefix() / qc_subdir / 'cram' / sg_hash / 'multiqc_data.json',
-            'checks': dataset.prefix() / qc_subdir / 'cram' / sg_hash / 'qc-checks.json',
+            'latest': dataset.web_prefix() / 'qc' / 'cram' / 'latest' / 'multiqc.html',
+            'html': dataset.web_prefix() / 'qc' / 'cram' / sg_hash / 'multiqc.html',
+            'json': dataset.prefix() / 'qc' / 'cram' / sg_hash / 'multiqc_data.json',
+            'checks': dataset.prefix() / 'qc' / 'cram' / sg_hash / 'qc-checks.json',
         }
 
     def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput | None:
@@ -181,16 +183,6 @@ class CramMultiQC(stage.DatasetStage):
         return self.make_outputs(dataset, data=outputs, jobs=jobs)
 
 
-def _update_meta(output_path: str) -> dict:
-    import json  # noqa: PLC0415
-
-    from cloudpathlib import CloudPath  # noqa: PLC0415
-
-    with CloudPath(output_path).open() as f:
-        d = json.load(f)
-    return {'multiqc': d['report_general_stats_data']}
-
-
 @stage.stage(
     required_stages=[RunGvcfQc],
     analysis_type='qc',
@@ -202,14 +194,11 @@ class GvcfMultiQC(stage.DatasetStage):
     def expected_outputs(self, dataset: stage.Dataset) -> dict[str, Path]:
         """Expected to produce an HTML and a corresponding JSON file."""
         sg_hash = dataset.get_alignment_inputs_hash()
-
-        qc_subdir = f'{subdir}/qc' if (subdir := targets.sequencing_subdir()) else 'qc'
-
         return {
-            'latest': dataset.web_prefix() / qc_subdir / 'gvcf' / 'latest' / 'multiqc.html',
-            'html': dataset.web_prefix() / qc_subdir / 'gvcf' / sg_hash / 'multiqc.html',
-            'json': dataset.prefix() / qc_subdir / 'gvcf' / sg_hash / 'multiqc_data.json',
-            'checks': dataset.prefix() / qc_subdir / 'gvcf' / sg_hash / 'qc-checks.json',
+            'latest': dataset.web_prefix() / 'qc' / 'gvcf' / 'latest' / 'multiqc.html',
+            'html': dataset.web_prefix() / 'qc' / 'gvcf' / sg_hash / 'multiqc.html',
+            'json': dataset.prefix() / 'qc' / 'gvcf' / sg_hash / 'multiqc_data.json',
+            'checks': dataset.prefix() / 'qc' / 'gvcf' / sg_hash / 'qc-checks.json',
         }
 
     def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput:
@@ -244,5 +233,46 @@ class GvcfMultiQC(stage.DatasetStage):
             label='GVCF',
             extra_config=extra_config,
             send_to_slack=send_to_slack,
+        )
+        return self.make_outputs(dataset, data=outputs, jobs=jobs)
+
+
+@stage.stage(
+    required_stages=[CramMultiQC, GvcfMultiQC],
+    forced=True,
+)
+class GenerateSgQcReport(stage.DatasetStage):
+    """
+    Queries Metamist for all QC flags across the dataset's sequencing groups of a given type
+    (exome or genome) and generates a summary HTML report saved to both a static URL and a
+    timestamped URL in the dataset's web bucket.
+
+    NOTE: This stage is agnostic of the sequencing groups in the multicohort. It instead gets
+    the datasets in the multicohort and queries Metamist for all their sequencing groups. The
+    analysis is based on those sequencing groups, not the ones in the multicohort. For this
+    reason, the analysis is manually created inside the job and not via a stage decorator.
+    """
+
+    def expected_outputs(self, dataset: targets.Dataset) -> dict[str, Path]:
+        timestamp = datetime.now().astimezone().strftime('%Y-%m-%d_%H%M%S')
+        return {
+            'timestamped': dataset.web_prefix() / 'qc' / timestamp / 'sg_qc_report.html',
+            'html': dataset.web_prefix() / 'qc' / 'sg_qc_report.html',
+        }
+
+    def queue_jobs(self, dataset: targets.Dataset, inputs: stage.StageInput) -> stage.StageOutput:
+        outputs = self.expected_outputs(dataset)
+
+        out_html_url = convert_to_web_url(outputs['html'], dataset)
+        cram_multiqc_url = convert_to_web_url(inputs.as_path_by_target(CramMultiQC, 'latest')[dataset.name], dataset)
+        gvcf_multiqc_url = convert_to_web_url(inputs.as_path_by_target(GvcfMultiQC, 'latest')[dataset.name], dataset)
+
+        jobs = sg_qc_report.sg_qc_report_job(
+            dataset=dataset.name,
+            outputs=outputs,
+            out_html_url=out_html_url,
+            cram_multiqc_url=cram_multiqc_url,
+            gvcf_multiqc_url=gvcf_multiqc_url,
+            job_attrs=self.get_job_attrs(dataset),
         )
         return self.make_outputs(dataset, data=outputs, jobs=jobs)

@@ -57,7 +57,7 @@ def query_for_reports(dataset: str, sequencing_type: str) -> dict[str, dict[str,
     results = graphql.query(
         REPORT_QUERY,
         variables={
-            'project': f'{dataset}-test' if access_level == 'test' else dataset,
+            'project': config.dataset_for_access_level(dataset),
             'metaFilter': {
                 'sequencing_type': sequencing_type,
                 'stage': 'RunVntyper',

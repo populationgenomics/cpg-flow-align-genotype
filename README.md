@@ -11,13 +11,44 @@ These workflows start with the single-sample assay data we've received from our 
 - Running VerifyBamID to check for contamination and sample swaps
 - Running VNtyper to genotype the VNTR regions of the genome
 
+## QC stages
+
+QC metrics are collected at the single sample level, and then aggregated at the Dataset level to produce a MultiQC report. The QC metrics are compared against thresholds defined in the configuration file, and any failures or warnings are reported to Slack.
+
+### QC thresholds - genome
+
+| Metric Key | Source | Description | Warn | Fail | Justification |
+| --- | --- | --- | --- | --- | --- |
+| `MEDIAN_COVERAGE` | Picard `CollectWgsMetrics` | Median Coverage | < 25x | < 15x | Fails below 15x catches the under-sequenced tail (~0-1% of every cohort) without tripping on normal depth variation. |
+| `PCT_20X` | Picard `CollectWgsMetrics` | % Bases >= 20x | < 85% | < 75% | Typical cohort medians ~95%; fail below 75% flags seriously inadequate breadth. |
+| `reads_mapped_percent` | `samtools stats` | % Reads mapped | < 97% | < 80% | Typical cohort medians ~98%; fail below 80% flags disastrous mapping issues. |
+| `reads_properly_paired_percent` | `samtools stats` | % Reads properly paired | < 92% | < 90% | Typical cohort medians ~96-98%; fail below 90% flags potential issues with library preparation. |
+| `reads_duplicated_percent` | `samtools stats` | % Reads duplicated | > 30% | > 40% | Typical cohort medians ~5-10%; fail above 40% flags serious issues with the sequencing. |
+| `FREEMIX` | VerifyBamID2 | Contamination / Freemix | > 2% | > 4% | Typical cohort medians ~1%; fail above 4% flags potential contamination. |
+
+### QC thresholds - exome
+
+Exome thresholds. Whole-genome coverage metrics from `CollectWgsMetrics` are meaningless for exomes, so we gate on Picard `CollectHsMetrics` target-coverage metrics instead.
+
+Note that the cohort medians for these metrics are highly dependent on the capture kit used and vary greatly between datasets.
+
+| Metric Key | Source | Description | Warn | Fail | Justification |
+| --- | --- | --- | --- | --- | --- |
+| `MEAN_TARGET_COVERAGE` | Picard `CollectHsMetrics` | Mean coverage over target region | < 50x | < 30x | Typical cohort medians ~100x; fail below 30x flags inadequate coverage. |
+| `PCT_TARGET_BASES_20X` | Picard `CollectHsMetrics` | % Target bases >= 20x | < 90% | < 80% | Typical cohort medians ~90-95%; fail below 75% flags inadequate breadth. |
+| `FOLD_80_BASE_PENALTY` | Picard `CollectHsMetrics` | Fold 80 base penalty | > 2.0 | > 3.0 | Typical cohort medians ~1.8; fail above 3.0 flags inadequate uniformity. |
+| `ZERO_CVG_TARGETS_PCT` | Picard `CollectHsMetrics` | % Target bases with zero coverage | > 7% | > 10% | Typical cohort medians ~0-1%; fail above 10% flags inadequate coverage. |
+| `reads_mapped_percent` | `samtools stats` | % Reads mapped | < 95% | < 80% | Typical cohort medians ~98%; fail below 80% flags disastrous mapping issues. |
+| `reads_duplicated_percent` | `samtools stats` | % Reads duplicated | > 30% | > 50% | Typical cohort medians ~5-10%; fail above 50% flags serious issues with the sequencing. |
+| `FREEMIX` | VerifyBamID2 | Contamination / Freemix | > 2% | > 4% | Typical cohort medians ~1%; fail above 4% flags potential contamination. |
+
 ## Running the workflows
 
 This single-sample workflow has a dedicated entrypoint, and can be operated through analysis runner as follows:
 
 ```bash
 analysis-runner --skip-repo-checkout \
-    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.5.5-1 \
+    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.6.0-1 \
     --config src/align_genotype/config_template.toml \
     --dataset seqr \
     --description 'Single-Sample data generation' \
@@ -36,7 +67,7 @@ This Dataset-level workflow can be run in a similar way, but with a different en
 
 ```bash
 analysis-runner --skip-repo-checkout \
-    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.5.5-1 \
+    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.6.0-1 \
     --config src/align_genotype/config_template.toml \
     --dataset seqr \
     --description 'Dataset-Level QC workflow' \
@@ -49,7 +80,7 @@ A third workflow is available to run VNtyper on a set of samples, which can be u
 
 ```bash
 analysis-runner --skip-repo-checkout \
-    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.5.5-1 \
+    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.6.0-1 \
     --config src/align_genotype/config_template.toml \
     --config src/align_genotype/vntyper.toml \
     --dataset seqr \
