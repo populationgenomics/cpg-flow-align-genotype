@@ -234,6 +234,7 @@ def hs_metrics(
       -I {cram_localised} \\
       -R {reference.base} \\
       --VALIDATION_STRINGENCY SILENT \\
+      --CLIP_OVERLAPPING_READS false \\
       -TI $BATCH_TMPDIR/intervals.interval_list \\
       -BI $BATCH_TMPDIR/intervals.interval_list \\
       -LEVEL null \\
