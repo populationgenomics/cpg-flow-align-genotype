@@ -229,12 +229,20 @@ def hs_metrics(
         -O $BATCH_TMPDIR/intervals.interval_list \\
         -SD {reference.dict}
 
+    # Convert CRAM to BAM for Picard CollectHsMetrics
+    # CRAMs written with htsjdk ~3.0.0 break Picard CollectHsMetrics, so we convert to BAM first
+    samtools view -b \\
+        -T {reference.base} \\
+        -o $BATCH_TMPDIR/input.bam \\
+        {cram_localised}
+
+    samtools index $BATCH_TMPDIR/input.bam
+
     picard {res.java_mem_options()} \\
       CollectHsMetrics \\
-      -I {cram_localised} \\
+      -I $BATCH_TMPDIR/input.bam \\
       -R {reference.base} \\
       --VALIDATION_STRINGENCY SILENT \\
-      --CLIP_OVERLAPPING_READS false \\
       -TI $BATCH_TMPDIR/intervals.interval_list \\
       -BI $BATCH_TMPDIR/intervals.interval_list \\
       -LEVEL null \\
