@@ -229,9 +229,13 @@ def hs_metrics(
         -O $BATCH_TMPDIR/intervals.interval_list \\
         -SD {reference.dict}
 
+    # Quick sanity check to ensure the interval list is not getting duplicated intervals
+    echo "Duplicate intervals in interval list:"
+    grep -v '^@' $BATCH_TMPDIR/intervals.interval_list | sort | uniq -d | wc -l
+
     picard {res.java_mem_options()} \\
       CollectHsMetrics \\
-      -I $BATCH_TMPDIR/input.bam \\
+      -I {cram_localised} \\
       -R {reference.base} \\
       --VALIDATION_STRINGENCY SILENT \\
       -TI $BATCH_TMPDIR/intervals.interval_list \\
