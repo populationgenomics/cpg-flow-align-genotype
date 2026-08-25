@@ -31,6 +31,8 @@ align_buffer_kb = 2097152
 picard_metrics_use_highmem = false
 picard_metrics_ncpu = 2
 picard_metrics_mem_gb = 8
+# Essential for the broad exome intervals, set to false for TWIST or other exome intervals
+picard_hs_metrics_reprocess_intervals = true
 
 # used to make sure we don't repeat previously completed stages
 check_expected_outputs = true
