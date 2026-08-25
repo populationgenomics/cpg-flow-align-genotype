@@ -213,34 +213,38 @@ def hs_metrics(
         crai=f'{cram_path}.crai',
     ).cram
 
+    if config.config_retrieve(['workflow', 'picard_hs_metrics_reprocess_intervals'], default=True):
+        # reprocess the intervals to avoid Picard crashing on mismatched md5s
+        job.command(
+            f"""\
+            # Picard is strict about the interval-list file header - contigs md5s, etc. - and
+            # if md5s do not match the ref.dict file, picard would crash. So fixing the header
+            # by converting the interval-list to bed (i.e. effectively dropping the header)
+            # and back to interval-list (effectively re-adding the header from input ref-dict).
+            # VALIDATION_STRINGENCY=SILENT does not help.
+            picard IntervalListToBed \\
+                -I {interval_file} \\
+                -O $BATCH_TMPDIR/intervals.bed
+
+            picard BedToIntervalList \\
+                -I $BATCH_TMPDIR/intervals.bed \\
+                -O $BATCH_TMPDIR/intervals.interval_list \\
+                -SD {reference.dict}
+            """
+        )
+    else:
+        # just copy the input interval list to the temp dir
+        job.command(f'cp {interval_file} $BATCH_TMPDIR/intervals.interval_list')
+
     job.command(
         f"""\
-    # Picard is strict about the interval-list file header - contigs md5s, etc. - and
-    # if md5s do not match the ref.dict file, picard would crash. So fixing the header
-    # by converting the interval-list to bed (i.e. effectively dropping the header)
-    # and back to interval-list (effectively re-adding the header from input ref-dict).
-    # VALIDATION_STRINGENCY=SILENT does not help.
-    # picard IntervalListToBed \\
-        # -I {interval_file} \\
-        # -O $BATCH_TMPDIR/intervals.bed
-
-    # picard BedToIntervalList \\
-        # -I $BATCH_TMPDIR/intervals.bed \\
-        # -O $BATCH_TMPDIR/intervals.interval_list \\
-        # -SD {reference.dict}
-
-    # Quick check to see the interval list is consistent except for the header
-    # echo "Differences between input and generated interval list:"
-    # diff <(grep -v '^@' {interval_file} | sort) <(grep -v '^@' $BATCH_TMPDIR/intervals.interval_list | sort)
-
     picard {res.java_mem_options()} \\
       CollectHsMetrics \\
       -I {cram_localised} \\
       -R {reference.base} \\
       --VALIDATION_STRINGENCY SILENT \\
-      -TI {interval_file} \\
-      -BI {interval_file} \\
-      --COVERAGE_CAP 1000000 \\
+      -TI $BATCH_TMPDIR/intervals.interval_list \\
+      -BI $BATCH_TMPDIR/intervals.interval_list \\
       -LEVEL null \\
       -LEVEL SAMPLE \\
       -LEVEL LIBRARY \\
