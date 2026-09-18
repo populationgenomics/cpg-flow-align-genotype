@@ -217,8 +217,11 @@ def get_cram_paths_for_sgs(sg_ids: list[str]) -> list[tuple[str, str]]:
                 key=lambda a: a['timestampCompleted'] or '',
                 reverse=True,
             )
-            if analyses and (path := analyses[0]['outputs'].get('path')):
-                results.append((sg['id'], path))
+            if analyses:
+                outputs = analyses[0]['outputs']
+                path = outputs.get('path') if isinstance(outputs, dict) else outputs
+                if path:
+                    results.append((sg['id'], path))
     return results
 
 
