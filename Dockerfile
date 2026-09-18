@@ -47,7 +47,7 @@ RUN apt-get update && \
         libcurl4 \
         liblzma5 \
         libncurses5-dev \
-        libssl1.1 \
+        libssl3 \
         zlib1g && \
     rm -r /var/lib/apt/lists/* && \
     rm -r /var/cache/apt/*
