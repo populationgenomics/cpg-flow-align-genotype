@@ -78,7 +78,7 @@ def trim_adapters(
 
     bwa_image = config.config_retrieve(['images', 'bwa'])
     fastp_image = config.config_retrieve(['images', 'fastp'])
-    storage = f'{config.config_retrieve(["workflow", "genome_cram_gb"], "100")}Gi'
+    storage = f'{config.config_retrieve(["workflow", "genome_cram_gb"], "200")}Gi'
 
     reference = hail_batch.fasta_res_group(batch, indices=['amb', 'ann', 'bwt', 'pac', 'sa'])
 
@@ -100,7 +100,7 @@ def trim_adapters(
     set -eo pipefail
 
     samtools collate -u -O \
-        --reference {reference.base} {cram_localised} /tmp/collate_tmp | \
+        --reference {reference.base} {cram_localised} $BATCH_TMPDIR/collate_tmp | \
     samtools fastq -n -@ 3 - > {extract_fastq.fastq}
     """)
 
@@ -176,11 +176,11 @@ def _register_repair(
     reg_job.call(
         complete_analysis_job,
         output=cram_path,
-        analysis_type='cram-repair',
+        analysis_type='custom',
         cohort_ids=[],
         sg_ids=[sg_id],
         project_name=dataset,
-        meta={'repair_type': repair_type},
+        meta={'stage': 'cram-repair', 'repair_type': repair_type},
     )
     for j in depends_on:
         reg_job.depends_on(j)
