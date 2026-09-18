@@ -32,7 +32,7 @@ RUN wget https://github.com/samtools/samtools/releases/download/${SAMTOOLS_VERSI
     make DESTDIR=/samtools_install install && \
     make -C htslib-${SAMTOOLS_VERSION} DESTDIR=/samtools_install install
 
-FROM australia-southeast1-docker.pkg.dev/cpg-common/images/cpg_hail_gcloud:0.2.138.cpg2-1
+FROM australia-southeast1-docker.pkg.dev/cpg-common/images/cpg_hail_gcloud:0.2.138.cpg2-2
 
 # copy in dupblaster
 COPY --from=build /root/.cargo/bin/dupblaster /usr/local/bin/dupblaster
