@@ -99,8 +99,8 @@ def trim_adapters(
     extract_fastq.command(f"""\
     set -eo pipefail
 
-    samtools collate -u -O -T /tmp/collate_tmp \
-        --reference {reference.base} {cram_localised} | \
+    samtools collate -u -O \
+        --reference {reference.base} {cram_localised} /tmp/collate_tmp | \
     samtools fastq -n -@ 3 - > {extract_fastq.fastq}
     """)
 
