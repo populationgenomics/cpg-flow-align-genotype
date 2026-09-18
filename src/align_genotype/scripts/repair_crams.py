@@ -24,7 +24,7 @@ from metamist.graphql import gql, query
 def strip_qname_suffixes(
     batch: hail_batch.Batch,
     cram_path: str,
-    sg_id: str,
+    _sg_id: str,
     job_attrs: dict,
 ) -> list[Job]:
     """Strip /1 and /2 QNAME suffixes from a CRAM, overwriting in place."""
@@ -35,9 +35,8 @@ def strip_qname_suffixes(
     )
 
     job.image(config.config_retrieve(['images', 'samtools']))
-    job.memory('16Gi')
+    job.memory('standard')
     job.storage(f'{config.config_retrieve(["workflow", "genome_cram_gb"], "100")}Gi')
-    job.cpu(4)
 
     cram_localised = batch.read_input_group(
         cram=cram_path,
@@ -94,8 +93,7 @@ def trim_adapters(
         attributes=job_attrs | {'tool': 'samtools'},
     )
     extract_fastq.image(bwa_image)
-    extract_fastq.cpu(4)
-    extract_fastq.memory('16Gi')
+    extract_fastq.memory('standard')
     extract_fastq.storage(storage)
 
     extract_fastq.command(f"""\
@@ -112,8 +110,7 @@ def trim_adapters(
         attributes=job_attrs | {'tool': 'fastp'},
     )
     trim_reads.image(fastp_image)
-    trim_reads.cpu(4)
-    trim_reads.memory('16Gi')
+    trim_reads.memory('standard')
     trim_reads.storage(storage)
 
     trim_reads.command(f"""\
@@ -134,9 +131,9 @@ def trim_adapters(
         attributes=job_attrs | {'tool': 'bwa'},
     )
     bwa_realign.image(bwa_image)
-    bwa_realign.cpu(8)
     bwa_realign.memory('highmem')
     bwa_realign.storage(storage)
+    bwa_realign.spot(False)
 
     bwa_realign.declare_resource_group(
         output_cram={
