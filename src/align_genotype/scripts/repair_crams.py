@@ -89,76 +89,76 @@ def trim_adapters(
     ).cram
 
     # Job 1: CRAM → interleaved FASTQ
-    j1 = batch.new_job(
+    extract_fastq = batch.new_job(
         'repair CRAM: CRAM to FASTQ',
         attributes=job_attrs | {'tool': 'samtools'},
     )
-    j1.image(bwa_image)
-    j1.cpu(4)
-    j1.memory('16Gi')
-    j1.storage(storage)
+    extract_fastq.image(bwa_image)
+    extract_fastq.cpu(4)
+    extract_fastq.memory('16Gi')
+    extract_fastq.storage(storage)
 
-    j1.command(f"""\
+    extract_fastq.command(f"""\
     set -eo pipefail
 
     samtools collate -u -O -T /tmp/collate_tmp \
         --reference {reference.base} {cram_localised} | \
-    samtools fastq -n -@ 3 - > {j1.fastq}
+    samtools fastq -n -@ 3 - > {extract_fastq.fastq}
     """)
 
     # Job 2: fastp adapter + poly-G trimming
-    j2 = batch.new_job(
+    trim_reads = batch.new_job(
         'repair CRAM: fastp trim',
         attributes=job_attrs | {'tool': 'fastp'},
     )
-    j2.image(fastp_image)
-    j2.cpu(4)
-    j2.memory('16Gi')
-    j2.storage(storage)
+    trim_reads.image(fastp_image)
+    trim_reads.cpu(4)
+    trim_reads.memory('16Gi')
+    trim_reads.storage(storage)
 
-    j2.command(f"""\
+    trim_reads.command(f"""\
     set -eo pipefail
 
-    fastp --in1 {j1.fastq} --interleaved_in \
+    fastp --in1 {extract_fastq.fastq} --interleaved_in \
         --stdout \
         --detect_adapter_for_pe \
         --trim_poly_g \
         --thread 4 \
         --json /dev/null --html /dev/null \
-        > {j2.trimmed_fastq}
+        > {trim_reads.trimmed_fastq}
     """)
 
     # Job 3: BWA realign → sorted CRAM
-    j3 = batch.new_job(
+    bwa_realign = batch.new_job(
         'repair CRAM: BWA realign',
         attributes=job_attrs | {'tool': 'bwa'},
     )
-    j3.image(bwa_image)
-    j3.cpu(8)
-    j3.memory('highmem')
-    j3.storage(storage)
+    bwa_realign.image(bwa_image)
+    bwa_realign.cpu(8)
+    bwa_realign.memory('highmem')
+    bwa_realign.storage(storage)
 
-    j3.declare_resource_group(
+    bwa_realign.declare_resource_group(
         output_cram={
             'cram': '{root}.cram',
             'cram.crai': '{root}.cram.crai',
         },
     )
 
-    j3.command(f"""\
+    bwa_realign.command(f"""\
     set -eo pipefail
 
     bwa mem -K 100000000 -p -v 3 -t 8 -Y \
         -R '@RG\\tID:{sg_id}\\tLB:LB0\\tPL:PL0\\tPU:PU0\\tSM:{sg_id}' \
-        {reference.base} {j2.trimmed_fastq} | \
+        {reference.base} {trim_reads.trimmed_fastq} | \
     samtools view -C -T {reference.base} - | \
     samtools sort --write-index \
         -@ 4 \
-        -o {j3.output_cram.cram}
+        -o {bwa_realign.output_cram.cram}
     """)
 
-    batch.write_output(j3.output_cram, cram_path.removesuffix('.cram'))
-    return [j1, j2, j3]
+    batch.write_output(bwa_realign.output_cram, cram_path.removesuffix('.cram'))
+    return [extract_fastq, trim_reads, bwa_realign]
 
 
 def _register_repair(
