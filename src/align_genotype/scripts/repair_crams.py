@@ -78,7 +78,7 @@ def trim_adapters(
 
     bwa_image = config.config_retrieve(['images', 'bwa'])
     fastp_image = config.config_retrieve(['images', 'fastp'])
-    storage = f'{config.config_retrieve(["workflow", "genome_cram_gb"], "200")}Gi'
+    storage = f'{config.config_retrieve(["workflow", "genome_cram_gb"], "400")}Gi'
 
     reference = hail_batch.fasta_res_group(batch, indices=['amb', 'ann', 'bwt', 'pac', 'sa'])
 
