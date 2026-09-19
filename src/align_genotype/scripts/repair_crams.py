@@ -88,12 +88,9 @@ def trim_adapters(
     ).cram
 
     # Job 1: CRAM → interleaved FASTQ
-    extract_fastq = batch.new_job(
-        'repair CRAM: CRAM to FASTQ',
-        attributes=job_attrs | {'tool': 'samtools'},
-    )
+    extract_fastq = batch.new_job('repair CRAM: CRAM to FASTQ', attributes=job_attrs | {'tool': 'samtools'})
     extract_fastq.image(bwa_image)
-    extract_fastq.memory('standard')
+    extract_fastq.memory('32Gi')
     extract_fastq.storage(storage)
 
     extract_fastq.command(f"""\
