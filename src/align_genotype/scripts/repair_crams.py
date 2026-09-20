@@ -98,7 +98,8 @@ def trim_adapters(
 
     samtools collate -u -O \
         --reference {reference.base} {cram_localised} $BATCH_TMPDIR/collate_tmp | \
-    samtools fastq -n -@ 3 - > {extract_fastq.fastq}
+    samtools fastq -n -@ 3 - | \
+    gzip > {extract_fastq.fastq_gz}
     """)
 
     # Job 2: fastp adapter + poly-G trimming
@@ -113,7 +114,7 @@ def trim_adapters(
     trim_reads.command(f"""\
     set -eo pipefail
 
-    fastp --in1 {extract_fastq.fastq} --interleaved_in \
+    fastp --in1 {extract_fastq.fastq_gz} --interleaved_in \
         --stdout \
         --detect_adapter_for_pe \
         --trim_poly_g \
