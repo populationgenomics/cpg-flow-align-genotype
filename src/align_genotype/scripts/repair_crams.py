@@ -30,11 +30,12 @@ def strip_qname_suffixes(
     cram_path: str,
     sg_id: str,
     job_attrs: dict,
+    skip_jobs: set[str] | None = None,
 ) -> list[Job]:
     """Strip /1 and /2 QNAME suffixes from a CRAM, overwriting in place."""
     staging_cram = to_path(cram_path).parent / 'repair_staging' / sg_id / 'stripped.cram'
 
-    if exists(staging_cram):
+    if 'strip' in (skip_jobs or set()) or exists(staging_cram):
         logger.info(f'Skipping strip QNAME suffixes for {sg_id}: output exists at {staging_cram}')
         return []
 
@@ -84,9 +85,11 @@ def trim_adapters(  # noqa: PLR0915
     sg_id: str,
     job_attrs: dict,
     fastq_path: str | None = None,
+    skip_jobs: set[str] | None = None,
 ) -> list[Job]:
     """Trim adapters and poly-G, then realign with BWA. Overwrites in place."""
 
+    _skip = skip_jobs or set()
     staging = to_path(cram_path).parent / 'repair_staging' / sg_id
 
     bwa_image = config.config_retrieve(['images', 'bwa'])
@@ -102,7 +105,7 @@ def trim_adapters(  # noqa: PLR0915
         fastq_input = batch.read_input(fastq_path)
     else:
         fastq_out = staging / 'interleaved.fastq.gz'
-        if exists(fastq_out):
+        if 'extract' in _skip or exists(fastq_out):
             logger.info(f'Skipping FASTQ extraction for {sg_id}: output exists at {fastq_out}')
             fastq_input = batch.read_input(str(fastq_out))
         else:
@@ -130,7 +133,7 @@ def trim_adapters(  # noqa: PLR0915
 
     # Job 2: fastp adapter + poly-G trimming
     trimmed_out = staging / 'trimmed.fastq'
-    if exists(trimmed_out):
+    if 'trim' in _skip or exists(trimmed_out):
         logger.info(f'Skipping fastp trim for {sg_id}: output exists at {trimmed_out}')
         trimmed_input = batch.read_input(str(trimmed_out))
     else:
@@ -139,7 +142,7 @@ def trim_adapters(  # noqa: PLR0915
             attributes=job_attrs | {'tool': 'fastp'},
         )
         trim_reads.image(fastp_image)
-        trim_reads.memory('standard')
+        trim_reads.memory('16Gi')
         trim_reads.storage(storage)
 
         trim_reads.command(f"""\
@@ -151,8 +154,8 @@ def trim_adapters(  # noqa: PLR0915
             --detect_adapter_for_pe \
             --trim_poly_g \
             --thread 4 \
-            --json /dev/null --html /dev/null \
-            > {trim_reads.trimmed_fastq}
+            --json /dev/null --html /dev/null | \
+        gzip > {trim_reads.trimmed_fastq}
         """)
         batch.write_output(trim_reads.trimmed_fastq, str(trimmed_out))
         trimmed_input = trim_reads.trimmed_fastq
@@ -160,7 +163,7 @@ def trim_adapters(  # noqa: PLR0915
 
     # Job 3: BWA realign → sorted CRAM
     staging_cram = staging / 'realigned.cram'
-    if exists(staging_cram):
+    if 'realign' in _skip or exists(staging_cram):
         logger.info(f'Skipping BWA realign for {sg_id}: output exists at {staging_cram}')
     else:
         bwa_realign = batch.new_job(
@@ -168,6 +171,7 @@ def trim_adapters(  # noqa: PLR0915
             attributes=job_attrs | {'tool': 'bwa'},
         )
         bwa_realign.image(bwa_image)
+        bwa_realign.cpu(16)
         bwa_realign.memory('highmem')
         bwa_realign.storage(storage)
         bwa_realign.spot(False)
@@ -185,8 +189,9 @@ def trim_adapters(  # noqa: PLR0915
         bwa mem -K 100000000 -p -v 3 -t 8 -Y \
             -R '@RG\\tID:{sg_id}\\tLB:LB0\\tPL:PL0\\tPU:PU0\\tSM:{sg_id}' \
             {reference.base} {trimmed_input} | \
-        samtools view -C -T {reference.base} - | \
         samtools sort --write-index \
+            --reference {reference.base} \
+            -O cram \
             -@ 4 \
             -o {bwa_realign.output_cram.cram}
         """)
@@ -285,6 +290,13 @@ if __name__ == '__main__':
         help='Sequencing group IDs to repair (queries metamist for CRAM paths).',
     )
     parser.add_argument(
+        '--skip-jobs',
+        nargs='+',
+        choices=['extract', 'trim', 'realign', 'strip'],
+        default=[],
+        help='Force-skip specific jobs, assuming their staging outputs already exist.',
+    )
+    parser.add_argument(
         '--fastq-path',
         help='Skip CRAM-to-FASTQ extraction and use this existing GCS FASTQ path instead.',
     )
@@ -305,7 +317,7 @@ if __name__ == '__main__':
     else:
         batch = hail_batch.get_batch()
         for sg_id, cram_path in sg_crams:
-            kwargs: dict = {'job_attrs': {'repair_type': args.repair_type}}
+            kwargs: dict = {'job_attrs': {'repair_type': args.repair_type}, 'skip_jobs': set(args.skip_jobs)}
             if args.fastq_path and repair_fn == trim_adapters:
                 kwargs['fastq_path'] = args.fastq_path
             repair_jobs = repair_fn(batch, cram_path, sg_id, **kwargs)
