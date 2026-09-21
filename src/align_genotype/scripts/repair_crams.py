@@ -13,9 +13,11 @@ Queries metamist for CRAM paths by --sg-ids.
 """
 
 import argparse
+from collections.abc import Callable
+
+from loguru import logger
 
 from hailtop.batch.job import Job
-from loguru import logger
 
 from cpg_flow.status import complete_analysis_job
 from cpg_flow.utils import exists
@@ -28,10 +30,9 @@ def strip_qname_suffixes(
     cram_path: str,
     sg_id: str,
     job_attrs: dict,
-    staging_prefix: str,
 ) -> list[Job]:
     """Strip /1 and /2 QNAME suffixes from a CRAM, overwriting in place."""
-    staging_cram = to_path(staging_prefix) / sg_id / 'stripped.cram'
+    staging_cram = to_path(cram_path).parent / 'repair_staging' / sg_id / 'stripped.cram'
 
     if exists(staging_cram):
         logger.info(f'Skipping strip QNAME suffixes for {sg_id}: output exists at {staging_cram}')
@@ -77,17 +78,16 @@ def strip_qname_suffixes(
     return [job]
 
 
-def trim_adapters(
+def trim_adapters(  # noqa: PLR0915
     batch: hail_batch.Batch,
     cram_path: str,
     sg_id: str,
     job_attrs: dict,
-    staging_prefix: str,
     fastq_path: str | None = None,
 ) -> list[Job]:
     """Trim adapters and poly-G, then realign with BWA. Overwrites in place."""
 
-    staging = to_path(staging_prefix) / sg_id
+    staging = to_path(cram_path).parent / 'repair_staging' / sg_id
 
     bwa_image = config.config_retrieve(['images', 'bwa'])
     fastp_image = config.config_retrieve(['images', 'fastp'])
@@ -227,7 +227,7 @@ def _register_repair(
     return reg_job
 
 
-REPAIR_FUNCTIONS = {
+REPAIR_FUNCTIONS: dict[str, Callable[..., list[Job]]] = {
     'strip-qnames': strip_qname_suffixes,
     'trim-adapters': trim_adapters,
 }
@@ -285,10 +285,6 @@ if __name__ == '__main__':
         help='Sequencing group IDs to repair (queries metamist for CRAM paths).',
     )
     parser.add_argument(
-        '--staging-prefix',
-        help='GCS prefix for intermediate outputs (enables job skipping on re-runs). Required for non-dry runs.',
-    )
-    parser.add_argument(
         '--fastq-path',
         help='Skip CRAM-to-FASTQ extraction and use this existing GCS FASTQ path instead.',
     )
@@ -307,15 +303,9 @@ if __name__ == '__main__':
         for sg_id, cram_path in sg_crams:
             print(f'[{args.repair_type}] {sg_id} {cram_path}')
     else:
-        if not args.staging_prefix:
-            parser.error('--staging-prefix is required for non-dry runs')
-
         batch = hail_batch.get_batch()
         for sg_id, cram_path in sg_crams:
-            kwargs: dict = {
-                'job_attrs': {'repair_type': args.repair_type},
-                'staging_prefix': args.staging_prefix,
-            }
+            kwargs: dict = {'job_attrs': {'repair_type': args.repair_type}}
             if args.fastq_path and repair_fn == trim_adapters:
                 kwargs['fastq_path'] = args.fastq_path
             repair_jobs = repair_fn(batch, cram_path, sg_id, **kwargs)
