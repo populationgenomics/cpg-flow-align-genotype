@@ -165,7 +165,8 @@ def run(  # noqa: PLR0915
         if wait $pid_r1; then
             echo "Background decompression finished successfully"
         else
-            trap 'error1' ERR
+            echo "Background decompression failed" >&2
+            exit 1
         fi
         """)
 

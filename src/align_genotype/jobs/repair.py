@@ -42,7 +42,7 @@ def _output_cram_path(cram_path: str) -> str:
         parts[idx] = 'cram_repaired'
     except ValueError:
         parts.insert(-1, 'cram_repaired')
-    return str(to_path(*parts))
+    return str(to_path('/'.join(parts)))
 
 
 def main() -> None:

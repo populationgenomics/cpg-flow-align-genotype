@@ -15,6 +15,7 @@ def run(
     sg_id: str,  # noqa: ARG001
     output_cram: str,
     job_attrs: dict,
+    skip_jobs: set[str] | None = None,  # noqa: ARG001
 ) -> list[Job]:
     """Strip QNAME suffixes and write repaired CRAM to output_cram."""
 
