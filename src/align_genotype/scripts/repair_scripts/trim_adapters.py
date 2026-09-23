@@ -69,14 +69,14 @@ def run(  # noqa: PLR0915
         samtools collate -u -O \
             --reference {reference.base} {cram_localised} $BATCH_TMPDIR/collate_tmp | \
         samtools fastq -n -@ 3 - | \
-        pigz -p 4 > {extract_fastq.fastq_gz}
+        gzip > {extract_fastq.fastq_gz}
         """)
         batch.write_output(extract_fastq.fastq_gz, str(fastq_out))
         fastq_input = extract_fastq.fastq_gz
         jobs.append(extract_fastq)
 
     # --- Job 2: fastp adapter + poly-G trimming ---
-    trimmed_out = output_dir / f'{sg_id}_trimmed.fastq.gz'
+    trimmed_out = output_dir / f'{sg_id}_trimmed.fq.gz'
     if 'trim' in _skip or exists(trimmed_out):
         logger.info(f'Skipping fastp trim for {sg_id}: output exists at {trimmed_out}')
         trimmed_input = batch.read_input(str(trimmed_out))
@@ -93,14 +93,13 @@ def run(  # noqa: PLR0915
         trim_reads.command(f"""\
         set -eo pipefail
 
-        pigz -dc {fastq_input} | \
-        fastp --stdin --interleaved_in \
+        fastp --in1 {fastq_input} --interleaved_in \
             --stdout \
             --detect_adapter_for_pe \
             --trim_poly_g \
             --thread 4 \
             --json /dev/null --html /dev/null | \
-        pigz -p 4 > {trim_reads.trimmed_fastq}
+        gzip > {trim_reads.trimmed_fastq}
         """)
         batch.write_output(trim_reads.trimmed_fastq, str(trimmed_out))
         trimmed_input = trim_reads.trimmed_fastq
@@ -149,11 +148,10 @@ def run(  # noqa: PLR0915
         WATCHDOG_PID=$!
         trap 'kill "$WATCHDOG_PID" 2>/dev/null' EXIT
 
-        mkfifo r1
-        pigz -dc {trimmed_input} > r1 &
-        pid_r1=$!
+        ln -s {trimmed_input} $BATCH_TMPDIR/trimmed_interleaved.fq.gz
 
-        dragen-os -r {dragmap_index} --interleaved=1 -b r1 \
+        dragen-os -r {dragmap_index} --interleaved=1 \
+            -1 $BATCH_TMPDIR/trimmed_interleaved.fq.gz \
             --RGID {sg_id} --RGSM {sg_id} \
             --num-threads {nthreads - 1} \
         | dupblaster --stats {align_job.markdup_metrics} \
@@ -161,13 +159,6 @@ def run(  # noqa: PLR0915
         | samtools view --write-index -@{sort_threads} \
             -T {reference.base} -O cram,version=3.0 \
             -o {align_job.output_cram.cram} -
-
-        if wait $pid_r1; then
-            echo "Background decompression finished successfully"
-        else
-            echo "Background decompression failed" >&2
-            exit 1
-        fi
         """)
 
         batch.write_output(align_job.output_cram, str(to_path(output_cram).with_suffix('')))
