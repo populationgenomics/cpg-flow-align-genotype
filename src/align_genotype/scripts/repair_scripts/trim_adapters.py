@@ -69,7 +69,7 @@ def run(  # noqa: PLR0915
         samtools collate -u -O \
             --reference {reference.base} {cram_localised} $BATCH_TMPDIR/collate_tmp | \
         samtools fastq -n -@ 3 - | \
-        gzip > {extract_fastq.fastq_gz}
+        pigz -p 4 > {extract_fastq.fastq_gz}
         """)
         batch.write_output(extract_fastq.fastq_gz, str(fastq_out))
         fastq_input = extract_fastq.fastq_gz
@@ -170,7 +170,7 @@ def run(  # noqa: PLR0915
         fi
         """)
 
-        batch.write_output(align_job.output_cram, to_path(output_cram).with_suffix('').as_posix())
+        batch.write_output(align_job.output_cram, str(to_path(output_cram).with_suffix('')))
         jobs.append(align_job)
 
     return jobs

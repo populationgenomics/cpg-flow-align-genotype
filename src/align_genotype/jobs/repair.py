@@ -10,7 +10,7 @@ Usage via analysis-runner:
         --config src/align_genotype/scripts/repair_scripts/repair_config.toml \\
         --dataset seqr --access-level full \\
         --output-dir "repair/trim-adapters" \\
-        repair_crams -- --repair-type trim-adapters --dataset seqr --sg-ids CPG123
+        python -m align_genotype.jobs.repair -- --repair-type trim-adapters --dataset seqr --sg-ids CPG123
 """
 
 import argparse

@@ -54,5 +54,5 @@ def run(
         -o {job.output_cram.cram} -
     """)
 
-    batch.write_output(job.output_cram, to_path(output_cram).with_suffix('').as_posix())
+    batch.write_output(job.output_cram, str(to_path(output_cram).with_suffix('')))
     return [job]
