@@ -20,7 +20,7 @@ from loguru import logger
 
 from hailtop.batch.job import Job
 
-from cpg_utils import config, hail_batch, to_path
+from cpg_utils import config, hail_batch
 
 from align_genotype.scripts.repair_scripts import repair_utils, strip_qnames, trim_adapters
 
@@ -35,14 +35,10 @@ def _output_cram_path(cram_path: str) -> str:
 
     Replaces the /cram/ directory with /cram_repaired/ in the same bucket.
     """
-    p = to_path(cram_path)
-    parts = list(p.parts)
-    try:
-        idx = parts.index('cram')
-        parts[idx] = 'cram_repaired'
-    except ValueError:
-        parts.insert(-1, 'cram_repaired')
-    return str(to_path('/'.join(parts)))
+    if '/cram/' not in cram_path:
+        msg = f'Expected /cram/ in path: {cram_path}'
+        raise ValueError(msg)
+    return cram_path.replace('/cram/', '/cram_repaired/', 1)
 
 
 def main() -> None:
