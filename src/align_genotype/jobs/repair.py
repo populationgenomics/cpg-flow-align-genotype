@@ -22,8 +22,7 @@ from hailtop.batch.job import Job
 
 from cpg_utils import config, hail_batch, to_path
 
-from align_genotype.scripts.repair_scripts import repair_utils
-from align_genotype.scripts.repair_scripts import strip_qnames, trim_adapters
+from align_genotype.scripts.repair_scripts import repair_utils, strip_qnames, trim_adapters
 
 REPAIR_FUNCTIONS: dict[str, Callable[..., list[Job]]] = {
     'strip-qnames': strip_qnames.run,
@@ -31,7 +30,7 @@ REPAIR_FUNCTIONS: dict[str, Callable[..., list[Job]]] = {
 }
 
 
-def _output_cram_path(cram_path: str, sg_id: str) -> str:
+def _output_cram_path(cram_path: str) -> str:
     """Derive the repaired CRAM output path from the original CRAM path.
 
     Replaces the /cram/ directory with /cram_repaired/ in the same bucket.
@@ -72,10 +71,6 @@ def main() -> None:
         default=[],
         help='Force-skip specific jobs, assuming their outputs already exist.',
     )
-    parser.add_argument(
-        '--fastq-path',
-        help='Skip CRAM-to-FASTQ extraction and use this existing GCS FASTQ path instead.',
-    )
     parser.add_argument('--dry-run', action='store_true', help='Print the CRAM files that would be repaired.')
     args = parser.parse_args()
 
@@ -89,20 +84,18 @@ def main() -> None:
 
     if args.dry_run:
         for sg_id, cram_path, _analysis_id in sg_crams:
-            output = _output_cram_path(cram_path, sg_id)
+            output = _output_cram_path(cram_path)
             print(f'[{args.repair_type}] {sg_id} {cram_path} -> {output}')
         return
 
     batch = hail_batch.get_batch()
     for sg_id, cram_path, old_analysis_id in sg_crams:
-        output_cram = _output_cram_path(cram_path, sg_id)
+        output_cram = _output_cram_path(cram_path)
 
         kwargs: dict = {
             'job_attrs': {'repair_type': args.repair_type},
             'skip_jobs': set(args.skip_jobs),
         }
-        if args.fastq_path and repair_fn == trim_adapters.run:
-            kwargs['fastq_path'] = args.fastq_path
 
         repair_jobs = repair_fn(batch, cram_path, sg_id, output_cram, **kwargs)
 

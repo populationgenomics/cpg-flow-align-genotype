@@ -12,7 +12,7 @@ from cpg_utils import config, hail_batch, to_path
 def run(
     batch: hail_batch.Batch,
     cram_path: str,
-    sg_id: str,
+    sg_id: str,  # noqa: ARG001
     output_cram: str,
     job_attrs: dict,
 ) -> list[Job]:

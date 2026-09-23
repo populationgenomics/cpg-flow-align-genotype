@@ -23,7 +23,6 @@ def run(  # noqa: PLR0915
     sg_id: str,
     output_cram: str,
     job_attrs: dict,
-    fastq_path: str | None = None,
     skip_jobs: set[str] | None = None,
 ) -> list[Job]:
     """Trim adapters/poly-G and realign. Writes repaired CRAM to output_cram."""
@@ -49,38 +48,35 @@ def run(  # noqa: PLR0915
     jobs: list[Job] = []
 
     # --- Job 1: CRAM → interleaved FASTQ ---
-    if fastq_path:
-        fastq_input = batch.read_input(fastq_path)
+    fastq_out = output_dir / f'{sg_id}_interleaved.fastq.gz'
+    if 'extract' in _skip or exists(fastq_out):
+        logger.info(f'Skipping FASTQ extraction for {sg_id}: output exists at {fastq_out}')
+        fastq_input = batch.read_input(str(fastq_out))
     else:
-        fastq_out = output_dir / f'{sg_id}_interleaved.fastq.gz'
-        if 'extract' in _skip or exists(fastq_out):
-            logger.info(f'Skipping FASTQ extraction for {sg_id}: output exists at {fastq_out}')
-            fastq_input = batch.read_input(str(fastq_out))
-        else:
-            cram_localised = batch.read_input_group(
-                cram=cram_path,
-                crai=f'{cram_path}.crai',
-            ).cram
+        cram_localised = batch.read_input_group(
+            cram=cram_path,
+            crai=f'{cram_path}.crai',
+        ).cram
 
-            extract_fastq = batch.new_job('repair CRAM: CRAM to FASTQ', attributes=job_attrs | {'tool': 'samtools'})
-            extract_fastq.image(dragmap_image)
-            extract_fastq.memory('32Gi')
-            extract_fastq.storage('1000Gi')
+        extract_fastq = batch.new_job('repair CRAM: CRAM to FASTQ', attributes=job_attrs | {'tool': 'samtools'})
+        extract_fastq.image(dragmap_image)
+        extract_fastq.memory('32Gi')
+        extract_fastq.storage('1000Gi')
 
-            extract_fastq.command(f"""\
-            set -eo pipefail
+        extract_fastq.command(f"""\
+        set -eo pipefail
 
-            samtools collate -u -O \
-                --reference {reference.base} {cram_localised} $BATCH_TMPDIR/collate_tmp | \
-            samtools fastq -n -@ 3 - | \
-            gzip > {extract_fastq.fastq_gz}
-            """)
-            batch.write_output(extract_fastq.fastq_gz, str(fastq_out))
-            fastq_input = extract_fastq.fastq_gz
-            jobs.append(extract_fastq)
+        samtools collate -u -O \
+            --reference {reference.base} {cram_localised} $BATCH_TMPDIR/collate_tmp | \
+        samtools fastq -n -@ 3 - | \
+        gzip > {extract_fastq.fastq_gz}
+        """)
+        batch.write_output(extract_fastq.fastq_gz, str(fastq_out))
+        fastq_input = extract_fastq.fastq_gz
+        jobs.append(extract_fastq)
 
     # --- Job 2: fastp adapter + poly-G trimming ---
-    trimmed_out = output_dir / f'{sg_id}_trimmed.fastq'
+    trimmed_out = output_dir / f'{sg_id}_trimmed.fastq.gz'
     if 'trim' in _skip or exists(trimmed_out):
         logger.info(f'Skipping fastp trim for {sg_id}: output exists at {trimmed_out}')
         trimmed_input = batch.read_input(str(trimmed_out))
