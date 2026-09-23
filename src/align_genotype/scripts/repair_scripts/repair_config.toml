@@ -1,0 +1,20 @@
+# Minimal config for CRAM repair workflows.
+# Pass via: analysis-runner --config src/align_genotype/scripts/repair_scripts/repair_config.toml ...
+
+[workflow]
+sequencing_type = 'genome'
+status_reporter = 'metamist'
+
+# Storage attached to jobs handling whole-genome CRAMs (GB)
+genome_cram_gb = 100
+
+[images]
+dragmap = "australia-southeast1-docker.pkg.dev/cpg-common/images/dragmap_ora_dupblaster:2.7.0-1"
+samtools = "australia-southeast1-docker.pkg.dev/cpg-common/images/samtools:1.23.1-1"
+fastp = "australia-southeast1-docker.pkg.dev/cpg-common/images/fastp:1.0.1-1"
+
+[references]
+dragmap_prefix = "gs://cpg-common-main/references/hg38/v0/dragen_reference"
+
+[references.broad]
+ref_fasta = "gs://cpg-common-main/references/hg38/v0/dragen_reference/Homo_sapiens_assembly38_masked.fasta"
