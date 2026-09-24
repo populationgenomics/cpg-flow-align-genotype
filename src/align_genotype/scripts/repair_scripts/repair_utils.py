@@ -54,7 +54,7 @@ def register_and_inactivate(
     Intended to run inside a Hail Batch PythonJob.
     """
     from cpg_flow.metamist import Metamist  # noqa: PLC0415
-    from metamist.api import AnalysisApi  # noqa: PLC0415
+    from metamist.apis import AnalysisApi  # noqa: PLC0415
     from metamist.models import AnalysisUpdateModel  # noqa: PLC0415
 
     m = Metamist()
