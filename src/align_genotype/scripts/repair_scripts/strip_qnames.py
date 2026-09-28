@@ -3,12 +3,16 @@
 These suffixes, left by older sequencers, break mate pairing in samtools fastq
 without collation.
 
-Archives the original CRAM before rewriting it, and notes where it went on that CRAM's
-existing `cram` analysis. No new analysis is created. Retiring the analyses derived
-from the old CRAM is a separate step - see sg_reset.py.
+The repaired CRAM replaces the original in place, so the archived copy is the only
+remaining copy of the original - the archive job verifies it by CRC32C before the
+repair is allowed to run.
+
+The archive location is noted on that CRAM's existing `cram` analysis. No new analysis
+is created. Retiring the analyses derived from the old CRAM is a separate step - see
+sg_reset.py.
 
 Standalone by design: no shared imports, so it can be lifted into another workflow
-engine as a single process with an input path, an output path and a sample ID.
+engine as a single process with a CRAM path and a sample ID.
 """
 
 import argparse
@@ -24,17 +28,19 @@ BACKUP_DIR = 'bad_cram'
 
 
 def archive_original(batch: hail_batch.Batch, cram_path: str, job_attrs: dict) -> Job | None:
-    """Copy the original CRAM and index to bad_cram/ before it is superseded.
+    """Copy the original CRAM and index to bad_cram/ before it is overwritten in place.
 
     Server-side GCS copy, so the data never transits the worker and the job needs no
-    attached storage. Returns None if the archive already exists.
+    attached storage. Compares CRC32C before and after: the repair overwrites the
+    original, so an unverified archive would mean the only copy is unaccounted for.
+    Returns None if the archive already exists.
     """
 
     dest = config.dataset_path(f'{BACKUP_DIR}/{to_path(cram_path).name}')
     dest_dir = str(to_path(dest).parent)
 
     if exists(dest) and exists(f'{dest}.crai'):
-        logger.info(f'Skipping CRAM archive: already present at {dest}')
+        logger.warning(f'Archive already present at {dest} - this CRAM has been repaired before')
         return None
 
     job = batch.new_bash_job('repair CRAM: archive original', attributes=job_attrs | {'tool': 'gcloud'})
@@ -44,26 +50,34 @@ def archive_original(batch: hail_batch.Batch, cram_path: str, job_attrs: dict) -
     job.command(f"""\
     set -eo pipefail
 
+    crc() {{ gcloud storage objects describe "$1" --format="value(crc32c_hash)"; }}
+
+    before_cram=$(crc {cram_path})
+    before_crai=$(crc {cram_path}.crai)
+
     gcloud storage cp {cram_path} {cram_path}.crai {dest_dir}/
 
-    # fail loudly rather than let a repair proceed on an unverified archive
-    for f in {dest} {dest}.crai; do
-        gcloud storage objects describe "$f" --format='value(size)' > /dev/null \
-            || {{ echo "FATAL: archive missing after copy: $f" >&2; exit 1; }}
-    done
-    echo "archived original CRAM to {dest_dir}/"
+    after_cram=$(crc {dest})
+    after_crai=$(crc {dest}.crai)
+
+    # the repair overwrites the original, so refuse to continue on an unverified archive
+    if [[ -z "$before_cram" || "$before_cram" != "$after_cram" ]]; then
+        echo "FATAL: CRAM archive checksum mismatch ($before_cram vs $after_cram)" >&2
+        exit 1
+    fi
+    if [[ -z "$before_crai" || "$before_crai" != "$after_crai" ]]; then
+        echo "FATAL: index archive checksum mismatch ($before_crai vs $after_crai)" >&2
+        exit 1
+    fi
+
+    echo "archived original CRAM to {dest_dir}/ (crc32c $after_cram)"
     """)
 
     return job
 
 
-def strip_qnames(
-    batch: hail_batch.Batch,
-    cram_path: str,
-    output_cram: str,
-    job_attrs: dict,
-) -> Job:
-    """Rewrite the CRAM with /1 and /2 stripped from every QNAME."""
+def strip_qnames(batch: hail_batch.Batch, cram_path: str, job_attrs: dict) -> Job:
+    """Rewrite the CRAM in place with /1 and /2 stripped from every QNAME."""
 
     job = batch.new_job('repair CRAM: strip QNAME suffixes', attributes=job_attrs | {'tool': 'samtools'})
     job.image(config.config_retrieve(['images', 'samtools']))
@@ -93,7 +107,9 @@ def strip_qnames(
         -o {job.output_cram.cram} -
     """)
 
-    batch.write_output(job.output_cram, str(to_path(output_cram).with_suffix('')))
+    # input localisation happens before the job runs and the output is copied back after,
+    # so writing to the input path replaces it rather than racing it
+    batch.write_output(job.output_cram, str(to_path(cram_path).with_suffix('')))
     return job
 
 
@@ -148,9 +164,14 @@ def record_archive(cram_path: str, sg_id: str, archived_cram: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description='Strip /1 and /2 QNAME suffixes from a CRAM.')
-    parser.add_argument('--cram-path', required=True, help='Input CRAM (GCS path). Needs a .crai beside it.')
-    parser.add_argument('--output-path', required=True, help='Output CRAM (GCS path).')
+    parser = argparse.ArgumentParser(
+        description='Strip /1 and /2 QNAME suffixes from a CRAM, replacing it in place.',
+    )
+    parser.add_argument(
+        '--cram-path',
+        required=True,
+        help='CRAM to repair (GCS path). Needs a .crai beside it. Replaced in place.',
+    )
     parser.add_argument('--sg-id', required=True, help='Sequencing group ID, used to find the cram analysis.')
     parser.add_argument('--dry-run', action='store_true', help='Print what would be done without submitting.')
     args = parser.parse_args()
@@ -158,20 +179,18 @@ def main() -> None:
     archived_cram = config.dataset_path(f'{BACKUP_DIR}/{to_path(args.cram_path).name}')
 
     if args.dry_run:
-        print(f'[strip-qnames] {args.sg_id}  {args.cram_path} -> {args.output_path}')
-        print(f'  archive -> {archived_cram}')
+        print(f'[strip-qnames] {args.sg_id}')
+        state = 'already archived' if exists(archived_cram) else 'will archive'
+        print(f'  archive {args.cram_path} -> {archived_cram} [{state}]')
+        print(f'  repair in place: {args.cram_path}')
         print(f'  note the archive on the existing cram analysis for {args.cram_path}')
-        return
-
-    if exists(args.output_path):
-        logger.info(f'Output already exists, nothing to do: {args.output_path}')
         return
 
     batch = hail_batch.get_batch()
     job_attrs = {'repair_type': 'strip-qnames', 'sequencing_group': args.sg_id}
 
     archive_job = archive_original(batch, args.cram_path, job_attrs)
-    repair_job = strip_qnames(batch, args.cram_path, args.output_path, job_attrs)
+    repair_job = strip_qnames(batch, args.cram_path, job_attrs)
 
     # nothing references the archive job's outputs, so the ordering must be explicit
     if archive_job:

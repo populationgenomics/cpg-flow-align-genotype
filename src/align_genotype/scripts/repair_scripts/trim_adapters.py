@@ -4,15 +4,20 @@ For samples where adapters were not stripped before alignment, leaving spurious
 soft-clipping. The alignment matches the production DRAGMAP workflow in
 align_genotype/jobs/align.py: DRAGMAP -> dupblaster -> coordinate sort -> CRAM v3.0.
 
-Archives the original CRAM before realigning, and notes where it went on that CRAM's
-existing `cram` analysis. No new analysis is created. Retiring the analyses derived from
-the old CRAM is a separate step - see sg_reset.py.
+The realigned CRAM replaces the original in place, so the archived copy is the only
+remaining copy of the original - the archive job verifies it by CRC32C before the
+realignment is allowed to run.
 
-Intermediates (interleaved FASTQ, trimmed FASTQ) are written to declared GCS paths
-beside the output CRAM, so a re-run picks up whatever a previous run completed.
+The archive location is noted on that CRAM's existing `cram` analysis. No new analysis
+is created. Retiring the analyses derived from the old CRAM is a separate step - see
+sg_reset.py.
+
+Intermediates (interleaved FASTQ, trimmed FASTQ) are written under cram_repair/ so a
+re-run picks up whatever a previous run completed - extraction and trimming together
+are most of the runtime.
 
 Standalone by design: no shared imports, so it can be lifted into another workflow
-engine as a single process with an input path, an output path and a sample ID.
+engine as a single process with a CRAM path and a sample ID.
 """
 
 import argparse
@@ -27,20 +32,23 @@ from cpg_utils import config, hail_batch, to_path
 
 DRAGMAP_INDEX_FILES = ['hash_table.cfg.bin', 'hash_table.cmp', 'reference.bin']
 BACKUP_DIR = 'bad_cram'
+INTERMEDIATE_DIR = 'cram_repair'
 
 
 def archive_original(batch: hail_batch.Batch, cram_path: str, job_attrs: dict) -> Job | None:
-    """Copy the original CRAM and index to bad_cram/ before it is superseded.
+    """Copy the original CRAM and index to bad_cram/ before it is overwritten in place.
 
     Server-side GCS copy, so the data never transits the worker and the job needs no
-    attached storage. Returns None if the archive already exists.
+    attached storage. Compares CRC32C before and after: the realignment overwrites the
+    original, so an unverified archive would mean the only copy is unaccounted for.
+    Returns None if the archive already exists.
     """
 
     dest = config.dataset_path(f'{BACKUP_DIR}/{to_path(cram_path).name}')
     dest_dir = str(to_path(dest).parent)
 
     if exists(dest) and exists(f'{dest}.crai'):
-        logger.info(f'Skipping CRAM archive: already present at {dest}')
+        logger.warning(f'Archive already present at {dest} - this CRAM has been repaired before')
         return None
 
     job = batch.new_bash_job('repair CRAM: archive original', attributes=job_attrs | {'tool': 'gcloud'})
@@ -50,14 +58,27 @@ def archive_original(batch: hail_batch.Batch, cram_path: str, job_attrs: dict) -
     job.command(f"""\
     set -eo pipefail
 
+    crc() {{ gcloud storage objects describe "$1" --format="value(crc32c_hash)"; }}
+
+    before_cram=$(crc {cram_path})
+    before_crai=$(crc {cram_path}.crai)
+
     gcloud storage cp {cram_path} {cram_path}.crai {dest_dir}/
 
-    # fail loudly rather than let a repair proceed on an unverified archive
-    for f in {dest} {dest}.crai; do
-        gcloud storage objects describe "$f" --format='value(size)' > /dev/null \
-            || {{ echo "FATAL: archive missing after copy: $f" >&2; exit 1; }}
-    done
-    echo "archived original CRAM to {dest_dir}/"
+    after_cram=$(crc {dest})
+    after_crai=$(crc {dest}.crai)
+
+    # the realignment overwrites the original, so refuse to continue on an unverified archive
+    if [[ -z "$before_cram" || "$before_cram" != "$after_cram" ]]; then
+        echo "FATAL: CRAM archive checksum mismatch ($before_cram vs $after_cram)" >&2
+        exit 1
+    fi
+    if [[ -z "$before_crai" || "$before_crai" != "$after_crai" ]]; then
+        echo "FATAL: index archive checksum mismatch ($before_crai vs $after_crai)" >&2
+        exit 1
+    fi
+
+    echo "archived original CRAM to {dest_dir}/ (crc32c $after_cram)"
     """)
 
     return job
@@ -67,12 +88,10 @@ def trim_and_realign(
     batch: hail_batch.Batch,
     cram_path: str,
     sg_id: str,
-    output_cram: str,
     job_attrs: dict,
 ) -> list[Job]:
-    """CRAM -> interleaved FASTQ -> fastp -> DRAGMAP -> CRAM. Skips whatever already exists."""
+    """CRAM -> interleaved FASTQ -> fastp -> DRAGMAP -> CRAM, in place. Reuses what exists."""
 
-    output_dir = to_path(output_cram).parent
     storage = f'{config.config_retrieve(["workflow", "genome_cram_gb"], "400")}Gi'
     dragmap_image = config.config_retrieve(['images', 'dragmap'])
 
@@ -90,10 +109,10 @@ def trim_and_realign(
     jobs: list[Job] = []
 
     # --- CRAM to interleaved FASTQ ---
-    fastq_out = output_dir / f'{sg_id}_interleaved.fastq.gz'
+    fastq_out = config.dataset_path(f'{INTERMEDIATE_DIR}/{sg_id}_interleaved.fastq.gz')
     if exists(fastq_out):
         logger.info(f'Reusing extracted FASTQ: {fastq_out}')
-        fastq_input = batch.read_input(str(fastq_out))
+        fastq_input = batch.read_input(fastq_out)
     else:
         cram_localised = batch.read_input_group(cram=cram_path, crai=f'{cram_path}.crai').cram
 
@@ -110,15 +129,15 @@ def trim_and_realign(
         samtools fastq -n -@ 3 - | \
         gzip > {extract_fastq.fastq_gz}
         """)
-        batch.write_output(extract_fastq.fastq_gz, str(fastq_out))
+        batch.write_output(extract_fastq.fastq_gz, fastq_out)
         fastq_input = extract_fastq.fastq_gz
         jobs.append(extract_fastq)
 
     # --- fastp adapter and poly-G trimming ---
-    trimmed_out = output_dir / f'{sg_id}_trimmed.fq.gz'
+    trimmed_out = config.dataset_path(f'{INTERMEDIATE_DIR}/{sg_id}_trimmed.fq.gz')
     if exists(trimmed_out):
         logger.info(f'Reusing trimmed FASTQ: {trimmed_out}')
-        trimmed_input = batch.read_input(str(trimmed_out))
+        trimmed_input = batch.read_input(trimmed_out)
     else:
         trim_reads = batch.new_job('repair CRAM: fastp trim', attributes=job_attrs | {'tool': 'fastp'})
         trim_reads.image(config.config_retrieve(['images', 'fastp']))
@@ -137,7 +156,7 @@ def trim_and_realign(
             --json /dev/null --html /dev/null | \
         gzip > {trim_reads.trimmed_fastq}
         """)
-        batch.write_output(trim_reads.trimmed_fastq, str(trimmed_out))
+        batch.write_output(trim_reads.trimmed_fastq, trimmed_out)
         trimmed_input = trim_reads.trimmed_fastq
         jobs.append(trim_reads)
 
@@ -193,7 +212,9 @@ def trim_and_realign(
         -o {align_job.output_cram.cram} -
     """)
 
-    batch.write_output(align_job.output_cram, str(to_path(output_cram).with_suffix('')))
+    # input localisation happens before the job runs and the output is copied back after,
+    # so writing to the input path replaces it rather than racing it
+    batch.write_output(align_job.output_cram, str(to_path(cram_path).with_suffix('')))
     jobs.append(align_job)
 
     return jobs
@@ -250,37 +271,38 @@ def record_archive(cram_path: str, sg_id: str, archived_cram: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description='Trim adapters and poly-G, then realign with DRAGMAP.')
-    parser.add_argument('--cram-path', required=True, help='Input CRAM (GCS path). Needs a .crai beside it.')
-    parser.add_argument('--output-path', required=True, help='Output CRAM (GCS path).')
+    parser = argparse.ArgumentParser(
+        description='Trim adapters and poly-G, then realign with DRAGMAP, replacing the CRAM in place.',
+    )
+    parser.add_argument(
+        '--cram-path',
+        required=True,
+        help='CRAM to repair (GCS path). Needs a .crai beside it. Replaced in place.',
+    )
     parser.add_argument('--sg-id', required=True, help='Sequencing group ID, used for the read group and metamist.')
     parser.add_argument('--dry-run', action='store_true', help='Print what would be done without submitting.')
     args = parser.parse_args()
 
-    output_dir = to_path(args.output_path).parent
     archived_cram = config.dataset_path(f'{BACKUP_DIR}/{to_path(args.cram_path).name}')
 
     if args.dry_run:
-        print(f'[trim-adapters] {args.sg_id}  {args.cram_path} -> {args.output_path}')
-        print(f'  archive -> {archived_cram}')
+        print(f'[trim-adapters] {args.sg_id}')
+        state = 'already archived' if exists(archived_cram) else 'will archive'
+        print(f'  archive {args.cram_path} -> {archived_cram} [{state}]')
         for label, path in (
-            ('interleaved FASTQ', output_dir / f'{args.sg_id}_interleaved.fastq.gz'),
-            ('trimmed FASTQ', output_dir / f'{args.sg_id}_trimmed.fq.gz'),
-            ('output CRAM', to_path(args.output_path)),
+            ('interleaved FASTQ', config.dataset_path(f'{INTERMEDIATE_DIR}/{args.sg_id}_interleaved.fastq.gz')),
+            ('trimmed FASTQ', config.dataset_path(f'{INTERMEDIATE_DIR}/{args.sg_id}_trimmed.fq.gz')),
         ):
             print(f'  {label}: {path} [{"exists, will reuse" if exists(path) else "will create"}]')
+        print(f'  repair in place: {args.cram_path}')
         print(f'  note the archive on the existing cram analysis for {args.cram_path}')
-        return
-
-    if exists(args.output_path):
-        logger.info(f'Output already exists, nothing to do: {args.output_path}')
         return
 
     batch = hail_batch.get_batch()
     job_attrs = {'repair_type': 'trim-adapters', 'sequencing_group': args.sg_id}
 
     archive_job = archive_original(batch, args.cram_path, job_attrs)
-    repair_jobs = trim_and_realign(batch, args.cram_path, args.sg_id, args.output_path, job_attrs)
+    repair_jobs = trim_and_realign(batch, args.cram_path, args.sg_id, job_attrs)
 
     # nothing references the archive job's outputs, so the ordering must be explicit.
     # applied to every job, since which one runs first depends on what already exists.
