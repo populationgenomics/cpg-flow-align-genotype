@@ -220,7 +220,7 @@ def trim_and_realign(
     return jobs
 
 
-def record_archive(cram_path: str, sg_id: str, archived_cram: str) -> None:
+def record_archive(cram_path: str, sg_id: str, archived_cram: str, repair_image: str) -> None:
     """Note the archive location on the existing `cram` analysis for this CRAM.
 
     Finds the active `cram` analysis whose output is cram_path and patches its meta.
@@ -260,6 +260,7 @@ def record_archive(cram_path: str, sg_id: str, archived_cram: str) -> None:
                         'old_cram_path': archived_cram,
                         'old_cram_index_path': f'{archived_cram}.crai',
                         'repair_script_used': 'src/align_genotype/scripts/repair_scripts/trim_adapters.py',
+                        'repair_image': repair_image,
                         'repair_date': datetime.now(timezone.utc).date().isoformat(),
                     },
                 ),
@@ -310,10 +311,11 @@ def main() -> None:
         for job in repair_jobs:
             job.depends_on(archive_job)
 
+    driver_image = config.config_retrieve(['workflow', 'driver_image'])
     meta_job = batch.new_python_job(f'note archive on cram analysis {args.sg_id}', attributes={'tool': 'metamist'})
-    meta_job.image(config.config_retrieve(['workflow', 'driver_image']))
+    meta_job.image(driver_image)
     meta_job.depends_on(repair_jobs[-1])
-    meta_job.call(record_archive, args.cram_path, args.sg_id, archived_cram)
+    meta_job.call(record_archive, args.cram_path, args.sg_id, archived_cram, driver_image)
 
     batch.run(wait=False)
 
