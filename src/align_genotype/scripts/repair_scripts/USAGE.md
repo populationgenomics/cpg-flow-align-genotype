@@ -61,7 +61,7 @@ same pipeline as production: DRAGMAP → dupblaster → coordinate sort → CRAM
 
 ```bash
 analysis-runner --skip-repo-checkout \
-    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.6.0 \
+    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.6.1-1 \
     --config src/align_genotype/scripts/repair_scripts/repair_config.toml \
     --dataset DATASET \ #you must use the same dataset as the CRAM you are repairing
     --access-level full \
@@ -78,7 +78,7 @@ analysis-runner --skip-repo-checkout \
 
 ```bash
 analysis-runner --skip-repo-checkout \
-    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.6.0 \
+    --image australia-southeast1-docker.pkg.dev/cpg-common/images/cpg-flow-align-genotype:0.6.1-1 \
     --config src/align_genotype/scripts/repair_scripts/repair_config.toml \
     --dataset DATASET \ #you must use the same dataset as the CRAM you are repairing
     --access-level full \
