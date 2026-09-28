@@ -236,8 +236,8 @@ def record_archive(cram_path: str, sg_id: str, archived_cram: str) -> None:
                 analysis_update_model=AnalysisUpdateModel(
                     meta={
                         'repair_type': 'trim-adapters',
-                        'old_contaminated_cram_path': archived_cram,
-                        'old_contaminated_cram_index_path': f'{archived_cram}.crai',
+                        'old_cram_path': archived_cram,
+                        'old_cram_index_path': f'{archived_cram}.crai',
                         'repair_script_used': 'src/align_genotype/scripts/repair_scripts/trim_adapters.py',
                         'repair_date': datetime.now(timezone.utc).date().isoformat(),
                     },

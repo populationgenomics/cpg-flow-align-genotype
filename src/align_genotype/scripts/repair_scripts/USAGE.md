@@ -13,8 +13,8 @@ optional. Metamist meta updates merge, so nothing already on the record is lost:
 
 ```
 repair_type:                      strip-qnames | trim-adapters
-old_contaminated_cram_path:       gs://cpg-DATASET-<ns>/bad_cram/CPG123.cram
-old_contaminated_cram_index_path: gs://cpg-DATASET-<ns>/bad_cram/CPG123.cram.crai
+old_cram_path:       gs://cpg-DATASET-<ns>/bad_cram/CPG123.cram
+old_cram_index_path: gs://cpg-DATASET-<ns>/bad_cram/CPG123.cram.crai
 repair_script_used:               src/align_genotype/scripts/repair_scripts/<script>.py
 repair_date:                      2026-09-28
 ```
