@@ -2,7 +2,64 @@
 
 from loguru import logger
 
+from hailtop.batch.job import Job
+
+from cpg_flow.utils import exists
+from cpg_utils import config, hail_batch, to_path
 from metamist.graphql import gql, query
+
+BACKUP_DIR = 'bad_cram'
+
+
+def backup_cram_path(cram_path: str) -> str:
+    """Derive the archive path for the pre-repair CRAM, under bad_cram/.
+
+    Built with cpg_utils dataset_path, so the bucket namespace follows the
+    analysis-runner --dataset and --access-level rather than being derived from
+    the input path: test runs archive to -test, full runs to -main.
+    """
+    return config.dataset_path(f'{BACKUP_DIR}/{to_path(cram_path).name}')
+
+
+def backup_original_cram(
+    batch: hail_batch.Batch,
+    cram_path: str,
+    job_attrs: dict,
+) -> Job | None:
+    """Archive the original CRAM and its index to bad_cram/ before any repair runs.
+
+    Uses a server-side GCS copy, so the data never transits the worker and the job
+    needs no attached storage. Returns None if the archive already exists.
+    """
+
+    dest = backup_cram_path(cram_path)
+    dest_dir = str(to_path(dest).parent)
+
+    if exists(dest) and exists(f'{dest}.crai'):
+        logger.info(f'Skipping CRAM backup: already archived at {dest}')
+        return None
+
+    job = batch.new_bash_job(
+        'repair CRAM: archive original',
+        attributes=job_attrs | {'tool': 'gcloud'},
+    )
+    job.image(config.config_retrieve(['workflow', 'driver_image']))
+    hail_batch.authenticate_cloud_credentials_in_job(job)
+
+    job.command(f"""\
+    set -eo pipefail
+
+    gcloud storage cp {cram_path} {cram_path}.crai {dest_dir}/
+
+    # fail loudly rather than let a repair proceed on an unverified archive
+    for f in {dest} {dest}.crai; do
+        gcloud storage objects describe "$f" --format='value(size)' > /dev/null \
+            || {{ echo "FATAL: archive missing after copy: $f" >&2; exit 1; }}
+    done
+    echo "archived original CRAM to {dest_dir}/"
+    """)
+
+    return job
 
 
 def get_cram_paths_for_sgs(sg_ids: list[str]) -> list[tuple[str, str, int]]:

@@ -8,6 +8,8 @@ from hailtop.batch.job import Job
 
 from cpg_utils import config, hail_batch, to_path
 
+from align_genotype.scripts.repair_scripts import repair_utils
+
 
 def run(
     batch: hail_batch.Batch,
@@ -18,6 +20,8 @@ def run(
     skip_jobs: set[str] | None = None,  # noqa: ARG001
 ) -> list[Job]:
     """Strip QNAME suffixes and write repaired CRAM to output_cram."""
+
+    backup_job = repair_utils.backup_original_cram(batch, cram_path, job_attrs)
 
     job = batch.new_job(
         'repair CRAM: strip QNAME suffixes',
@@ -55,4 +59,9 @@ def run(
     """)
 
     batch.write_output(job.output_cram, str(to_path(output_cram).with_suffix('')))
+
+    # no shared resource references the archive job, so the ordering must be explicit
+    if backup_job:
+        job.depends_on(backup_job)
+        return [backup_job, job]
     return [job]

@@ -14,6 +14,8 @@ from hailtop.batch.job import Job
 from cpg_flow.utils import exists
 from cpg_utils import config, hail_batch, to_path
 
+from align_genotype.scripts.repair_scripts import repair_utils
+
 DRAGMAP_INDEX_FILES = ['hash_table.cfg.bin', 'hash_table.cmp', 'reference.bin']
 
 
@@ -46,6 +48,11 @@ def run(  # noqa: PLR0915
     )
 
     jobs: list[Job] = []
+
+    # --- Job 0: archive the original CRAM before touching anything ---
+    backup_job = repair_utils.backup_original_cram(batch, cram_path, job_attrs)
+    if backup_job:
+        jobs.append(backup_job)
 
     # --- Job 1: CRAM → interleaved FASTQ ---
     fastq_out = output_dir / f'{sg_id}_interleaved.fastq.gz'
@@ -163,5 +170,13 @@ def run(  # noqa: PLR0915
 
         batch.write_output(align_job.output_cram, str(to_path(output_cram).with_suffix('')))
         jobs.append(align_job)
+
+    # no shared resource references the archive job, so the ordering must be explicit.
+    # applied to every repair job rather than just the first, since which one runs first
+    # depends on what skip_jobs and the exists() checks resolved to.
+    if backup_job:
+        for job in jobs:
+            if job is not backup_job:
+                job.depends_on(backup_job)
 
     return jobs
