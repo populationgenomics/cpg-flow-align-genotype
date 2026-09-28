@@ -50,7 +50,7 @@ def reheader(
     awk_rg = (
         'awk \'BEGIN{OFS="\\t"} $1=="@RG"{for(i=2;i<=NF;i++){'
         f'if($i ~ /^ID:/) $i="ID:{new_sg}"; if($i ~ /^SM:/) $i="SM:{new_sg}"'
-        '}} {print}\''
+        "}} {print}'"
     )
 
     job.command(f"""\
