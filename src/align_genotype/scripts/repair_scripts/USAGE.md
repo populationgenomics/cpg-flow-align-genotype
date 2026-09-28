@@ -48,8 +48,8 @@ analysis-runner --skip-repo-checkout \
     --description 'strip qnames CPG123' \
     --output-dir "repair/strip-qnames" \
     python -m align_genotype.scripts.repair_scripts.strip_qnames \
-        --cram-path gs://cpg-DATASET-test/cram/CPG123.cram \
-        --output-path gs://cpg-DATASET-test/cram_repaired/CPG123.cram \
+        --cram-path gs://cpg-DATASET/cram/CPG123.cram \
+        --output-path gs://cpg-DATASET/cram_repaired/CPG123.cram \
         --sg-id CPG123
 ```
 
@@ -68,8 +68,8 @@ analysis-runner --skip-repo-checkout \
     --description 'trim adapters CPG123' \
     --output-dir "repair/trim-adapters" \
     python -m align_genotype.scripts.repair_scripts.trim_adapters \
-        --cram-path gs://cpg-DATASET-test/cram/CPG123.cram \
-        --output-path gs://cpg-DATASET-test/cram_repaired/CPG123.cram \
+        --cram-path gs://cpg-DATASET/cram/CPG123.cram \
+        --output-path gs://cpg-DATASET/cram_repaired/CPG123.cram \
         --sg-id CPG123
 ```
 ---
@@ -86,7 +86,7 @@ analysis-runner --skip-repo-checkout \
     --output-dir "repair/sg-reset" \
     python -m align_genotype.scripts.repair_scripts.sg_reset \
         --sg-id CPG123 \
-        --dest gs://cpg-DATASET-test/bad_cram
+        --dest gs://cpg-DATASET/bad_cram
 ```
 
 Two things it deliberately leaves alone:
