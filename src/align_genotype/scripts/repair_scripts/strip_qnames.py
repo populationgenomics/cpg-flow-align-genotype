@@ -39,9 +39,18 @@ def archive_original(batch: hail_batch.Batch, cram_path: str, job_attrs: dict) -
     dest = config.dataset_path(f'{BACKUP_DIR}/{to_path(cram_path).name}')
     dest_dir = str(to_path(dest).parent)
 
-    if exists(dest) and exists(f'{dest}.crai'):
-        logger.warning(f'Archive already present at {dest} - this CRAM has been repaired before')
-        return None
+    # An existing archive means a repair has run before, so cram_path may already hold a
+    # repaired CRAM. Copying again would overwrite the preserved original with it.
+    if exists(dest):
+        if exists(f'{dest}.crai'):
+            logger.warning(f'Archive already present at {dest} - this CRAM has been repaired before')
+            return None
+        msg = (
+            f'Archive at {dest} exists but its index does not. Re-archiving would overwrite the '
+            f'preserved original with whatever is at {cram_path} now, which may already be repaired. '
+            f'Reindex or remove the partial archive by hand before re-running.'
+        )
+        raise RuntimeError(msg)
 
     job = batch.new_bash_job('repair CRAM: archive original', attributes=job_attrs | {'tool': 'gcloud'})
     job.image(config.config_retrieve(['workflow', 'driver_image']))
@@ -55,7 +64,9 @@ def archive_original(batch: hail_batch.Batch, cram_path: str, job_attrs: dict) -
     before_cram=$(crc {cram_path})
     before_crai=$(crc {cram_path}.crai)
 
-    gcloud storage cp {cram_path} {cram_path}.crai {dest_dir}/
+    # --no-clobber so the preserved original can never be overwritten, even if the
+    # existence check above raced or was bypassed
+    gcloud storage cp --no-clobber {cram_path} {cram_path}.crai {dest_dir}/
 
     after_cram=$(crc {dest})
     after_crai=$(crc {dest}.crai)
