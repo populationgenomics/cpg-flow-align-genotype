@@ -113,8 +113,8 @@ def strip_qnames(batch: hail_batch.Batch, cram_path: str, job_attrs: dict) -> Jo
 
     samtools view -h -T {reference.base} -@ 3 {cram_localised} | \
     {awk_strip} | \
-    samtools view --write-index \
-        -C -T {reference.base} -@ 3 \
+    samtools view --write-index -@ 3 \
+        -T {reference.base} -O cram,version=3.0 \
         -o {job.output_cram.cram} -
     """)
 
