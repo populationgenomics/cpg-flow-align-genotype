@@ -19,7 +19,7 @@ RUN apt-get update && \
     curl https://sh.rustup.rs -sSf | bash -s -- -y && \
     echo 'source $HOME/.cargo/env' >> $HOME/.bashrc && \
     source $HOME/.bashrc && \
-    cargo install dupblaster --version v0.3.0
+    cargo install dupblaster --version 0.3.0
 
 ENV SAMTOOLS_VERSION=1.23.1
 
