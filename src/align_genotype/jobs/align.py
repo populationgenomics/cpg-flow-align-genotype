@@ -390,7 +390,7 @@ def dedup_sort_cmd(nthreads: int) -> str:
 
     we only keep one of these files, matching our previous implementation
     """
-    cmd = f'| dupblaster --metrics-prefix $BATCH_TMPDIR/metrics '
+    cmd = '| dupblaster --metrics-prefix $BATCH_TMPDIR/metrics '
     cmd += f'| samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-dd-tmp -Obam '
     return cmd
 
