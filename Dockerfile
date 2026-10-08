@@ -19,7 +19,7 @@ RUN apt-get update && \
     curl https://sh.rustup.rs -sSf | bash -s -- -y && \
     echo 'source $HOME/.cargo/env' >> $HOME/.bashrc && \
     source $HOME/.bashrc && \
-    cargo install dupblaster
+    cargo install dupblaster --version 0.3.0
 
 ENV SAMTOOLS_VERSION=1.23.1
 
@@ -53,7 +53,7 @@ RUN apt-get update && \
     rm -r /var/cache/apt/*
 
 ENV PYTHONDONTWRITEBYTECODE=1
-ENV VERSION=0.6.2
+ENV VERSION=0.6.3
 
 WORKDIR /align_genotype
 

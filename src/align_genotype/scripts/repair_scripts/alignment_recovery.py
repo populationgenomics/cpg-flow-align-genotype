@@ -103,7 +103,7 @@ if __name__ == '__main__':
     CMD = (
         f'{PIPEFAIL} \n'
         f'samtools merge -n -@5 - {bam_string} '
-        f'{dedup_sort_cmd(nthreads, merge_job.markdup_metrics)} '
+        f'{dedup_sort_cmd(nthreads)} '
         f'| samtools view --write-index -@5 '
         f'-T {fasta_reference.base} -O cram,version=3.0 -o {merge_job.output_cram.cram} -'
     )

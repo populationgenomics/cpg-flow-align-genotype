@@ -378,12 +378,19 @@ def name_sort_cmd(nthreads: int) -> str:
     return f'| samtools sort -n -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/sam-sort-tmp -Obam '
 
 
-def dedup_sort_cmd(nthreads: int, stats_path: str) -> str:
+def dedup_sort_cmd(nthreads: int) -> str:
     """
     Create command that deduplicates a name-sorted (RG-ordered) stream with dupblaster,
-    writing duplication stats to `stats_path`, then coordinate-sorts the result.
+    writing duplication stats to `TMPDIR/metrics`, then coordinate-sorts the result.
+
+    as of version v0.3.0 --stats is replaced by a new argument: --metrics-prefix <PREFIX>
+    <PREFIX>.duplicate-metrics.tsv (the run summary, one row per library),
+    <PREFIX>.sequencing-units.tsv, and
+    <PREFIX>.duplication-sampled.{tsv,pdf} / <PREFIX>.duplication-spectrum.{tsv,pdf}
+
+    we only keep one of these files, matching our previous implementation
     """
-    cmd = f'| dupblaster --stats {stats_path} '
+    cmd = '| dupblaster --metrics-prefix $BATCH_TMPDIR/metrics '
     cmd += f'| samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-dd-tmp -Obam '
     return cmd
 
@@ -417,7 +424,7 @@ def finalise_alignment(
     align_cmd = align_cmd.strip()
 
     # dedup the raw RG-ordered dragen-os stream, then coordinate-sort
-    align_cmd += f' {dedup_sort_cmd(nthreads, job.markdup_metrics)}'
+    align_cmd += f' {dedup_sort_cmd(nthreads)}'
 
     # convert the coordinate-sorted, duplicate-marked stream to an indexed CRAM in-stream
     align_cmd += (
@@ -430,6 +437,7 @@ def finalise_alignment(
         align_cmd += f'\n{fifo_epilogue}'
 
     job.command(align_cmd)
+    job.command(f'mv $BATCH_TMPDIR/metrics.duplicate-metrics.tsv {job.markdup_metrics}')
 
     # persist the duplication stats produced by dupblaster and the indexed CRAM
     batch_instance.write_output(job.markdup_metrics, out_markdup_metrics_path)
