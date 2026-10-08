@@ -138,7 +138,7 @@ send_to_slack = true
 
 
 [images]
-dragmap = "australia-southeast1-docker.pkg.dev/cpg-common/images/dragmap_ora_dupblaster:2.7.0-1"
+dragmap = "australia-southeast1-docker.pkg.dev/cpg-common/images/dragmap_ora_dupblaster:0.3.0-1"
 gatk = "australia-southeast1-docker.pkg.dev/cpg-common/images/gatk:4.6.2.0-2"
 multiqc = "australia-southeast1-docker.pkg.dev/cpg-common/images/multiqc:1.33-1"
 picard = "australia-southeast1-docker.pkg.dev/cpg-common/images/picard:3.4.0-3"
