@@ -390,7 +390,13 @@ def dedup_sort_cmd(nthreads: int) -> str:
 
     we only keep one of these files, matching our previous implementation
     """
-    cmd = '| dupblaster --metrics-prefix $BATCH_TMPDIR/metrics '
+
+    # flexibility to provide arbitrary arguments to dupblaster, e.g.
+    # --sequencing-duplicate-detection off  # to prevent the read-name matching during duplicate detection
+    # --read-name-format regex:PATTERN      # to provide a non-default RegEx for read name format parsing
+    extra_args = config.config_retrieve(['dupblaster', 'extra_args'], [])
+
+    cmd = f'| dupblaster --metrics-prefix $BATCH_TMPDIR/metrics {" ".join(extra_args)} '
     cmd += f'| samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-dd-tmp -Obam '
     return cmd
 
