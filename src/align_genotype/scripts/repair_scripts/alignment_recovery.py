@@ -112,10 +112,9 @@ if __name__ == '__main__':
     # write_output takes the resource-group root (no suffix); .cram / .cram.crai are appended
     out_path = to_path(args.out)
     batch_instance.write_output(merge_job.output_cram, str(out_path.with_suffix('')))
-    batch_instance.write_output(
-        merge_job.markdup_metrics,
-        f'{out_path.with_suffix("")}.markduplicates-metrics',
-    )
+
+    merge_job.command(f'mv $BATCH_TMPDIR/metrics.duplicate-metrics.tsv {merge_job.markdup_metrics}')
+    batch_instance.write_output(merge_job.markdup_metrics, f'{out_path.with_suffix("")}.markduplicates-metrics')
 
     if not args.no_register:
         register_job = batch_instance.new_python_job(name=f'Register CRAM for {args.sgid}')

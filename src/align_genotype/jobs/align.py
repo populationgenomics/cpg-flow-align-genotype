@@ -396,7 +396,7 @@ def dedup_sort_cmd(nthreads: int) -> str:
     # --read-name-format regex:PATTERN      # to provide a non-default RegEx for read name format parsing
     extra_args = config.config_retrieve(['dupblaster', 'extra_args'], [])
 
-    cmd = f'| dupblaster --metrics-prefix $BATCH_TMPDIR/metrics {" ".join(extra_args)} '
+    cmd = f'| dupblaster --tmp-dir $BATCH_TMPDIR --metrics-prefix $BATCH_TMPDIR/metrics {" ".join(extra_args)} '
     cmd += f'| samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-dd-tmp -Obam '
     return cmd
 
