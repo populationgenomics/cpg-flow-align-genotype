@@ -3,6 +3,7 @@ FASTQ/BAM/CRAM -> CRAM: create Hail Batch jobs for (re-)alignment.
 """
 
 import os.path
+import shlex
 from textwrap import dedent
 from typing import cast
 
@@ -394,9 +395,11 @@ def dedup_sort_cmd(nthreads: int) -> str:
     # flexibility to provide arbitrary arguments to dupblaster, e.g.
     # --sequencing-duplicate-detection off  # to prevent the read-name matching during duplicate detection
     # --read-name-format regex:PATTERN      # to provide a non-default RegEx for read name format parsing
-    extra_args = config.config_retrieve(['dupblaster', 'extra_args'], [])
+    # each arg is shell-quoted, so a regex reaches dupblaster verbatim (no shell quoting needed in config)
+    extra_args = ' '.join(shlex.quote(arg) for arg in config.config_retrieve(['dupblaster', 'extra_args'], []))
 
-    cmd = f'| dupblaster --metrics-prefix $BATCH_TMPDIR/metrics {" ".join(extra_args)} '
+    # dupblaster spills to $TMPDIR by default, which is outside the job's storage volume
+    cmd = f'| dupblaster --metrics-prefix $BATCH_TMPDIR/metrics --tmp-dir $BATCH_TMPDIR {extra_args} '
     cmd += f'| samtools sort -@{min(nthreads, 6) - 1} -T $BATCH_TMPDIR/samtools-dd-tmp -Obam '
     return cmd
 

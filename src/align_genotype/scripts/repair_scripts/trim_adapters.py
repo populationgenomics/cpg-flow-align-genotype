@@ -191,6 +191,7 @@ def trim_and_realign(
     # dragen-os reads gzipped FASTQ via -1, but a batch-tmp input path has no extension
     # for it to detect, hence the symlink.
     # --metrics-prefix is mandatory, but we don't need the result
+    # --tmp-dir: dupblaster spills to $TMPDIR by default, which is outside the job's storage volume
     align_job.command(f"""\
     set -eo pipefail
 
@@ -217,7 +218,7 @@ def trim_and_realign(
         -1 $BATCH_TMPDIR/trimmed_interleaved.fq.gz \
         --RGID {sg_id} --RGSM {sg_id} \
         --num-threads {nthreads - 1} \
-    | dupblaster --metrics-prefix markdup_metrics \
+    | dupblaster --metrics-prefix markdup_metrics --tmp-dir $BATCH_TMPDIR \
     | samtools sort -@{sort_threads} -T $BATCH_TMPDIR/samtools-dd-tmp -Obam \
     | samtools view --write-index -@{sort_threads} \
         -T {reference.base} -O cram,version=3.0 \
