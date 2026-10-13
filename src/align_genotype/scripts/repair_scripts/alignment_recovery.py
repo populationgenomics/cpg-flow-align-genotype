@@ -9,6 +9,10 @@ and convert to a final CRAM - without re-running DRAGMAP.
 The BAM shards MUST be provided in the same order the pipeline emitted them (Align_1, Align_2, ...), as
 `samtools merge -n` relies on a consistent RG-ordered stream for dupblaster to catch cross-shard duplicates.
 
+dupblaster's run summary is written where the pipeline writes it, derived from the CRAM path:
+<prefix>/cram/CPG1234.cram -> <prefix>/qc/markduplicates_metrics/CPG1234.markduplicates-metrics.
+Pass --metrics-out to write it elsewhere; it is required if the CRAM is not in a cram/ directory.
+
 Example:
     python alignment_recovery.py \\
         -s CPG1234 \\
@@ -50,7 +54,22 @@ def parser_args() -> argparse.Namespace:
         action='store_true',
         help='Skip creating a Metamist analysis entry (only produce the CRAM)',
     )
-    return parser.parse_args()
+    parser.add_argument(
+        '--metrics-out',
+        type=str,
+        help='Markduplicates metrics path (default: the pipeline location, <prefix>/qc/markduplicates_metrics/)',
+    )
+    args = parser.parse_args()
+
+    if args.metrics_out is None:
+        cram_dir = to_path(args.out).parent
+        if cram_dir.name != 'cram':
+            parser.error(f'cannot derive the metrics path: {args.out} is not in a cram/ directory, pass --metrics-out')
+        args.metrics_out = str(
+            cram_dir.parent / 'qc' / 'markduplicates_metrics' / f'{args.sgid}.markduplicates-metrics'
+        )
+
+    return args
 
 
 def register_cram(output: str, sgid: str, dataset: str, stage: str, seq_type: str) -> None:
@@ -70,7 +89,7 @@ def register_cram(output: str, sgid: str, dataset: str, stage: str, seq_type: st
     )
 
 
-if __name__ == '__main__':
+def main() -> None:
     args = parser_args()
 
     batch_instance = hail_batch.get_batch(name=f'Merge alignments for {args.sgid}')
@@ -100,22 +119,20 @@ if __name__ == '__main__':
     #   2. dupblaster + coordinate-sort   -> catches cross-shard duplicates
     #   4. samtools view                  -> indexed CRAM (v3.0) written to GCS
     bam_string = ' '.join(map(str, local_bams))
-    CMD = (
+    cmd = (
         f'{PIPEFAIL} \n'
         f'samtools merge -n -@5 - {bam_string} '
         f'{dedup_sort_cmd(nthreads)} '
         f'| samtools view --write-index -@5 '
         f'-T {fasta_reference.base} -O cram,version=3.0 -o {merge_job.output_cram.cram} -'
     )
-    merge_job.command(CMD)
+    merge_job.command(cmd)
+    merge_job.command(f'mv $BATCH_TMPDIR/metrics.duplicate-metrics.tsv {merge_job.markdup_metrics}')
 
     # write_output takes the resource-group root (no suffix); .cram / .cram.crai are appended
     out_path = to_path(args.out)
     batch_instance.write_output(merge_job.output_cram, str(out_path.with_suffix('')))
-    batch_instance.write_output(
-        merge_job.markdup_metrics,
-        f'{out_path.with_suffix("")}.markduplicates-metrics',
-    )
+    batch_instance.write_output(merge_job.markdup_metrics, args.metrics_out)
 
     if not args.no_register:
         register_job = batch_instance.new_python_job(name=f'Register CRAM for {args.sgid}')
@@ -124,3 +141,7 @@ if __name__ == '__main__':
         register_job.call(register_cram, str(args.out), args.sgid, args.project, args.stage, args.seq_type)
 
     batch_instance.run(wait=False)
+
+
+if __name__ == '__main__':
+    main()
