@@ -126,10 +126,10 @@ def output_path(outputs: dict | str | None) -> str | None:
 
 def relevant_projects(projects: list[str], test_only: bool = False) -> list[str]:
     """Drop any project whose name contains an excluded name."""
+
     def conditional(project: str, test_only: bool) -> bool:
-        if (test_only and '-test' in project) or (not test_only and '-test' not in project):
-            return True
-        return False
+        return (test_only and '-test' in project) or (not test_only and '-test' not in project)
+
     return sorted(p for p in projects if conditional(p, test_only))
 
 
