@@ -50,7 +50,7 @@ PROJECT_SGS_QUERY = gql(
         project(name: $project) {
             sequencingGroups(type: {eq: $seq_type}, activeOnly: {eq: true}) {
                 id
-                analyses(type: {in_: ["cram", "cram_qc"]}, status: {eq: COMPLETED}, active: {eq: true}) {
+                analyses(type: {in_: ["cram", "cram_qc"]}, active: {eq: true}) {
                     id
                     type
                     outputs
