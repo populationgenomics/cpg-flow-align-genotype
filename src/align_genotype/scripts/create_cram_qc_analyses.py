@@ -92,6 +92,12 @@ def qc_prefix(project: str, sequencing_type: str) -> str:
     return f'{bucket_name(project)}/{subdir}qc'
 
 
+def cram_prefix(project: str, sequencing_type: str) -> str:
+    """Where cpg-flow writes CRAMs for a project: the dataset prefix (with exome/ for exomes), then cram/."""
+    subdir = 'exome/' if sequencing_type == 'exome' else ''
+    return f'{bucket_name(project)}/{subdir}cram'
+
+
 def expected_qc_files(sg_id: str, project: str, sequencing_type: str) -> dict[str, str]:
     """
     Every QC file cpg-flow can write for an SG, keyed by its secondary-file key in a cram_qc analysis.
@@ -114,7 +120,12 @@ def expected_qc_files(sg_id: str, project: str, sequencing_type: str) -> dict[st
         f'picard_{coverage}_metrics': (f'picard_{coverage}_metrics', f'picard-{coverage}-metrics'),
         'markduplicates_metrics': ('markduplicates_metrics', 'markduplicates-metrics'),
     }
-    return {key: f'{prefix}/{directory}/{sg_id}.{suffix}' for key, (directory, suffix) in layout.items()}
+    all_keys = {key: f'{prefix}/{directory}/{sg_id}.{suffix}' for key, (directory, suffix) in layout.items()}
+
+    # exceptional case for Somalier - qc relevant but a different folder
+    all_keys |= {'somalier': f'{cram_prefix(project, sequencing_type)}/{sg_id}.cram.somalier'}
+
+    return all_keys
 
 
 def output_path(outputs: dict | str | None) -> str | None:
