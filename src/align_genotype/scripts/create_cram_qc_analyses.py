@@ -38,31 +38,6 @@ ANALYSIS_TYPE = 'cram_qc'
 
 logger = logging.getLogger(__name__)
 
-# projects skipped when scanning everything this user can see, matched as a substring of the project name
-NON_PROJECTS = {
-    'fulcrum',
-    'hgdp',
-    'fewgenomes',
-    'bioheart',
-    'seqr',
-    'training',
-    'test',
-    'aa',
-    'tob-wgs',
-    'validation',
-    'tenk10k',
-    'sandbox',
-    'rare-disease',
-    'powell',
-    'sapath',
-    'talos',
-    'thousand',
-    'vcgs',
-    'curation',
-    'seqera',
-    'deveson',
-}
-
 SEQUENCING_TYPES = ('genome', 'exome')
 
 # QC files an analysis is registered without: flagged when missing, but never an error
@@ -149,9 +124,13 @@ def output_path(outputs: dict | str | None) -> str | None:
     return outputs if isinstance(outputs, str) else None
 
 
-def relevant_projects(projects: list[str]) -> list[str]:
+def relevant_projects(projects: list[str], test_only: bool = False) -> list[str]:
     """Drop any project whose name contains an excluded name."""
-    return sorted(p for p in projects if not any(x in p for x in NON_PROJECTS))
+    def conditional(project: str, test_only: bool) -> bool:
+        if (test_only and '-test' in project) or (not test_only and '-test' not in project):
+            return True
+        return False
+    return sorted(p for p in projects if conditional(p, test_only))
 
 
 def find_records(project: str, sequencing_type: str) -> list[CramQcRecord]:
@@ -268,6 +247,7 @@ def cli_main() -> None:
         choices=SEQUENCING_TYPES,
         default=list(SEQUENCING_TYPES),
     )
+    parser.add_argument('--test-only', action='store_true', help='Only run test datasets')
     parser.add_argument(
         '--dry-run',
         metavar='JSON',
@@ -278,7 +258,7 @@ def cli_main() -> None:
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
     logger.setLevel(logging.DEBUG if args.verbose else logging.INFO)
-    projects = args.projects or relevant_projects(ProjectApi().get_my_projects())
+    projects = args.projects or relevant_projects(ProjectApi().get_my_projects(), args.test_only)
     logger.info(f'Scanning {len(projects)} projects: {", ".join(projects)}')
     if incomplete := main(projects, args.sequencing_types, args.dry_run):
         sys.exit(f'{len(incomplete)} SGs have incomplete QC sets and were not registered, see the errors above')
